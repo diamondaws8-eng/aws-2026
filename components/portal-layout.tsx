@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { useState, useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { authClient } from '@/lib/auth-client'
 import { cn } from '@/lib/utils'
@@ -18,6 +19,9 @@ import {
   CheckSquare,
   BarChart2,
   Settings,
+  Menu,
+  X,
+  PanelRightClose
 } from 'lucide-react'
 
 import { ThemeToggle } from '@/components/theme-toggle'
@@ -79,6 +83,26 @@ export function PortalLayout({ role, user, schoolName, children }: PortalLayoutP
 
   const PortalIcon = nav.icon
 
+  const [isOpen, setIsOpen] = useState(true)
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768)
+      if (window.innerWidth < 768) {
+        setIsOpen(false)
+      }
+    }
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  // Auto close on navigation in mobile
+  useEffect(() => {
+    if (isMobile) setIsOpen(false)
+  }, [pathname, isMobile])
+
   async function handleLogout() {
     await authClient.signOut()
     router.push(nav.loginHref)
@@ -87,10 +111,31 @@ export function PortalLayout({ role, user, schoolName, children }: PortalLayoutP
 
   return (
     <div className="flex min-h-screen bg-background">
+      {/* Mobile Overlay */}
+      {isOpen && isMobile && (
+        <div 
+          className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm transition-opacity"
+          onClick={() => setIsOpen(false)}
+        />
+      )}
+
+      {/* Floating Toggle Button (visible when sidebar is closed) */}
+      {!isOpen && (
+        <button
+          onClick={() => setIsOpen(true)}
+          className="fixed top-4 right-4 z-30 p-2.5 bg-card border border-border shadow-md rounded-xl text-foreground hover:bg-muted transition-colors"
+        >
+          <Menu className="size-5" />
+        </button>
+      )}
+
       {/* ── Sidebar ──────────────────────────────────────────────────────── */}
-      <aside className="fixed right-0 top-0 z-40 flex h-full w-64 flex-col border-l border-border bg-card shadow-sm">
+      <aside className={cn(
+        "fixed right-0 top-0 z-40 flex h-full w-64 flex-col border-l border-border bg-card shadow-lg transition-transform duration-300",
+        isOpen ? "translate-x-0" : "translate-x-full"
+      )}>
         {/* Logo / Portal name */}
-        <div className="border-b border-border px-5 py-5">
+        <div className="border-b border-border px-5 py-5 relative">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
@@ -101,7 +146,15 @@ export function PortalLayout({ role, user, schoolName, children }: PortalLayoutP
                 <p className="text-sm font-bold">{nav.label}</p>
               </div>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              <button 
+                onClick={() => setIsOpen(false)}
+                className="p-1.5 hover:bg-muted text-muted-foreground rounded-lg transition-colors"
+              >
+                <PanelRightClose className="size-5" />
+              </button>
+            </div>
           </div>
           {schoolName && (
             <p className="mt-3 truncate text-xs font-medium text-muted-foreground">
@@ -161,7 +214,10 @@ export function PortalLayout({ role, user, schoolName, children }: PortalLayoutP
       </aside>
 
       {/* ── Main content ─────────────────────────────────────────────────── */}
-      <main className="mr-64 min-h-screen w-full">
+      <main className={cn(
+        "min-h-screen w-full transition-all duration-300",
+        isOpen ? "md:mr-64 mr-0" : "mr-0"
+      )}>
         {children}
       </main>
     </div>
