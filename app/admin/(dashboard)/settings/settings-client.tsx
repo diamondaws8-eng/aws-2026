@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { saveSchoolSettings, changeAdminPassword } from './actions-settings'
+import { saveSchoolSettings, changeAdminPassword, exportFullBackup } from './actions-settings'
 import type { SchoolSettings } from './settings-types'
 
 // ── Toggle Switch ─────────────────────────────────────────────────────────────
@@ -147,6 +147,37 @@ export default function SettingsClient({
       setPwMsg({ ok: false, text: result.error || 'حدث خطأ' })
     }
     setPwLoading(false)
+  }
+
+  // ── Backup ───────────────────────────────────────────────────────────────────
+  const [backupLoading, setBackupLoading] = useState(false)
+  const [backupMsg, setBackupMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const handleBackup = async () => {
+    setBackupLoading(true)
+    setBackupMsg(null)
+    try {
+      const res = await exportFullBackup(schoolId)
+      if (res.ok && res.data) {
+        const json = JSON.stringify(res.data, null, 2)
+        const blob = new Blob([json], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `backup_midad_${new Date().toISOString().split('T')[0]}.json`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        setBackupMsg({ ok: true, text: '✅ تم تحميل النسخة الاحتياطية بنجاح' })
+      } else {
+        setBackupMsg({ ok: false, text: res.error || 'حدث خطأ أثناء أخذ النسخة' })
+      }
+    } catch {
+      setBackupMsg({ ok: false, text: 'حدث خطأ غير متوقع' })
+    } finally {
+      setBackupLoading(false)
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -454,6 +485,29 @@ export default function SettingsClient({
             {pwLoading ? '⏳ جاري التغيير...' : '🔐 تغيير كلمة المرور'}
           </button>
         </form>
+      </Section>
+
+      {/* ── Section 3: Backup ────────────────────────────────────────────────── */}
+      <Section title="النسخ الاحتياطي والأمان" icon="💾">
+        <p className="text-sm text-muted-foreground mb-5">
+          يمكنك تحميل نسخة احتياطية كاملة (بصيغة JSON) تحتوي على كافة بيانات النظام (فصول، طلاب، معلمين، درجات، وسجلات حضور) للرجوع إليها في حالات الطوارئ.
+        </p>
+
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleBackup}
+            disabled={backupLoading}
+            className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-2"
+          >
+            {backupLoading ? '⏳ جاري تجهيز النسخة...' : '📥 تحميل النسخة الاحتياطية الآن'}
+          </button>
+          
+          {backupMsg && (
+            <span className={`text-sm font-semibold animate-in fade-in ${backupMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>
+              {backupMsg.text}
+            </span>
+          )}
+        </div>
       </Section>
 
     </div>

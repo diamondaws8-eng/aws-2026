@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { addGradeLevel, deleteGradeLevel, addClass, deleteClass, addSubject, deleteSubject, assignTeacherToSubject } from './actions-levels'
-import { ChevronDown, ChevronUp, Plus, Trash2, BookOpen, UserCog } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { addGradeLevel, deleteGradeLevel, addClass, deleteClass, editClass, getStudentsForClass, addSubject, deleteSubject, assignTeacherToSubject } from './actions-levels'
+import { ChevronDown, ChevronUp, Plus, Trash2, BookOpen, UserCog, Edit2, Download } from 'lucide-react'
+import * as XLSX from 'xlsx'
 
 type SubjectData = {
   id: string
@@ -51,6 +52,43 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions }: 
 
   const toggleClass = (id: string) =>
     setExpandedClasses(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  const [editingClassId, setEditingClassId] = useState<string | null>(null)
+  const [editingClassName, setEditingClassName] = useState('')
+
+  const handleEditClass = async (classId: string) => {
+    if (!editingClassName.trim()) return
+    setLoading(classId, true)
+    await editClass(classId, editingClassName)
+    setEditingClassId(null)
+    setLoading(classId, false)
+  }
+
+  const handleDownloadExcel = async (classId: string, className: string, gradeName: string) => {
+    setLoading(`dl-${classId}`, true)
+    try {
+      const students = await getStudentsForClass(classId, schoolId)
+      // Format similar to import sheet: الاسم الرباعي | رقم الهوية | رقم جوال ولي الأمر | الجنس | تاريخ الميلاد
+      const wsData = [
+        ['الاسم الرباعي', 'رقم الهوية', 'رقم جوال ولي الأمر', 'الجنس', 'تاريخ الميلاد (اختياري) YYYY-MM-DD']
+      ]
+      students.forEach(s => {
+        wsData.push([
+          s.fullName,
+          s.nationalId || '',
+          s.parentPhone || '',
+          s.gender === 'male' ? 'ذكر' : s.gender === 'female' ? 'أنثى' : '',
+          s.dateOfBirth || ''
+        ])
+      })
+      const ws = XLSX.utils.aoa_to_sheet(wsData)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'الطلاب')
+      XLSX.writeFile(wb, `طلاب_فصل_${className}_${gradeName}.xlsx`)
+    } finally {
+      setLoading(`dl-${classId}`, false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -127,20 +165,53 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions }: 
               <div className="space-y-3">
                 {grade.classes.map(cls => (
                   <div key={cls.id} className="border border-border rounded-xl overflow-hidden">
-                    {/* Class header */}
-                    <div className="flex items-center justify-between px-4 py-3 bg-muted/20 cursor-pointer hover:bg-muted/40 transition-colors"
-                      onClick={() => toggleClass(cls.id)}>
-                      <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between px-4 py-3 bg-muted/20 hover:bg-muted/40 transition-colors">
+                      <div className="flex items-center gap-2 cursor-pointer flex-1" onClick={() => toggleClass(cls.id)}>
                         {expandedClasses.has(cls.id) ? <ChevronUp className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
-                        <span className="font-semibold text-sm">فصل {cls.name}</span>
-                        <span className="text-xs text-muted-foreground bg-background px-2 py-0.5 rounded-full border border-border">
+                        
+                        {editingClassId === cls.id ? (
+                          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                            <input
+                              autoFocus
+                              value={editingClassName}
+                              onChange={e => setEditingClassName(e.target.value)}
+                              className="px-2 py-1 text-sm rounded border border-primary focus:outline-none"
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') handleEditClass(cls.id)
+                                else if (e.key === 'Escape') setEditingClassId(null)
+                              }}
+                            />
+                            <button onClick={() => handleEditClass(cls.id)} disabled={loadingActions.has(cls.id)} className="text-xs bg-primary text-primary-foreground px-2 py-1 rounded">حفظ</button>
+                            <button onClick={() => setEditingClassId(null)} className="text-xs bg-muted text-foreground px-2 py-1 rounded">إلغاء</button>
+                          </div>
+                        ) : (
+                          <span className="font-semibold text-sm flex items-center gap-2">
+                            فصل {cls.name}
+                            <button onClick={e => { e.stopPropagation(); setEditingClassId(cls.id); setEditingClassName(cls.name) }} className="text-muted-foreground hover:text-primary transition-colors">
+                              <Edit2 className="size-3" />
+                            </button>
+                          </span>
+                        )}
+
+                        <span className="text-xs text-muted-foreground bg-background px-2 py-0.5 rounded-full border border-border mr-2">
                           {cls.subjects.length} مادة
                         </span>
                       </div>
-                      <button onClick={e => { e.stopPropagation(); deleteClass(cls.id) }}
-                        className="p-1 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                        <Trash2 className="size-3.5" />
-                      </button>
+                      
+                      <div className="flex items-center gap-1">
+                        <button onClick={e => { e.stopPropagation(); handleDownloadExcel(cls.id, cls.name, grade.name) }}
+                          disabled={loadingActions.has(`dl-${cls.id}`)}
+                          title="تحميل قائمة الطلاب (Excel)"
+                          className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 text-xs font-semibold">
+                          <Download className="size-3.5" />
+                          {loadingActions.has(`dl-${cls.id}`) ? 'جاري التحميل...' : 'إكسيل'}
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); deleteClass(cls.id) }}
+                          title="حذف الفصل"
+                          className="p-1.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Subjects panel */}

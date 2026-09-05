@@ -2,7 +2,10 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { schools } from '@/lib/db/schema'
+import {
+  schools, gradeLevels, classes, teachers, students, subjects, attendance,
+  gradeEntries, notifications, dailyRecords, studentPoints
+} from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
@@ -53,5 +56,33 @@ export async function changeAdminPassword(currentPassword: string, newPassword: 
     return { ok: true }
   } catch {
     return { ok: false, error: 'حدث خطأ أثناء تغيير كلمة المرور' }
+  }
+}
+
+// ── Export Full Backup ────────────────────────────────────────────────────────
+export async function exportFullBackup(schoolId: string) {
+  try {
+    const backupData = {
+      timestamp: new Date().toISOString(),
+      schoolId,
+      version: '1.0',
+      data: {
+        schools: await db.select().from(schools).where(eq(schools.id, schoolId)),
+        gradeLevels: await db.select().from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)),
+        classes: await db.select().from(classes).where(eq(classes.schoolId, schoolId)),
+        teachers: await db.select().from(teachers).where(eq(teachers.schoolId, schoolId)),
+        students: await db.select().from(students).where(eq(students.schoolId, schoolId)),
+        subjects: await db.select().from(subjects).where(eq(subjects.schoolId, schoolId)),
+        attendance: await db.select().from(attendance).where(eq(attendance.schoolId, schoolId)),
+        gradeEntries: await db.select().from(gradeEntries).where(eq(gradeEntries.schoolId, schoolId)),
+        notifications: await db.select().from(notifications).where(eq(notifications.schoolId, schoolId)),
+        dailyRecords: await db.select().from(dailyRecords).where(eq(dailyRecords.schoolId, schoolId)),
+        studentPoints: await db.select().from(studentPoints).where(eq(studentPoints.schoolId, schoolId)),
+      }
+    }
+    return { ok: true, data: backupData }
+  } catch (error) {
+    console.error("Backup Error:", error)
+    return { ok: false, error: 'حدث خطأ أثناء أخذ النسخة الاحتياطية' }
   }
 }
