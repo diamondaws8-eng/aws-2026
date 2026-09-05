@@ -1,0 +1,1 @@
+import { addStudent } from './app/admin/(dashboard)/students/actions-students'; async function run() { try { await addStudent({ schoolId: 'fake-school', fullName: '‰Õ‰„«‰Ì«', parentPhone: '056666666', nationalId: '979689', gender: 'male', classId: 'some-class' }); console.log('success'); } catch (e) { console.error('Error:', e); } process.exit(0); } run();

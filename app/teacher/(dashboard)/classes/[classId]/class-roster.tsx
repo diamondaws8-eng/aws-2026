@@ -1,0 +1,795 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { saveDailyRecords, addManualPoints, saveGrades } from '../../actions'
+import type { DailyStudentRecord } from '../../actions'
+
+type Student = { id: string; fullName: string; parentPhone?: string | null }
+type DailyRecord = {
+  studentId: string
+  attendanceStatus: string
+  behavior: string | null
+  homeworkStatus: string | null
+  materialsStatus: string | null
+  participationStatus: string | null
+  teacherNote: string | null
+  pointsEarned: number
+}
+type PointSummary = { studentId: string; total: number }
+type Subject = { id: string; name: string }
+
+type Props = {
+  classInfo: { id: string; name: string; gradeName: string; schoolId: string }
+  students: Student[]
+  teacherName: string
+  schoolName: string
+  subjects: Subject[]
+  initialDate: string
+  initialRecords: DailyRecord[]
+  pointsSummary: PointSummary[]
+  savedGrades?: any[]
+  schoolSettings?: any
+  teacherTemplates?: { positive: string[], negative: string[] }
+}
+
+type AttStatus = 'present' | 'absent' | 'late' | 'excused'
+type Behavior = 'excellent' | 'good' | 'normal' | 'issue'
+type Homework = 'done' | 'missing' | 'na'
+type Materials = 'brought' | 'missing' | 'na'
+type Participation = 'active' | 'inactive' | 'na'
+
+const ATT_BTNS: { key: AttStatus; label: string; cls: string }[] = [
+  { key: 'present', label: 'حاضر', cls: 'bg-emerald-100 text-emerald-700 border-emerald-400' },
+  { key: 'absent',  label: 'غائب', cls: 'bg-red-100 text-red-700 border-red-400' },
+  { key: 'late',    label: 'متأخر', cls: 'bg-amber-100 text-amber-700 border-amber-400' },
+  { key: 'excused', label: 'إذن',  cls: 'bg-blue-100 text-blue-700 border-blue-400' },
+]
+
+const BEH_BTNS: { key: Behavior; emoji: string; label: string }[] = [
+  { key: 'excellent', emoji: '😊', label: 'ممتاز' },
+  { key: 'good',      emoji: '🙂', label: 'جيد' },
+  { key: 'normal',    emoji: '😐', label: 'عادي' },
+  { key: 'issue',     emoji: '😠', label: 'مشكلة' },
+]
+
+const HW_BTNS: { key: Homework; label: string; cls: string }[] = [
+  { key: 'done',    label: '✅ أنجز',  cls: 'bg-emerald-50 text-emerald-700 border-emerald-300' },
+  { key: 'missing', label: '❌ لم ينجز', cls: 'bg-red-50 text-red-700 border-red-300' },
+  { key: 'na',      label: '—',        cls: 'bg-muted text-muted-foreground border-border' },
+]
+
+const MAT_BTNS: { key: Materials; label: string; cls: string }[] = [
+  { key: 'brought', label: '✅ أحضر',  cls: 'bg-orange-50 text-orange-700 border-orange-300' },
+  { key: 'missing', label: '❌ لم يحضر', cls: 'bg-red-50 text-red-700 border-red-300' },
+  { key: 'na',      label: '—',        cls: 'bg-muted text-muted-foreground border-border' },
+]
+
+const PART_BTNS: { key: Participation; label: string; cls: string }[] = [
+  { key: 'active',   label: '🌟 مشارك',  cls: 'bg-sky-50 text-sky-700 border-sky-300' },
+  { key: 'inactive', label: '😴 غير مشارك', cls: 'bg-slate-50 text-slate-700 border-slate-300' },
+  { key: 'na',       label: '—',        cls: 'bg-muted text-muted-foreground border-border' },
+]
+
+// ── Points calculation ─────────────────────────────────────────────────────────
+function calcPoints(att: AttStatus, beh: Behavior, hw: Homework, mat: Materials, part: Participation, settings: any): number {
+  let total = 0
+  const f = settings?.features || {}
+  const p = settings?.points || {}
+
+  if (f.attendance !== false) {
+    if (att === 'present') total += (p.attendance_present ?? 1)
+    else if (att === 'late') total += (p.attendance_late ?? 0)
+    else if (att === 'absent') total += (p.attendance_absent ?? -1)
+  }
+
+  if (f.behavior !== false) {
+    if (beh === 'excellent') total += (p.behavior_excellent ?? 2)
+    else if (beh === 'issue') total += (p.behavior_bad ?? -2)
+    else if (beh === 'good') total += (p.behavior_good ?? 1)
+  }
+
+  if (f.homework !== false) {
+    if (hw === 'done') total += (p.homework_done ?? 1)
+    else if (hw === 'missing') total += (p.homework_notdone ?? -1)
+  }
+
+  if (f.materials !== false) {
+    if (mat === 'brought') total += (p.materials_brought ?? 1)
+    else if (mat === 'missing') total += (p.materials_missing ?? -1)
+  }
+
+  if (f.participation !== false) {
+    if (part === 'active') total += (p.participation_active ?? 2)
+    else if (part === 'inactive') total += (p.participation_inactive ?? 0)
+  }
+
+  return total
+}
+
+// ── Date helpers ──────────────────────────────────────────────────────────────
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr)
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
+}
+
+function formatDateArabic(dateStr: string): string {
+  const d = new Date(dateStr)
+  return d.toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+}
+
+// ── MAIN COMPONENT ─────────────────────────────────────────────────────────────
+export default function ClassRoster({
+  classInfo, students, teacherName, schoolName, subjects, initialDate, initialRecords, pointsSummary, savedGrades, schoolSettings, teacherTemplates
+}: Props) {
+  const [activeTab, setActiveTab] = useState<'daily' | 'grades' | 'points'>('daily')
+  const [selectedDate, setSelectedDate] = useState(initialDate)
+
+  // Per-student daily state
+  const [attendance, setAttendance] = useState<Record<string, AttStatus>>({})
+  const [behavior, setBehavior] = useState<Record<string, Behavior>>({})
+  const [homework, setHomework] = useState<Record<string, Homework>>({})
+  const [materials, setMaterials] = useState<Record<string, Materials>>({})
+  const [participation, setParticipation] = useState<Record<string, Participation>>({})
+  const [notes, setNotes] = useState<Record<string, string>>({})
+  const [points, setPoints] = useState<Record<string, number>>({})
+
+  // UI state
+  const [saving, setSaving] = useState(false)
+  const [savedMsg, setSavedMsg] = useState('')
+  const [loadingDate, setLoadingDate] = useState(false)
+
+  // Manual point modal
+  const [manualStudent, setManualStudent] = useState<string | null>(null)
+  const [manualPoints, setManualPoints] = useState<number>(0)
+  const [manualReason, setManualReason] = useState('')
+  const [addingPoints, setAddingPoints] = useState(false)
+
+  // WhatsApp modal
+  const [whatsappModal, setWhatsappModal] = useState<{ student: Student; type: 'positive' | 'negative' } | null>(null)
+
+  // Grades Tab State
+  const [selectedSubject, setSelectedSubject] = useState<string>('')
+  const [examName, setExamName] = useState<string>('')
+  const [examType, setExamType] = useState<string>('quiz')
+  const [maxScore, setMaxScore] = useState<number>(10)
+  const [scores, setScores] = useState<Record<string, string>>({})
+  const [savingGrades, setSavingGrades] = useState(false)
+  const [gradesSaved, setGradesSaved] = useState(false)
+
+  // Initialize from loaded records
+  const initFromRecords = useCallback((recs: DailyRecord[]) => {
+    const att: Record<string, AttStatus> = {}
+    const beh: Record<string, Behavior> = {}
+    const hw: Record<string, Homework> = {}
+    const mat: Record<string, Materials> = {}
+    const part: Record<string, Participation> = {}
+    const nt: Record<string, string> = {}
+    students.forEach(s => {
+      att[s.id] = 'present'; beh[s.id] = 'good'; hw[s.id] = 'done'; mat[s.id] = 'brought'; part[s.id] = 'active'
+    })
+    recs.forEach(r => {
+      att[r.studentId] = r.attendanceStatus as AttStatus
+      beh[r.studentId] = (r.behavior || 'good') as Behavior
+      hw[r.studentId] = (r.homeworkStatus || 'done') as Homework
+      mat[r.studentId] = (r.materialsStatus || 'brought') as Materials
+      part[r.studentId] = (r.participationStatus || 'active') as Participation
+      nt[r.studentId] = r.teacherNote || ''
+    })
+    setAttendance(att); setBehavior(beh); setHomework(hw); setMaterials(mat); setParticipation(part); setNotes(nt)
+  }, [students])
+
+  useEffect(() => {
+    initFromRecords(initialRecords)
+    const pts: Record<string, number> = {}
+    students.forEach(s => { pts[s.id] = 0 })
+    pointsSummary.forEach(p => { pts[p.studentId] = p.total })
+    setPoints(pts)
+  }, [])
+
+  // Navigate dates
+  const navigateDate = async (newDate: string) => {
+    if (newDate > initialDate) return // can't go to future
+    setLoadingDate(true)
+    try {
+      const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${newDate}`)
+      const data = await res.json()
+      initFromRecords(data.records || [])
+      setSelectedDate(newDate)
+    } catch {
+      // fallback: reset to defaults
+      const att: Record<string, AttStatus> = {}
+      const beh: Record<string, Behavior> = {}
+      const hw: Record<string, Homework> = {}
+      const mat: Record<string, Materials> = {}
+      const part: Record<string, Participation> = {}
+      students.forEach(s => { att[s.id] = 'present'; beh[s.id] = 'good'; hw[s.id] = 'done'; mat[s.id] = 'brought'; part[s.id] = 'active' })
+      setAttendance(att); setBehavior(beh); setHomework(hw); setMaterials(mat); setParticipation(part); setNotes({})
+      setSelectedDate(newDate)
+    } finally {
+      setLoadingDate(false)
+    }
+  }
+
+  const handleSaveDay = async () => {
+    setSaving(true)
+    try {
+      const records: DailyStudentRecord[] = students.map(s => ({
+        studentId: s.id,
+        attendanceStatus: attendance[s.id] || 'present',
+        behavior: behavior[s.id] || 'good',
+        homeworkStatus: homework[s.id] || 'done',
+        materialsStatus: materials[s.id] || 'brought',
+        participationStatus: participation[s.id] || 'active',
+        teacherNote: notes[s.id] || undefined,
+      }))
+      await saveDailyRecords(classInfo.id, classInfo.schoolId, selectedDate, records)
+      setSavedMsg('✓ تم حفظ اليوم بنجاح')
+      // Refresh points
+      const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${selectedDate}`)
+      const data = await res.json()
+      if (data.pointsSummary) {
+        const pts: Record<string, number> = {}
+        students.forEach(s => { pts[s.id] = 0 })
+        data.pointsSummary.forEach((p: any) => { pts[p.studentId] = p.total })
+        setPoints(pts)
+      }
+      setTimeout(() => setSavedMsg(''), 3000)
+    } catch {
+      setSavedMsg('❌ فشل الحفظ')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleAddManualPoints = async (studentId: string) => {
+    if (!manualReason || manualPoints === 0) return
+    setAddingPoints(true)
+    try {
+      await addManualPoints(studentId, classInfo.id, classInfo.schoolId, manualPoints, manualReason)
+      setPoints(p => ({ ...p, [studentId]: (p[studentId] || 0) + manualPoints }))
+      setManualStudent(null); setManualPoints(0); setManualReason('')
+    } finally {
+      setAddingPoints(false)
+    }
+  }
+
+  const isToday = selectedDate === initialDate
+  const isFuture = selectedDate > initialDate
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* ── Header ── */}
+      <div className="p-4 sm:p-6 border-b border-border bg-card">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold">فصل {classInfo.name} — {classInfo.gradeName}</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">{students.length} طالباً</p>
+          </div>
+
+          {/* Date Navigator */}
+          <div className="flex items-center gap-2 bg-muted/50 border border-border rounded-2xl px-3 py-2">
+            <button
+              onClick={() => navigateDate(addDays(selectedDate, +1))}
+              disabled={isToday || loadingDate}
+              className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-muted disabled:opacity-30 font-bold text-lg transition-colors"
+              title="اليوم السابق"
+            >›</button>
+
+            <div className="text-center px-2 min-w-[160px]">
+              {loadingDate ? (
+                <div className="text-sm text-muted-foreground animate-pulse">جاري التحميل...</div>
+              ) : (
+                <>
+                  <p className="text-sm font-bold">{formatDateArabic(selectedDate)}</p>
+                  {!isToday && (
+                    <span className="text-xs text-amber-600 font-semibold">تعديل يوم سابق</span>
+                  )}
+                  {isToday && (
+                    <span className="text-xs text-emerald-600 font-semibold">اليوم</span>
+                  )}
+                </>
+              )}
+            </div>
+
+            <button
+              onClick={() => navigateDate(addDays(selectedDate, -1))}
+              disabled={loadingDate}
+              className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-muted font-bold text-lg transition-colors"
+              title="اليوم التالي"
+            >‹</button>
+
+            <input
+              type="date"
+              value={selectedDate}
+              max={initialDate}
+              onChange={e => navigateDate(e.target.value)}
+              className="text-xs bg-transparent border-none outline-none cursor-pointer w-5 opacity-50 hover:opacity-100"
+              title="اختر تاريخاً"
+            />
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 mt-4 bg-muted/40 rounded-xl p-1">
+          {[
+            { id: 'daily', label: '📋 السجل اليومي' },
+            { id: 'grades', label: '📊 الدرجات' },
+            { id: 'points', label: '🏆 النقاط' },
+          ].map(t => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id as any)}
+              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                activeTab === t.id
+                  ? 'bg-card shadow-sm text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >{t.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Daily Tab ── */}
+      {activeTab === 'daily' && (
+        <div className="flex-1 overflow-auto">
+          {students.length === 0 ? (
+            <div className="p-12 text-center text-muted-foreground">لا يوجد طلاب في هذا الفصل</div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/60 text-muted-foreground font-semibold text-xs sticky top-0 z-10">
+                    <tr>
+                      <th className="px-3 py-3 text-center w-10">#</th>
+                      <th className="px-3 py-3 text-right min-w-[130px]">الطالب</th>
+                      {schoolSettings?.features?.attendance !== false && <th className="px-3 py-3 text-center min-w-[220px]">الحضور</th>}
+                      {schoolSettings?.features?.behavior !== false && <th className="px-3 py-3 text-center min-w-[160px]">السلوك</th>}
+                      {schoolSettings?.features?.homework !== false && <th className="px-3 py-3 text-center min-w-[180px]">الواجب</th>}
+                      {schoolSettings?.features?.materials !== false && <th className="px-3 py-3 text-center min-w-[180px]">الأدوات</th>}
+                      {schoolSettings?.features?.participation !== false && <th className="px-3 py-3 text-center min-w-[180px]">المشاركة</th>}
+                      <th className="px-3 py-3 text-center w-20">النقاط</th>
+                      <th className="px-3 py-3 text-center min-w-[100px]">واتساب</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {students.map((student, idx) => {
+                      const att = attendance[student.id] || 'present'
+                      const beh = behavior[student.id] || 'good'
+                      const hw = homework[student.id] || 'done'
+                      const mat = materials[student.id] || 'brought'
+                      const part = participation[student.id] || 'active'
+                      const previewPts = calcPoints(att, beh, hw, mat, part, schoolSettings)
+                      const totalPts = points[student.id] ?? 0
+                      const phone = student.parentPhone?.replace(/\D/g, '') || ''
+
+                      return (
+                        <tr key={student.id} className={`hover:bg-muted/20 transition-colors ${att === 'absent' ? 'bg-red-50/30' : att === 'late' ? 'bg-amber-50/30' : ''}`}>
+                          <td className="px-3 py-3 text-center text-xs text-muted-foreground">{idx + 1}</td>
+                          <td className="px-3 py-3 font-semibold">{student.fullName}</td>
+
+                          {/* Attendance */}
+                          {schoolSettings?.features?.attendance !== false && (
+                            <td className="px-2 py-2">
+                              <div className="flex gap-1 justify-center flex-wrap">
+                                {ATT_BTNS.map(btn => (
+                                  <button
+                                    key={btn.key}
+                                    onClick={() => setAttendance(a => ({ ...a, [student.id]: btn.key }))}
+                                    className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                      att === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
+                                    }`}
+                                  >{btn.label}</button>
+                                ))}
+                              </div>
+                            </td>
+                          )}
+
+                          {/* Behavior */}
+                          {schoolSettings?.features?.behavior !== false && (
+                            <td className="px-2 py-2 align-top">
+                              <div className="flex flex-col gap-1.5 items-center">
+                                <div className="flex gap-1 justify-center">
+                                  {BEH_BTNS.map(btn => (
+                                    <button
+                                      key={btn.key}
+                                      onClick={() => setBehavior(b => ({ ...b, [student.id]: btn.key }))}
+                                      title={btn.label}
+                                      className={`w-9 h-9 rounded-xl text-lg transition-all border flex-shrink-0 ${
+                                        beh === btn.key ? 'bg-primary/10 border-primary scale-110' : 'bg-card border-border hover:scale-105'
+                                      }`}
+                                    >{btn.emoji}</button>
+                                  ))}
+                                </div>
+                                {(beh === 'issue' || beh === 'normal') && (
+                                  <input
+                                    type="text"
+                                    placeholder="ملاحظة لولي الأمر..."
+                                    value={notes[student.id] || ''}
+                                    onChange={e => setNotes(n => ({ ...n, [student.id]: e.target.value }))}
+                                    className="w-full min-w-[120px] text-xs p-1.5 rounded-md border border-amber-300 bg-amber-50/50 focus:outline-none focus:ring-1 focus:ring-amber-500 placeholder:text-muted-foreground"
+                                  />
+                                )}
+                              </div>
+                            </td>
+                          )}
+
+                          {/* Homework */}
+                          {schoolSettings?.features?.homework !== false && (
+                            <td className="px-2 py-2">
+                              <div className="flex gap-1 justify-center">
+                                {HW_BTNS.map(btn => (
+                                  <button
+                                    key={btn.key}
+                                    onClick={() => setHomework(h => ({ ...h, [student.id]: btn.key }))}
+                                    className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                      hw === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
+                                    }`}
+                                  >{btn.label}</button>
+                                ))}
+                              </div>
+                            </td>
+                          )}
+
+                          {/* Materials */}
+                          {schoolSettings?.features?.materials !== false && (
+                            <td className="px-2 py-2">
+                              <div className="flex gap-1 justify-center">
+                                {MAT_BTNS.map(btn => (
+                                  <button
+                                    key={btn.key}
+                                    onClick={() => setMaterials(m => ({ ...m, [student.id]: btn.key }))}
+                                    className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                      mat === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
+                                    }`}
+                                  >{btn.label}</button>
+                                ))}
+                              </div>
+                            </td>
+                          )}
+
+                          {/* Participation */}
+                          {schoolSettings?.features?.participation !== false && (
+                            <td className="px-2 py-2">
+                              <div className="flex gap-1 justify-center">
+                                {PART_BTNS.map(btn => (
+                                  <button
+                                    key={btn.key}
+                                    onClick={() => setParticipation(p => ({ ...p, [student.id]: btn.key }))}
+                                    className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                      part === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
+                                    }`}
+                                  >{btn.label}</button>
+                                ))}
+                              </div>
+                            </td>
+                          )}
+
+                          {/* Points preview */}
+                          <td className="px-2 py-2 text-center">
+                            <div className="space-y-0.5">
+                              <div className={`text-sm font-bold ${totalPts >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                {totalPts > 0 ? '+' : ''}{totalPts}
+                              </div>
+                              <div className={`text-xs ${previewPts > 0 ? 'text-emerald-500' : previewPts < 0 ? 'text-red-400' : 'text-muted-foreground'}`}>
+                                {previewPts > 0 ? '+' : ''}{previewPts} اليوم
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* WhatsApp */}
+                          <td className="px-2 py-2">
+                            {phone ? (
+                              <div className="flex gap-1 justify-center">
+                                <button
+                                  onClick={() => setWhatsappModal({ student, type: 'negative' })}
+                                  title="رسالة تنبيه / سلبية"
+                                  className="w-9 h-9 flex items-center justify-center rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition-colors text-base"
+                                >⚠</button>
+                                <button
+                                  onClick={() => setWhatsappModal({ student, type: 'positive' })}
+                                  title="رسالة شكر / إيجابية"
+                                  className="w-9 h-9 flex items-center justify-center rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200 transition-colors text-base"
+                                >🏅</button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground text-center block">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Save button */}
+              <div className="p-4 border-t border-border bg-card/80 backdrop-blur-sm sticky bottom-0 flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">
+                  {selectedDate !== initialDate && (
+                    <span className="text-amber-600 font-semibold">⚠ تعديل يوم سابق: {selectedDate}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  {savedMsg && <span className="text-sm font-semibold text-emerald-600">{savedMsg}</span>}
+                  <button
+                    onClick={handleSaveDay}
+                    disabled={saving}
+                    className="px-8 py-2.5 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity"
+                  >{saving ? 'جاري الحفظ...' : '💾 حفظ اليوم'}</button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Grades Tab ── */}
+      {activeTab === 'grades' && (
+        <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-5">
+          {subjects.length === 0 ? (
+            <div className="text-center text-muted-foreground py-12">لا توجد مواد — يرجى إضافتها من بوابة الإدارة</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground block mb-1">المادة</label>
+                  <select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)} className="w-full p-2.5 rounded-xl border border-border bg-background text-sm">
+                    {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground block mb-1">اسم الاختبار</label>
+                  <input type="text" value={examName} onChange={e => setExamName(e.target.value)} placeholder="اختبار قصير ١" className="w-full p-2.5 rounded-xl border border-border bg-background text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground block mb-1">الدرجة القصوى</label>
+                  <input type="number" value={maxScore} onChange={e => setMaxScore(+e.target.value)} min={1} className="w-full p-2.5 rounded-xl border border-border bg-background text-sm" />
+                </div>
+              </div>
+
+              <table className="w-full text-sm border border-border rounded-xl overflow-hidden">
+                <thead className="bg-muted text-muted-foreground text-xs font-semibold">
+                  <tr>
+                    <th className="px-4 py-3 text-right">#</th>
+                    <th className="px-4 py-3 text-right">الطالب</th>
+                    <th className="px-4 py-3 text-center">الدرجة (من {maxScore})</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {students.map((s, i) => (
+                    <tr key={s.id} className="hover:bg-muted/20">
+                      <td className="px-4 py-3 text-muted-foreground">{i + 1}</td>
+                      <td className="px-4 py-3 font-semibold">{s.fullName}</td>
+                      <td className="px-4 py-3 text-center">
+                        <input
+                          type="number" min={0} max={maxScore}
+                          value={scores[s.id] || ''}
+                          onChange={e => setScores(sc => ({ ...sc, [s.id]: e.target.value }))}
+                          className="w-20 p-2 rounded-lg border border-border bg-background text-center text-sm"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="flex justify-end gap-3">
+                {gradesSaved && <span className="text-emerald-600 font-semibold text-sm">✓ تم حفظ الدرجات</span>}
+                <button
+                  disabled={savingGrades || !examName}
+                  onClick={async () => {
+                    setSavingGrades(true)
+                    try {
+                      const entries = Object.entries(scores).filter(([, v]) => v !== '').map(([id, v]) => ({ studentId: id, score: +v }))
+                      if (entries.length === 0) return
+                      
+                      await saveGrades({
+                        classId: classInfo.id,
+                        schoolId: classInfo.schoolId,
+                        subjectId: selectedSubject,
+                        examName: examName,
+                        maxScore: maxScore,
+                        entries: entries
+                      })
+
+                      setGradesSaved(true); 
+                      setTimeout(() => setGradesSaved(false), 3000)
+                      window.location.reload() // Reload to fetch fresh grades
+                    } catch {
+                      alert('حدث خطأ أثناء الحفظ')
+                    } finally { setSavingGrades(false) }
+                  }}
+                  className="px-8 py-2.5 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 disabled:opacity-50"
+                >{savingGrades ? 'جاري الحفظ...' : '💾 حفظ الدرجات'}</button>
+              </div>
+
+              {/* Saved Grades List */}
+              {savedGrades && savedGrades.length > 0 && (
+                <div className="mt-8 pt-8 border-t border-border">
+                  <h3 className="font-bold text-lg mb-4">الدرجات المحفوظة</h3>
+                  <div className="space-y-3">
+                    {/* Group by Exam Name and Subject */}
+                    {Object.entries(
+                      savedGrades.reduce((acc, curr) => {
+                        const key = `${curr.examName}_${curr.subjectId}`
+                        if (!acc[key]) acc[key] = { examName: curr.examName, subjectId: curr.subjectId, maxScore: curr.maxScore, count: 0, date: curr.createdAt }
+                        acc[key].count++
+                        return acc
+                      }, {} as Record<string, any>)
+                    ).map(([key, group]: any) => {
+                      const subj = subjects.find(s => s.id === group.subjectId)
+                      return (
+                        <div key={key} className="p-4 bg-muted/20 border border-border rounded-xl flex items-center justify-between">
+                          <div>
+                            <div className="font-bold">{group.examName}</div>
+                            <div className="text-sm text-muted-foreground">{subj?.name}</div>
+                          </div>
+                          <div className="text-left">
+                            <div className="text-sm font-semibold">{group.count} طالب</div>
+                            <div className="text-xs text-muted-foreground">الدرجة من {group.maxScore}</div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Points Tab ── */}
+      {activeTab === 'points' && (
+        <div className="flex-1 overflow-auto p-4 sm:p-6">
+          <table className="w-full text-sm border border-border rounded-xl overflow-hidden">
+            <thead className="bg-muted text-muted-foreground text-xs font-semibold">
+              <tr>
+                <th className="px-4 py-3 text-right">#</th>
+                <th className="px-4 py-3 text-right">الطالب</th>
+                <th className="px-4 py-3 text-center">إجمالي النقاط</th>
+                <th className="px-4 py-3 text-center">الترتيب</th>
+                <th className="px-4 py-3 text-center">تعديل يدوي</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {[...students]
+                .sort((a, b) => (points[b.id] ?? 0) - (points[a.id] ?? 0))
+                .map((student, idx) => {
+                  const total = points[student.id] ?? 0
+                  const medals = ['🥇', '🥈', '🥉']
+                  return (
+                    <tr key={student.id} className="hover:bg-muted/20">
+                      <td className="px-4 py-3 text-muted-foreground">{idx + 1}</td>
+                      <td className="px-4 py-3 font-semibold">{student.fullName}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-lg font-bold ${total >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {total > 0 ? '+' : ''}{total}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center text-xl">
+                        {idx < 3 ? medals[idx] : <span className="text-sm text-muted-foreground">{idx + 1}</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {manualStudent === student.id ? (
+                          <div className="flex items-center gap-2 justify-center">
+                            <input
+                              type="number"
+                              value={manualPoints}
+                              onChange={e => setManualPoints(+e.target.value)}
+                              className="w-16 p-1.5 rounded-lg border border-border bg-background text-center text-sm"
+                              placeholder="+/-"
+                            />
+                            <input
+                              type="text"
+                              value={manualReason}
+                              onChange={e => setManualReason(e.target.value)}
+                              className="w-32 p-1.5 rounded-lg border border-border bg-background text-sm"
+                              placeholder="السبب"
+                            />
+                            <button
+                              onClick={() => handleAddManualPoints(student.id)}
+                              disabled={addingPoints}
+                              className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold"
+                            >حفظ</button>
+                            <button
+                              onClick={() => setManualStudent(null)}
+                              className="px-2 py-1.5 bg-muted rounded-lg text-xs"
+                            >إلغاء</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setManualStudent(student.id)}
+                            className="px-3 py-1.5 bg-muted hover:bg-muted/70 rounded-lg text-xs font-semibold transition-colors"
+                          >✏️ تعديل</button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+            </tbody>
+          </table>
+
+          {/* Points legend */}
+          <div className="mt-6 p-4 bg-muted/30 border border-border rounded-2xl">
+            <h3 className="font-bold text-sm mb-3">جدول النقاط التلقائية</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              {[
+                { label: 'حضور منتظم', pts: '+1', color: 'text-emerald-600' },
+                { label: 'سلوك ممتاز', pts: '+2', color: 'text-emerald-600' },
+                { label: 'إحضار الواجب', pts: '+1', color: 'text-emerald-600' },
+                { label: 'تأخر', pts: '-1', color: 'text-amber-600' },
+                { label: 'غياب بدون عذر', pts: '-2', color: 'text-red-600' },
+                { label: 'مشكلة سلوكية', pts: '-3', color: 'text-red-600' },
+                { label: 'عدم إحضار الواجب', pts: '-1', color: 'text-red-600' },
+                { label: 'غياب بعذر', pts: '0', color: 'text-muted-foreground' },
+              ].map(item => (
+                <div key={item.label} className="flex justify-between bg-card p-2 rounded-lg border border-border">
+                  <span>{item.label}</span>
+                  <span className={`font-bold ${item.color}`}>{item.pts}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── WhatsApp Templates Modal ── */}
+      {whatsappModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-background rounded-3xl shadow-xl border border-border w-full max-w-lg overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+            <div className={`p-4 border-b border-border flex items-center justify-between flex-shrink-0 ${whatsappModal.type === 'positive' ? 'bg-emerald-50 dark:bg-emerald-950/20' : 'bg-red-50 dark:bg-red-950/20'}`}>
+              <h3 className={`font-bold text-lg ${whatsappModal.type === 'positive' ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
+                {whatsappModal.type === 'positive' ? '🏅 رسالة إيجابية' : '⚠️ رسالة سلبية'}
+              </h3>
+              <button onClick={() => setWhatsappModal(null)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/10 text-xl leading-none">×</button>
+            </div>
+            <div className="p-4 sm:p-6 space-y-3 overflow-auto">
+              <p className="text-sm font-semibold mb-2 text-muted-foreground">اختر القالب لإرساله إلى ولي أمر الطالب: <span className="text-foreground">{whatsappModal.student.fullName}</span></p>
+              
+              {(() => {
+                const adminTemplates = schoolSettings?.whatsappTemplates?.[whatsappModal.type] || []
+                const myTemplates = teacherTemplates?.[whatsappModal.type] || []
+                const combined = [...adminTemplates, ...myTemplates]
+
+                if (combined.length === 0) {
+                  return (
+                    <div className="text-center p-4 text-muted-foreground bg-muted/30 rounded-xl text-sm">
+                      لا توجد قوالب مضافة من قِبل الإدارة أو في إعداداتك الشخصية.
+                    </div>
+                  )
+                }
+
+                return combined.map((tpl: string, i: number) => {
+                  let parsed = tpl
+                    .replace(/{student}/g, whatsappModal.student.fullName)
+                    .replace(/{teacher}/g, teacherName)
+                    .replace(/{school}/g, schoolName)
+                  
+                  if (whatsappModal.type === 'negative' && notes[whatsappModal.student.id]) {
+                    parsed += `\n\nملاحظة المعلم: ${notes[whatsappModal.student.id]}`
+                  }
+
+                  const phone = whatsappModal.student.parentPhone?.replace(/\D/g, '').replace(/^0/, '') || ''
+
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        window.open(`https://wa.me/966${phone}?text=${encodeURIComponent(parsed)}`, '_blank')
+                        setWhatsappModal(null)
+                      }}
+                      className="w-full text-right p-4 rounded-xl border border-border bg-card hover:border-primary hover:bg-muted/30 transition-all focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
+                    >
+                      <pre className="text-sm whitespace-pre-wrap font-sans text-foreground/90">{parsed}</pre>
+                    </button>
+                  )
+                })
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
