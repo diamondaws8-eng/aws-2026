@@ -5,6 +5,7 @@ import { authClient } from '@/lib/auth-client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { BrandLogo } from '@/components/brand-logo'
 
 export default function ParentLoginPage() {
   const [phone, setPhone] = useState('')
@@ -47,7 +48,7 @@ export default function ParentLoginPage() {
       </div>
       <div className="max-w-md w-full bg-card p-8 rounded-3xl shadow-sm border border-border">
         <div className="text-center mb-8">
-          <Link href="/" className="text-primary font-bold text-2xl">مِداد</Link>
+          <BrandLogo size={88} />
           <h1 className="text-xl font-bold text-foreground mt-4">تسجيل دخول ولي الأمر</h1>
           <p className="text-muted-foreground text-sm mt-2">
             أدخل رقم جوالك المسجل في المدرسة

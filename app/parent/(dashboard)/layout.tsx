@@ -19,7 +19,7 @@ export default async function ParentDashboardLayout({ children }: { children: Re
 
   // We don't have a direct school name lookup here without joining,
   // but we can pass a fallback
-  const schoolName = 'مِداد - متابعة الطالب'
+  const schoolName = 'مدارس الأوس الأهلية - متابعة الطالب'
 
   return (
     <PortalLayout

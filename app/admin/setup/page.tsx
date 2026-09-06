@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSchool } from './actions'
+import { BrandLogo } from '@/components/brand-logo'
 
 export default function AdminSetupPage() {
   const [name, setName] = useState('')
@@ -34,7 +35,8 @@ export default function AdminSetupPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4 dir-rtl">
       <div className="w-full max-w-md bg-card p-6 rounded-3xl border border-border shadow-sm">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-foreground">إعداد النظام</h1>
+          <BrandLogo size={88} />
+          <h1 className="text-2xl font-bold text-foreground mt-4">إعداد النظام</h1>
           <p className="text-muted-foreground mt-2">الرجاء إدخال بيانات المدرسة للبدء</p>
         </div>
 

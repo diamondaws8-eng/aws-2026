@@ -198,3 +198,15 @@ export const studentPoints = pgTable('student_points', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
+// ─── Parent WhatsApp messages (رسائل أولياء الأمور) ──────────────────────────
+export const parentWhatsappMessages = pgTable('parent_whatsapp_messages', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  schoolId: uuid('school_id').notNull(),
+  classId: uuid('class_id').notNull(),
+  studentId: uuid('student_id').notNull(),
+  teacherUserId: text('teacher_user_id').notNull(),
+  type: text('type').notNull(), // 'positive' | 'negative'
+  date: text('date').notNull(), // YYYY-MM-DD
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})
+

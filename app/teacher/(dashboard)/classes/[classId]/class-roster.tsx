@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { saveDailyRecords, addManualPoints, saveGrades } from '../../actions'
+import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage } from '../../actions'
 import type { DailyStudentRecord } from '../../actions'
 
 type Student = { id: string; fullName: string; parentPhone?: string | null }
@@ -778,6 +778,12 @@ export default function ClassRoster({
                       onClick={() => {
                         window.open(`https://wa.me/966${phone}?text=${encodeURIComponent(parsed)}`, '_blank')
                         setWhatsappModal(null)
+                        void logParentWhatsappMessage({
+                          schoolId: classInfo.schoolId,
+                          classId: classInfo.id,
+                          studentId: whatsappModal.student.id,
+                          type: whatsappModal.type,
+                        })
                       }}
                       className="w-full text-right p-4 rounded-xl border border-border bg-card hover:border-primary hover:bg-muted/30 transition-all focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
                     >

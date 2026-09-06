@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import { authClient } from '@/lib/auth-client'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { BrandLogo } from '@/components/brand-logo'
 
 export default function AdminLoginPage() {
   const [tab, setTab] = useState<'signin' | 'signup'>('signin')
@@ -66,7 +66,7 @@ export default function AdminLoginPage() {
       </div>
       <div className="w-full max-w-md bg-card p-6 rounded-3xl border border-border shadow-sm">
         <div className="text-center mb-8">
-          <Link href="/" className="text-primary font-bold text-2xl">مداد</Link>
+          <BrandLogo size={88} />
           <h1 className="text-xl font-bold mt-4 text-foreground">بوابة الإدارة</h1>
           <p className="text-muted-foreground mt-2">قم بتسجيل الدخول أو إنشاء حساب جديد لإدارة النظام</p>
         </div>

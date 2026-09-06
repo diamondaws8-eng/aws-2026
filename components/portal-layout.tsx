@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 
 import { ThemeToggle } from '@/components/theme-toggle'
+import { BrandLogo } from '@/components/brand-logo'
 
 // ─── Nav config per role ──────────────────────────────────────────────────────
 
@@ -81,8 +82,6 @@ export function PortalLayout({ role, user, schoolName, children }: PortalLayoutP
   const pathname = usePathname()
   const router = useRouter()
 
-  const PortalIcon = nav.icon
-
   const [isOpen, setIsOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
 
@@ -138,11 +137,9 @@ export function PortalLayout({ role, user, schoolName, children }: PortalLayoutP
         <div className="border-b border-border px-5 py-5 relative">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-                <PortalIcon className="size-5" />
-              </div>
+              <BrandLogo size={40} rounded="rounded-xl" />
               <div>
-                <p className="text-xs text-muted-foreground">مِداد</p>
+                <p className="text-xs text-muted-foreground">مدارس الأوس الأهلية</p>
                 <p className="text-sm font-bold">{nav.label}</p>
               </div>
             </div>

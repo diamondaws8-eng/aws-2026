@@ -1,13 +1,15 @@
 import { db } from '@/lib/db'
 import { auth } from '@/lib/auth'
-import { schools, students, teachers, classes, gradeLevels, notifications, studentPoints } from '@/lib/db/schema'
-import { eq, desc, and, isNull, count, or, gt, sql } from 'drizzle-orm'
+import { schools, students, teachers, classes, gradeLevels, notifications, studentPoints, parentWhatsappMessages } from '@/lib/db/schema'
+import { eq, desc, and, isNull, count, or, gt, sql, asc } from 'drizzle-orm'
+import { today } from '@/lib/utils'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { StatCard } from '@/components/stat-card'
 import { EmptyState } from '@/components/empty-state'
 import { Users, GraduationCap, Layers, BookOpen, Bell } from 'lucide-react'
 import { LeaderboardClient } from './leaderboard-client'
+import { ParentMessagesToday } from './parent-messages-today'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +29,70 @@ export default async function AdminDashboardPage() {
     .select({ id: classes.id, name: classes.name })
     .from(classes)
     .where(eq(classes.schoolId, school.id))
+
+  const classRows = await db
+    .select({
+      id: classes.id,
+      name: classes.name,
+      gradeName: gradeLevels.name,
+      gradeOrder: gradeLevels.orderIndex,
+    })
+    .from(classes)
+    .leftJoin(gradeLevels, eq(classes.gradeLevelId, gradeLevels.id))
+    .where(eq(classes.schoolId, school.id))
+    .orderBy(asc(gradeLevels.orderIndex), asc(classes.name))
+
+  const todayStr = today()
+
+  const todayMessageCounts = await db
+    .select({
+      classId: parentWhatsappMessages.classId,
+      type: parentWhatsappMessages.type,
+      studentCount: sql<number>`COUNT(DISTINCT ${parentWhatsappMessages.studentId})`.mapWith(Number),
+    })
+    .from(parentWhatsappMessages)
+    .where(and(eq(parentWhatsappMessages.schoolId, school.id), eq(parentWhatsappMessages.date, todayStr)))
+    .groupBy(parentWhatsappMessages.classId, parentWhatsappMessages.type)
+
+  const countsByClass = new Map<string, { positive: number; negative: number }>()
+  for (const row of todayMessageCounts) {
+    const current = countsByClass.get(row.classId) ?? { positive: 0, negative: 0 }
+    if (row.type === 'positive') current.positive = row.studentCount
+    if (row.type === 'negative') current.negative = row.studentCount
+    countsByClass.set(row.classId, current)
+  }
+
+  const classStats = classRows.map((cls) => ({
+    ...cls,
+    positive: countsByClass.get(cls.id)?.positive ?? 0,
+    negative: countsByClass.get(cls.id)?.negative ?? 0,
+  }))
+
+  const [todayPositive] = await db
+    .select({
+      value: sql<number>`COUNT(DISTINCT ${parentWhatsappMessages.studentId})`.mapWith(Number),
+    })
+    .from(parentWhatsappMessages)
+    .where(
+      and(
+        eq(parentWhatsappMessages.schoolId, school.id),
+        eq(parentWhatsappMessages.date, todayStr),
+        eq(parentWhatsappMessages.type, 'positive')
+      )
+    )
+
+  const [todayNegative] = await db
+    .select({
+      value: sql<number>`COUNT(DISTINCT ${parentWhatsappMessages.studentId})`.mapWith(Number),
+    })
+    .from(parentWhatsappMessages)
+    .where(
+      and(
+        eq(parentWhatsappMessages.schoolId, school.id),
+        eq(parentWhatsappMessages.date, todayStr),
+        eq(parentWhatsappMessages.type, 'negative')
+      )
+    )
 
   const leaderboardData = await db
     .select({
@@ -71,6 +137,12 @@ export default async function AdminDashboardPage() {
         <StatCard label="الفصول الدراسية" value={classCount.value} icon={BookOpen} accent="amber" />
         <StatCard label="المراحل الدراسية" value={gradeCount.value} icon={Layers} accent="violet" />
       </div>
+
+      <ParentMessagesToday
+        classStats={classStats}
+        todayPositive={todayPositive.value}
+        todayNegative={todayNegative.value}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <LeaderboardClient students={leaderboardData} classes={classList} />

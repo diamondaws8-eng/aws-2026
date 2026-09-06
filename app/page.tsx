@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { ArrowLeft, GraduationCap, LockKeyhole, School, UsersRound, Sparkles } from 'lucide-react'
+import { ArrowLeft, GraduationCap, School, UsersRound, Sparkles } from 'lucide-react'
+import { BrandLogo } from '@/components/brand-logo'
 
 const portals = [
   {
@@ -46,12 +47,10 @@ export default function HomePage() {
 
         {/* Header */}
         <div className="mb-14">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
-              <LockKeyhole className="size-5" />
-            </div>
+          <div className="mb-6 flex items-center gap-4">
+            <BrandLogo size={72} />
             <div>
-              <p className="text-xl font-bold tracking-tight">مِداد</p>
+              <p className="text-xl font-bold tracking-tight">مدارس الأوس الأهلية</p>
               <p className="text-sm text-muted-foreground">نظام إدارة المدرسة الموحد</p>
             </div>
           </div>
@@ -99,7 +98,7 @@ export default function HomePage() {
         {/* Footer note */}
         <p className="mt-10 text-center text-xs text-muted-foreground">
           <Sparkles className="mb-0.5 ml-1 inline size-3" />
-          مِداد — نظام مدرسي عربي متكامل لإدارة الطلاب والمعلمين وأولياء الأمور
+          مدارس الأوس الأهلية — نظام مدرسي عربي متكامل لإدارة الطلاب والمعلمين وأولياء الأمور
         </p>
       </div>
     </main>

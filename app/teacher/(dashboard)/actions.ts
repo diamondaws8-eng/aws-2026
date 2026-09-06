@@ -2,7 +2,7 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { dailyRecords, studentPoints, gradeEntries, subjects } from '@/lib/db/schema'
+import { dailyRecords, studentPoints, gradeEntries, subjects, parentWhatsappMessages, students } from '@/lib/db/schema'
 import { eq, and, desc, sql, inArray } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
@@ -283,4 +283,34 @@ export async function getSavedGrades(classId: string) {
     .from(gradeEntries)
     .where(inArray(gradeEntries.subjectId, subjectIds))
     .orderBy(desc(gradeEntries.createdAt))
+}
+
+export async function logParentWhatsappMessage(input: {
+  schoolId: string
+  classId: string
+  studentId: string
+  type: 'positive' | 'negative'
+}) {
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user) throw new Error('Unauthorized')
+  if (input.type !== 'positive' && input.type !== 'negative') throw new Error('Invalid type')
+
+  const [student] = await db
+    .select({ id: students.id })
+    .from(students)
+    .where(and(eq(students.id, input.studentId), eq(students.schoolId, input.schoolId)))
+    .limit(1)
+  if (!student) throw new Error('Student not found')
+
+  await db.insert(parentWhatsappMessages).values({
+    schoolId: input.schoolId,
+    classId: input.classId,
+    studentId: input.studentId,
+    teacherUserId: session.user.id,
+    type: input.type,
+    date: new Date().toISOString().split('T')[0],
+  })
+
+  revalidatePath('/admin')
+  return { ok: true }
 }

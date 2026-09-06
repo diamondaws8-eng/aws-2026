@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { authClient } from '@/lib/auth-client'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { BrandLogo } from '@/components/brand-logo'
 
 export default function TeacherLogin() {
   const [email, setEmail] = useState('')
@@ -44,7 +45,8 @@ export default function TeacherLogin() {
       </div>
       <div className="max-w-md w-full bg-card border border-border rounded-2xl p-6 sm:p-8 shadow-sm">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-foreground mb-2">بوابة المعلمين</h1>
+          <BrandLogo size={88} />
+          <h1 className="text-2xl font-bold text-foreground mt-4 mb-2">بوابة المعلمين</h1>
           <p className="text-muted-foreground">قم بتسجيل الدخول للوصول إلى فصولك</p>
         </div>
 
