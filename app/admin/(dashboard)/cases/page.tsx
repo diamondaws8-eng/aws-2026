@@ -47,7 +47,7 @@ export default async function AdminCasesPage() {
   const total = Object.values(counts).reduce((a, b) => a + b, 0)
 
   return (
-    <div className="space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">الحالات السلوكية</h1>
         <p className="text-muted-foreground mt-1">

@@ -40,7 +40,7 @@ function relativeAr(date: Date): string {
  * asking every minute is a real load on a small database for a screen nobody is
  * looking at, and coming back to the tab is exactly when the count matters.
  */
-export function NotificationBell() {
+export function NotificationBell({ allHref }: { allHref?: string | null }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [data, setData] = useState<BellData>({ unread: 0, items: [] })
@@ -118,7 +118,7 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-2 w-[320px] max-w-[85vw] rounded-2xl border border-border bg-card shadow-xl z-50 overflow-hidden">
+        <div className="absolute left-0 top-full mt-2 w-[340px] max-w-[calc(100vw-2rem)] rounded-2xl border border-border bg-card shadow-xl z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <span className="font-bold text-sm">الإشعارات</span>
             {data.unread > 0 && (
@@ -169,6 +169,15 @@ export function NotificationBell() {
               })
             )}
           </div>
+
+          {allHref && (
+            <button
+              onClick={() => { setOpen(false); router.push(allHref) }}
+              className="w-full border-t border-border py-2.5 text-sm font-semibold text-primary hover:bg-muted/50 transition-colors"
+            >
+              عرض كل الإشعارات
+            </button>
+          )}
         </div>
       )}
     </div>
