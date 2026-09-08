@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { notifications, classes } from '@/lib/db/schema'
+import { notifications, classes, students } from '@/lib/db/schema'
 import { revalidatePath } from 'next/cache'
 import { eq, and } from 'drizzle-orm'
 import { getAdminAccess, canEditGrade } from '@/lib/admin-access'
@@ -23,18 +23,41 @@ export async function sendNotification(data: any) {
     if (!cls || cls.schoolId !== access.school.id || !canEditGrade(access, cls.gradeLevelId)) {
       return { ok: false, error: 'غير مصرح لك بالإرسال لهذا الفصل' }
     }
-  } else if (!data.studentId && !access.editAllGrades) {
+  } else if (data.studentId) {
+    // A student id used to skip every check above, so a deputy scoped to one
+    // grade could message any child in the school — and the id was never even
+    // proved to belong to this school.
+    const [student] = await db
+      .select({ schoolId: students.schoolId, classId: students.classId })
+      .from(students)
+      .where(eq(students.id, data.studentId))
+      .limit(1)
+    if (!student || student.schoolId !== access.school.id) {
+      return { ok: false, error: 'الطالب غير موجود في هذه المدرسة' }
+    }
+    const [cls] = student.classId
+      ? await db.select({ gradeLevelId: classes.gradeLevelId }).from(classes).where(eq(classes.id, student.classId)).limit(1)
+      : [undefined]
+    if (!canEditGrade(access, cls?.gradeLevelId ?? null)) {
+      return { ok: false, error: 'غير مصرح لك بالإرسال لهذا الطالب' }
+    }
+  } else if (!access.editAllGrades) {
     return { ok: false, error: 'التنبيهات العامة متاحة لمن يملك صلاحية على كل المراحل' }
   }
+
+  const title = String(data.title ?? '').trim().slice(0, 200)
+  const body = String(data.body ?? '').trim().slice(0, 4000)
+  if (!title || !body) return { ok: false, error: 'العنوان والنص مطلوبان' }
+  const type = ['info', 'warning', 'absence', 'grade'].includes(data.type) ? data.type : 'info'
 
   await db.insert(notifications).values({
     schoolId: access.school.id,
     fromUserId: access.userId,
     studentId: data.studentId || null,
     classId: data.classId || null,
-    title: data.title,
-    body: data.body,
-    type: data.type,
+    title,
+    body,
+    type,
     expiresAt: data.expiresAt || null
   })
   revalidatePath('/admin/notifications')

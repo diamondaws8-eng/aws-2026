@@ -15,7 +15,15 @@ import type { SchoolSettings } from './settings-types'
 import { DEFAULT_SETTINGS } from './settings-types'
 
 // ── Get current school settings ───────────────────────────────────────────────
+/**
+ * Returns the school's own defaults when the caller has no session. This is a
+ * public endpoint like every server action, and it used to hand the settings —
+ * including the WhatsApp templates — to anyone who knew a school id.
+ */
 export async function getSchoolSettings(schoolId: string): Promise<SchoolSettings> {
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user) return DEFAULT_SETTINGS
+
   const [school] = await db
     .select({ settings: schools.settings })
     .from(schools)

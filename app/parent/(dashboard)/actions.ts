@@ -232,11 +232,20 @@ export async function getStudentDashboard(studentId: string) {
 }
 
 // ─── Get notifications ────────────────────────────────────────────────────────
+// A server action is a public endpoint: this used to answer any caller who knew
+// a student id — no session required — and hand back every notice addressed to
+// that child. The child must now belong to the signed-in parent.
 export async function getMyNotifications(studentId: string) {
+  const parentUser = await requireParent()
+
   const { notifications, students } = await import('@/lib/db/schema')
   const { or, isNull, gt, sql } = await import('drizzle-orm')
 
-  const [student] = await db.select().from(students).where(eq(students.id, studentId)).limit(1)
+  const [student] = await db
+    .select()
+    .from(students)
+    .where(and(eq(students.id, studentId), eq(students.parentUserId, parentUser.id)))
+    .limit(1)
   if (!student) return []
 
   return db
@@ -267,9 +276,10 @@ export async function getMyNotifications(studentId: string) {
 }
 
 // ─── Change password ──────────────────────────────────────────────────────────
-export async function changeParentPassword(currentPassword: string, newPassword: string) {
-  // Done on client side with authClient.changePassword
-  return { ok: true }
+/** @deprecated Never changed anything — it returned ok while doing nothing.
+ *  The parent settings page calls authClient.changePassword directly. */
+export async function changeParentPassword(_currentPassword: string, _newPassword: string) {
+  return { ok: false as const, error: 'استخدم صفحة الإعدادات لتغيير كلمة المرور' }
 }
 
 // ─── Get Subject Details ──────────────────────────────────────────────────────

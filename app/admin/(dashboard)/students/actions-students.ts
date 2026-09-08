@@ -224,11 +224,14 @@ export async function importStudents(
   if (!access || !access.canEdit || access.school.id !== schoolId) {
     return { created: 0, failed: rows.length, errors: ['غير مصرح لك باستيراد الطلاب'] }
   }
-  // Everything in one import lands in a single class, so check it once.
-  const importClassId = rows.find(r => r.classId)?.classId ?? null
-  const importer = await requireStudentEditor(importClassId)
-  if (!importer) {
-    return { created: 0, failed: rows.length, errors: ['غير مصرح لك بالإضافة في هذه المرحلة'] }
+  // Checking only the first row's class let a crafted file slip students into
+  // grades this user does not control, so every distinct class is checked.
+  const importClassIds = [...new Set(rows.map(r => r.classId).filter(Boolean))] as string[]
+  for (const classId of importClassIds.length ? importClassIds : [null]) {
+    const importer = await requireStudentEditor(classId)
+    if (!importer) {
+      return { created: 0, failed: rows.length, errors: ['غير مصرح لك بالإضافة في هذه المرحلة'] }
+    }
   }
 
   // Cache headers to avoid calling await headers() in every loop iteration
