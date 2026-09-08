@@ -3,6 +3,7 @@ import { students, classes, gradeLevels } from '@/lib/db/schema'
 import { eq, asc } from 'drizzle-orm'
 import StudentsClient from './students-client'
 import { requireAdminAccess, canViewGrade, canEditGrade } from '@/lib/admin-access'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,6 +61,7 @@ export default async function StudentsPage() {
           <h1 className="text-2xl font-bold text-foreground">الطلاب</h1>
           <p className="text-muted-foreground mt-1">إدارة بيانات الطلاب وأولياء الأمور</p>
         </div>
+        <NotificationBell />
       </div>
 
       <StudentsClient

@@ -4,6 +4,7 @@ import { eq, asc } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import { requireAdminAccess, ROLE_LABELS } from '@/lib/admin-access'
 import StaffClient from './staff-client'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
@@ -55,11 +56,14 @@ export default async function StaffPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">فريق الإدارة</h1>
-        <p className="text-muted-foreground mt-1">
-          إدارة حسابات مديري الجودة والوكلاء وصلاحياتهم على المراحل الدراسية
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">فريق الإدارة</h1>
+          <p className="text-muted-foreground mt-1">
+            إدارة حسابات مديري الجودة والوكلاء وصلاحياتهم على المراحل الدراسية
+          </p>
+        </div>
+        <NotificationBell />
       </div>
 
       <StaffClient

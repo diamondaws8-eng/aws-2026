@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import GradeSelector from './grade-selector'
 import { requireTeacher, getTeacherVisibleClassIds } from '@/lib/teacher-access'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,9 +45,12 @@ export default async function TeacherClassesPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground mb-2">الفصول الدراسية</h1>
-        <p className="text-muted-foreground">اختر المرحلة الدراسية ثم الفصل المطلوب</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground mb-2">الفصول الدراسية</h1>
+          <p className="text-muted-foreground">اختر المرحلة الدراسية ثم الفصل المطلوب</p>
+        </div>
+        <NotificationBell />
       </div>
 
       {gradesWithClasses.length === 0 ? (

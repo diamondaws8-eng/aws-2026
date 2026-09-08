@@ -9,6 +9,7 @@ import { formatDateAr } from '@/lib/utils'
 import { StatCard } from '@/components/stat-card'
 import { EmptyState } from '@/components/empty-state'
 import { ArrowRight, Trophy, ScrollText } from 'lucide-react'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,7 +46,8 @@ export default async function StudentDetailPage({
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
         <Link
           href={`/teacher/classes/${classId}`}
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -54,6 +56,8 @@ export default async function StudentDetailPage({
           العودة إلى فصل {classInfo.name}
         </Link>
         <h1 className="text-2xl font-bold text-foreground mt-2">{student.fullName}</h1>
+        </div>
+        <NotificationBell />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-xl">

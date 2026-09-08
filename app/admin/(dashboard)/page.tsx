@@ -11,6 +11,7 @@ import { DailyPerformanceCards } from './daily-performance-cards'
 import { HeroStats } from './hero-stats'
 import { RecentNotifications } from './recent-notifications'
 import { getSchoolSettings } from './settings/actions-settings'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
@@ -435,6 +436,7 @@ export default async function AdminDashboardPage() {
           <h1 className="text-2xl font-bold text-foreground">لوحة التحكم</h1>
           <p className="text-muted-foreground mt-1">{school.name} — {school.academicYear}</p>
         </div>
+        <NotificationBell />
       </div>
 
       <HeroStats

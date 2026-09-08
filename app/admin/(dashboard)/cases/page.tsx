@@ -10,6 +10,7 @@ import { StatCard } from '@/components/stat-card'
 import { EmptyState } from '@/components/empty-state'
 import { ClipboardList, Clock, AlertTriangle, UserCog, ShieldCheck } from 'lucide-react'
 import { EscalatedCases } from './escalated-cases'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,11 +49,14 @@ export default async function AdminCasesPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">الحالات السلوكية</h1>
-        <p className="text-muted-foreground mt-1">
-          متابعة إدارية — الأعداد والأنماط والحالات المحالة إليك. ملاحظات الموجه السرّية لا تظهر هنا.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">الحالات السلوكية</h1>
+          <p className="text-muted-foreground mt-1">
+            متابعة إدارية — الأعداد والأنماط والحالات المحالة إليك. ملاحظات الموجه السرّية لا تظهر هنا.
+          </p>
+        </div>
+        <NotificationBell />
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

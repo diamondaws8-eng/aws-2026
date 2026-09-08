@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Bell, AlertTriangle, CheckCircle2, ArrowUpCircle, Undo2, MessageSquare, Loader2, CheckCheck } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { EmptyState } from '@/components/empty-state'
+import { NotificationBell } from '@/components/notification-bell'
 import {
   getMyNotificationsInbox,
   markNotificationsRead,
@@ -74,6 +75,7 @@ export function NotificationsPage({ title, subtitle }: { title: string; subtitle
             {data.unread > 0 ? ` · ${data.unread} غير مقروء` : ''}
           </p>
         </div>
+        <div className="flex shrink-0 items-center gap-2">
         {data.unread > 0 && (
           <button
             onClick={readAll}
@@ -82,6 +84,8 @@ export function NotificationsPage({ title, subtitle }: { title: string; subtitle
             <CheckCheck className="size-4" /> تعليم الكل كمقروء
           </button>
         )}
+        <NotificationBell />
+        </div>
       </div>
 
       {loading ? (

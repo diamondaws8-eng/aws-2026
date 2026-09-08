@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { getSubjectDetails } from '../../actions'
 import { formatDateAr } from '@/lib/utils'
 import { ChevronLeft } from 'lucide-react'
+import { NotificationBell } from '@/components/notification-bell'
 
 const ATTENDANCE_MAP = {
   present: { label: 'حاضر', color: 'text-emerald-700 bg-emerald-50 border-emerald-200', emoji: '✅' },
@@ -75,13 +76,16 @@ export default async function SubjectDetailsPage({
       </div>
 
       {/* ── Header ───────────────────────────────────────────────────────────── */}
-      <div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
         <h1 className="text-2xl font-bold">{subject.name}</h1>
         <p className="text-sm text-muted-foreground mt-1">
           المعلم: <span className="font-semibold">{teacher.fullName}</span>
           {' — '}
           الطالب: <span className="font-semibold">{student.fullName}</span>
         </p>
+        </div>
+        <NotificationBell />
       </div>
 
       {/* ── Summary Cards ────────────────────────────────────────────────────── */}

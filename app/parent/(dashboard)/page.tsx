@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getMyChildren, getStudentDashboard } from './actions'
+import { NotificationBell } from '@/components/notification-bell'
 
 function getPerformanceRating(points: number, totalSessions: number) {
   if (totalSessions === 0) {
@@ -90,8 +91,11 @@ export default async function ParentDashboardPage({
             </p>
           )}
         </div>
-        <div className={`px-4 py-2 rounded-2xl border text-sm font-bold ${perf.bg} ${perf.border} ${perf.color}`}>
-          {perf.label}
+        <div className="flex items-center gap-2">
+          <NotificationBell />
+          <div className={`px-4 py-2 rounded-2xl border text-sm font-bold ${perf.bg} ${perf.border} ${perf.color}`}>
+            {perf.label}
+          </div>
         </div>
       </div>
 

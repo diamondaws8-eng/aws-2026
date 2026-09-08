@@ -63,9 +63,7 @@ export default async function ClassPage({ params }: { params: Promise<{ classId:
   const schoolSettings = await getSchoolSettings(classInfo.schoolId)
 
   return (
-    // The portal now has a 3.5rem bar above this, so a full viewport height
-    // would push the save button below the fold on the busiest screen there is.
-    <div className="flex flex-col h-[calc(100vh-3.5rem)] overflow-hidden">
+    <div className="flex flex-col h-screen overflow-hidden">
       <ClassRoster
         classInfo={{
           id: classId,

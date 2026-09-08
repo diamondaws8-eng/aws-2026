@@ -2,6 +2,7 @@ import { getSchoolSettings } from './actions-settings'
 import SettingsClient from './settings-client'
 import { requireAdminAccess } from '@/lib/admin-access'
 import { Settings as SettingsIcon } from 'lucide-react'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +20,7 @@ export default async function AdminSettingsPage() {
           <h1 className="text-2xl font-bold">الإعدادات</h1>
           <p className="text-muted-foreground text-sm mt-0.5">{access.roleLabel} — {access.school.name}</p>
         </div>
+        <div className="ms-auto"><NotificationBell /></div>
       </div>
 
       <SettingsClient

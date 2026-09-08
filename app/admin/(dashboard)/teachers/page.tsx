@@ -3,6 +3,7 @@ import { teachers } from '@/lib/db/schema'
 import { eq, asc } from 'drizzle-orm'
 import TeachersClient from './teachers-client'
 import { requireAdminAccess } from '@/lib/admin-access'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,6 +33,7 @@ export default async function TeachersPage() {
           <h1 className="text-2xl font-bold text-foreground">المعلمون</h1>
           <p className="text-muted-foreground mt-1">إدارة حسابات المعلمين</p>
         </div>
+        <NotificationBell />
       </div>
 
       <TeachersClient teachers={teachersList} schoolId={school.id} canManage={access.canManageTeachers} />

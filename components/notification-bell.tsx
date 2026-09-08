@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { Bell, AlertTriangle, CheckCircle2, ArrowUpCircle, Undo2, MessageSquare, Loader2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -40,8 +40,23 @@ function relativeAr(date: Date): string {
  * asking every minute is a real load on a small database for a screen nobody is
  * looking at, and coming back to the tab is exactly when the count matters.
  */
-export function NotificationBell({ allHref }: { allHref?: string | null }) {
+/** Each portal keeps its own inbox page; the bell reads which one from the path. */
+const NOTIFICATIONS_HREF: { prefix: string; href: string }[] = [
+  { prefix: '/admin', href: '/admin/my-notifications' },
+  { prefix: '/teacher', href: '/teacher/notifications' },
+  { prefix: '/counselor', href: '/counselor/notifications' },
+  { prefix: '/parent', href: '/parent/notifications' },
+]
+
+/**
+ * Dropped into a page's own header row rather than a bar of its own: a strip
+ * that holds nothing but a bell costs every screen 56px, and on the class
+ * register that is the space the save button needs.
+ */
+export function NotificationBell() {
   const router = useRouter()
+  const pathname = usePathname()
+  const allHref = NOTIFICATIONS_HREF.find((n) => pathname.startsWith(n.prefix))?.href ?? null
   const [open, setOpen] = useState(false)
   const [data, setData] = useState<BellData>({ unread: 0, items: [] })
   const [loading, setLoading] = useState(false)

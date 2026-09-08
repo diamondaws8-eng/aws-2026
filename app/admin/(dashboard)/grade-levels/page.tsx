@@ -3,6 +3,7 @@ import { gradeLevels, classes, subjects, teachers } from '@/lib/db/schema'
 import { eq, asc } from 'drizzle-orm'
 import GradeLevelsClient from './grade-levels-client'
 import { requireAdminAccess, canEditGrade, canViewGrade } from '@/lib/admin-access'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,6 +64,7 @@ export default async function GradeLevelsPage() {
           <h1 className="text-2xl font-bold text-foreground">المراحل والفصول</h1>
           <p className="text-muted-foreground mt-1">إدارة الهيكل الأكاديمي والمواد والمعلمين</p>
         </div>
+        <NotificationBell />
       </div>
       <GradeLevelsClient
         grades={gradesData}

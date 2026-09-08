@@ -3,6 +3,7 @@ import { classes, students, notifications } from '@/lib/db/schema'
 import { eq, desc, and, or, isNull, gt, sql } from 'drizzle-orm'
 import NotificationsClient from './notifications-client'
 import { requireAdminAccess, canViewGrade } from '@/lib/admin-access'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,6 +57,7 @@ export default async function NotificationsPage() {
           <h1 className="text-2xl font-bold text-foreground">التنبيهات</h1>
           <p className="text-muted-foreground mt-1">إرسال التنبيهات لأولياء الأمور</p>
         </div>
+        <NotificationBell />
       </div>
 
       <NotificationsClient

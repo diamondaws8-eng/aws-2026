@@ -3,6 +3,7 @@ import { requireAdminAccess, ROLE_LABELS, type AdminRole } from '@/lib/admin-acc
 import { getAuditLog, AUDIT_LABELS, type AuditAction } from '@/lib/audit'
 import { EmptyState } from '@/components/empty-state'
 import { ScrollText, User } from 'lucide-react'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
@@ -88,11 +89,14 @@ export default async function AuditPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">سجل التدقيق</h1>
-        <p className="text-muted-foreground mt-1">
-          كل إجراء حسّاس في النظام مسجّل هنا: من نفّذه ومتى — آخر {entries.length} عملية
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">سجل التدقيق</h1>
+          <p className="text-muted-foreground mt-1">
+            كل إجراء حسّاس في النظام مسجّل هنا: من نفّذه ومتى — آخر {entries.length} عملية
+          </p>
+        </div>
+        <NotificationBell />
       </div>
 
       {entries.length === 0 ? (

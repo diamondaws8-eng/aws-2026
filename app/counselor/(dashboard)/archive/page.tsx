@@ -2,6 +2,7 @@ import { requireCounselor, getCounselorClassIds } from '@/lib/counselor-access'
 import { listCases, CASE_STATUS, type CaseStatus } from '@/lib/behavior-cases'
 import { EmptyState } from '@/components/empty-state'
 import { ScrollText } from 'lucide-react'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,9 +28,12 @@ export default async function CounselorArchivePage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">أرشيف الحالات</h1>
-        <p className="text-muted-foreground mt-1">كل حالة أُغلقت وكيف انتهت</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">أرشيف الحالات</h1>
+          <p className="text-muted-foreground mt-1">كل حالة أُغلقت وكيف انتهت</p>
+        </div>
+        <NotificationBell />
       </div>
 
       {cases.length === 0 ? (

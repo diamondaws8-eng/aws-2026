@@ -29,7 +29,6 @@ import {
 import type { LucideIcon } from 'lucide-react'
 
 import { ThemeToggle } from '@/components/theme-toggle'
-import { NotificationBell } from '@/components/notification-bell'
 import { BrandLogo } from '@/components/brand-logo'
 
 // ─── Nav config per role ──────────────────────────────────────────────────────
@@ -85,14 +84,6 @@ const navConfig = {
   },
 } as const
 
-/** Where "view all notifications" goes, per portal. */
-const NOTIFICATIONS_HREF: Record<string, string> = {
-  admin: '/admin/my-notifications',
-  teacher: '/teacher/notifications',
-  counselor: '/counselor/notifications',
-  parent: '/parent/notifications',
-}
-
 type Role = keyof typeof navConfig
 
 const ICON_MAP = {
@@ -118,7 +109,6 @@ interface PortalLayoutProps {
 
 export function PortalLayout({ role, user, schoolName, links, roleLabel, children }: PortalLayoutProps) {
   const nav = navConfig[role]
-  const notificationsHref = NOTIFICATIONS_HREF[role] ?? null
   const navLinks: { href: string; label: string; icon: LucideIcon; exact?: boolean }[] = links
     ? links.map((l) => ({ href: l.href, label: l.label, icon: ICON_MAP[l.icon], exact: l.exact }))
     : nav.links.map((l) => ({
@@ -316,13 +306,6 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
         "min-h-screen w-full transition-all duration-300",
         isOpen ? "md:mr-64 mr-0" : "mr-0"
       )}>
-        {/* The bell belongs here, not in the sidebar: the sidebar is hidden on
-            a phone, which put the bell out of reach for anyone on one, and a
-            256px column clipped the panel. Sticky so it stays reachable while
-            reading a long register. */}
-        <div className="sticky top-0 z-20 flex h-14 items-center justify-end gap-2 border-b border-border bg-background/80 px-4 backdrop-blur-sm sm:px-6">
-          <NotificationBell allHref={notificationsHref} />
-        </div>
         {children}
       </main>
     </div>

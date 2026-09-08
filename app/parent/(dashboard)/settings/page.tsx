@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { authClient } from '@/lib/auth-client'
+import { NotificationBell } from '@/components/notification-bell'
 
 export default function ParentSettingsPage() {
   const [currentPassword, setCurrentPassword] = useState('')
@@ -37,9 +38,12 @@ export default function ParentSettingsPage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">الإعدادات</h1>
-        <p className="text-sm text-muted-foreground mt-1">إدارة إعدادات حسابك</p>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">الإعدادات</h1>
+          <p className="text-sm text-muted-foreground mt-1">إدارة إعدادات حسابك</p>
+        </div>
+        <NotificationBell />
       </div>
 
       <div className="bg-card border border-border rounded-3xl p-6">

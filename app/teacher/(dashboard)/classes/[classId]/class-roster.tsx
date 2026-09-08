@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { NotificationBell } from '@/components/notification-bell'
 import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage, raiseBehaviorCase } from '../../actions'
 import type { DailyStudentRecord, AbsenceLock, BlockedAbsence } from '../../actions'
 
@@ -390,9 +391,12 @@ export default function ClassRoster({
       {/* ── Header ── */}
       <div className="p-4 sm:p-6 border-b border-border bg-card">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold">فصل {classInfo.name} — {classInfo.gradeName}</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">{students.length} طالباً</p>
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+            <div>
+              <h1 className="text-xl font-bold">فصل {classInfo.name} — {classInfo.gradeName}</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">{students.length} طالباً</p>
+            </div>
           </div>
 
           {/* Date Navigator */}
