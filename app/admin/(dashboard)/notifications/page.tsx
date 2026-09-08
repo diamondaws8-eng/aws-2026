@@ -23,7 +23,7 @@ export default async function NotificationsPage() {
     : allStudents.filter((s) => s.classId && visibleClassIds.has(s.classId))
 
 
-  const notifs = await db.select()
+  const allNotifs = await db.select()
     .from(notifications)
     .where(
       and(
@@ -32,7 +32,22 @@ export default async function NotificationsPage() {
       )
     )
     .orderBy(desc(notifications.createdAt))
-    .limit(30)
+    .limit(60)
+
+  // The classes and students above are scoped to this account's grades, but the
+  // sent list was not — so a deputy responsible for one stage could read notices
+  // written about a pupil in another, body and all.
+  const classOfStudent = new Map(allStudents.map((s) => [s.id, s.classId]))
+  const notifs = allNotifs
+    .filter((notice) => {
+      if (access.viewAllGrades) return true
+      // Addressed to the whole school: everyone in the portal may see it.
+      if (!notice.classId && !notice.studentId) return true
+      if (notice.classId) return visibleClassIds.has(notice.classId)
+      const classId = notice.studentId ? classOfStudent.get(notice.studentId) : null
+      return !!classId && visibleClassIds.has(classId)
+    })
+    .slice(0, 30)
 
   return (
     <div className="space-y-6">

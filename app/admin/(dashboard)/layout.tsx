@@ -1,9 +1,24 @@
 import { PortalLayout } from '@/components/portal-layout'
 import type { PortalNavLink } from '@/components/portal-layout'
 import { requireAdminAccess } from '@/lib/admin-access'
+import { db } from '@/lib/db'
+import { user } from '@/lib/db/schema'
+import { eq } from 'drizzle-orm'
+import { AdminSetPasswordCard } from './set-password-card'
 
 export default async function AdminDashboardLayout({ children }: { children: React.ReactNode }) {
   const access = await requireAdminAccess()
+
+  // An issued password opens nothing until it is replaced. The owner signed up
+  // themselves and is never flagged, so this only gates invited accounts.
+  const [me] = await db
+    .select({ mustChange: user.mustChangePassword })
+    .from(user)
+    .where(eq(user.id, access.userId))
+    .limit(1)
+  if (me?.mustChange) {
+    return <AdminSetPasswordCard name={access.name} />
+  }
 
   const links: PortalNavLink[] = [
     { href: '/admin', label: 'الرئيسية', icon: 'LayoutDashboard', exact: true },

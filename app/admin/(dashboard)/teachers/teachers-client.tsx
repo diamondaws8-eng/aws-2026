@@ -21,9 +21,10 @@ export default function TeachersClient({ teachers, schoolId, canManage = true }:
     try {
       const res = await resetTeacherPassword(teacher.id, teacher.userId)
       if (res.ok && res.tempPassword) {
-        const email = `${(teacher.phone || '').replace(/\D/g, '')}@teacher.midad.local`
+        // The address comes from the account itself: a teacher whose phone was
+        // edited still signs in with the email the account was created under.
         setEditingTeacher(null)
-        setSuccessInfo({ email, tempPassword: res.tempPassword, mode: 'reset' })
+        setSuccessInfo({ email: res.email ?? '', tempPassword: res.tempPassword, mode: 'reset' })
         setIsModalOpen(true)
       } else {
         alert(res.error || 'حدث خطأ أثناء إعادة تعيين كلمة المرور')
@@ -55,10 +56,12 @@ export default function TeachersClient({ teachers, schoolId, canManage = true }:
     try {
       if (editingTeacher) {
         const { editTeacher } = await import('./actions-teachers')
-        await editTeacher(editingTeacher.id, editingTeacher.userId, { fullName, phone })
+        const res = await editTeacher(editingTeacher.id, editingTeacher.userId, { fullName, phone })
+        if (!res.ok) { alert(res.error); return }
         closeModal()
       } else {
         const res = await addTeacher({ fullName, phone })
+        if (!res.ok) { alert(res.error); return }
         setSuccessInfo({ email: res.email, tempPassword: res.tempPassword, mode: 'created' })
         setFullName('')
         setPhone('')

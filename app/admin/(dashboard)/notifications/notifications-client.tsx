@@ -58,7 +58,8 @@ export default function NotificationsClient({ schoolId, userId, classes, student
     if (!confirm('هل أنت متأكد من حذف هذا التنبيه؟')) return
     setDeletingId(id)
     try {
-      await deleteNotification(id, schoolId)
+      const res = await deleteNotification(id, schoolId)
+      if (res && !res.ok) alert(res.error)
     } catch (err) {
       alert('حدث خطأ أثناء الحذف')
     } finally {

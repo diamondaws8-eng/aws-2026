@@ -10,8 +10,17 @@ export default async function TeachersPage() {
   const access = await requireAdminAccess()
   const school = access.school
 
+  // Explicit columns: `select()` also carried the deprecated temp_password to
+  // the browser, which is a path plaintext should never have even while empty.
   const teachersList = await db
-    .select()
+    .select({
+      id: teachers.id,
+      schoolId: teachers.schoolId,
+      userId: teachers.userId,
+      fullName: teachers.fullName,
+      phone: teachers.phone,
+      createdAt: teachers.createdAt,
+    })
     .from(teachers)
     .where(eq(teachers.schoolId, school.id))
     .orderBy(asc(teachers.fullName))

@@ -2,7 +2,7 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { teachers, user, schools, account, session, subjects } from '@/lib/db/schema'
+import { teachers, user, schools, account, session, subjects, dailyRecords } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
@@ -24,16 +24,31 @@ function generateTempPassword() {
 
 export async function addTeacher(input: { fullName: string; phone: string }) {
   const access = await requireTeacherManager()
-  if (!access) throw new Error('Unauthorized')
+  if (!access) return { ok: false as const, error: 'غير مصرح لك بهذا الإجراء' }
   const school = access.school
 
+  const fullName = String(input.fullName ?? '').trim().slice(0, 120)
+  const phoneDigits = String(input.phone ?? '').replace(/\D/g, '')
+  if (!fullName) return { ok: false as const, error: 'اسم المعلم مطلوب' }
+  if (phoneDigits.length < 9) return { ok: false as const, error: 'رقم الجوال غير صالح' }
 
-  const email = `${input.phone.replace(/\D/g, '')}@teacher.midad.local`
+  const email = `${phoneDigits}@teacher.midad.local`
+
+  // The number is the login, so a repeat would collide inside better-auth and
+  // surface as a blank error the admin could not act on.
+  const [taken] = await db.select({ id: user.id }).from(user).where(eq(user.email, email)).limit(1)
+  if (taken) return { ok: false as const, error: 'رقم الجوال مستخدم بحساب آخر — اختر رقماً غيره' }
+
   const tempPassword = generateTempPassword()
-  
-  const result = await auth.api.signUpEmail({
-    body: { email, password: tempPassword, name: input.fullName }
-  })
+
+  try {
+    await auth.api.signUpEmail({
+      body: { email, password: tempPassword, name: fullName }
+    })
+  } catch (error) {
+    console.error('Add Teacher signUp Error:', error)
+    return { ok: false as const, error: 'تعذّر إنشاء حساب الدخول لهذا المعلم' }
+  }
   
   // The starter password is handed over on paper, so the portal stays closed
   // until the teacher replaces it with one only they know.
@@ -48,14 +63,14 @@ export async function addTeacher(input: { fullName: string; phone: string }) {
   await db.insert(teachers).values({
     schoolId: school.id,
     userId: createdUser.id,
-    fullName: input.fullName,
+    fullName,
     phone: input.phone,
   })
-  
-  await logAudit(access, 'teacher.create', input.fullName, { email })
+
+  await logAudit(access, 'teacher.create', fullName, { email })
 
   revalidatePath('/admin/teachers')
-  return { ok: true, email, tempPassword }
+  return { ok: true as const, email, tempPassword }
 }
 
 export async function deleteTeacher(teacherId: string, userId: string) {
@@ -72,6 +87,12 @@ export async function deleteTeacher(teacherId: string, userId: string) {
 
     await db.transaction(async (tx) => {
       await tx.update(subjects).set({ teacherUserId: null }).where(eq(subjects.teacherUserId, userId))
+      // An absence is only reopenable by the teacher who recorded it. Leaving
+      // their id on the row after the account is gone would lock that day's
+      // register for everyone, so ownership is released with the account.
+      await tx.update(dailyRecords)
+        .set({ absenceMarkedBy: null, absenceMarkedAt: null })
+        .where(eq(dailyRecords.absenceMarkedBy, userId))
       await tx.delete(teachers).where(eq(teachers.id, teacherId))
       await tx.delete(account).where(eq(account.userId, userId))
       await tx.delete(session).where(eq(session.userId, userId))
@@ -91,24 +112,29 @@ export async function deleteTeacher(teacherId: string, userId: string) {
 
 export async function editTeacher(teacherId: string, userId: string, input: { fullName: string; phone: string }) {
   const access = await requireTeacherManager()
-  if (!access) throw new Error('Unauthorized')
+  if (!access) return { ok: false as const, error: 'غير مصرح لك بهذا الإجراء' }
   const [teacher] = await db.select().from(teachers).where(eq(teachers.id, teacherId)).limit(1)
-  if (!teacher || teacher.schoolId !== access.school.id) throw new Error('Unauthorized')
+  if (!teacher || teacher.schoolId !== access.school.id) {
+    return { ok: false as const, error: 'المعلم غير موجود' }
+  }
+
+  const fullName = String(input.fullName ?? '').trim().slice(0, 120)
+  if (!fullName) return { ok: false as const, error: 'اسم المعلم مطلوب' }
 
   // We intentionally do NOT change the login email if the phone changes, to avoid locking the teacher out.
   // We only update the display name and phone number.
   await db.update(teachers).set({
-    fullName: input.fullName,
+    fullName,
     phone: input.phone,
   }).where(eq(teachers.id, teacherId))
 
   await db.update(user).set({
-    name: input.fullName,
+    name: fullName,
     updatedAt: new Date(),
   }).where(eq(user.id, userId))
 
   revalidatePath('/admin/teachers')
-  return { ok: true }
+  return { ok: true as const }
 }
 
 // ── Reset a teacher's password (e.g. they forgot it) ──────────────────────────
@@ -138,8 +164,14 @@ export async function resetTeacherPassword(teacherId: string, userId: string) {
 
     await logAudit(access, 'teacher.passwordReset', teacher.fullName)
 
+    // The login address is whatever the account was created with. Rebuilding it
+    // from the current phone number was wrong for any teacher whose number had
+    // been edited since — editTeacher deliberately leaves the email alone — and
+    // handed the admin credentials that could not sign in.
+    const [loginUser] = await db.select({ email: user.email }).from(user).where(eq(user.id, userId)).limit(1)
+
     revalidatePath('/admin/teachers')
-    return { ok: true, tempPassword }
+    return { ok: true, tempPassword, email: loginUser?.email ?? '' }
   } catch (error) {
     console.error('Reset Teacher Password Error:', error)
     return { ok: false, error: 'حدث خطأ أثناء إعادة تعيين كلمة المرور' }

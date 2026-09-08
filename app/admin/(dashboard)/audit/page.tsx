@@ -26,11 +26,50 @@ const DESTRUCTIVE = new Set<string>([
 ])
 
 function formatWhen(date: Date) {
-  return new Intl.DateTimeFormat('ar-SA', {
+  // 'ar-SA' alone renders Hijri dates. An audit trail has to line up with the
+  // Gregorian dates recorded everywhere else, or a date cannot be traced.
+  return new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'Asia/Riyadh',
   }).format(date)
+}
+
+/**
+ * Each action stores its own extra context — the day a register was reopened,
+ * how many points were given by hand and why. It was written but never shown,
+ * which left the log saying that something happened without saying what.
+ */
+const DETAIL_LABELS: Record<string, string> = {
+  date: 'التاريخ',
+  students: 'عدد الطلاب',
+  points: 'النقاط',
+  reason: 'السبب',
+  replaced: 'درجات مستبدلة',
+  maxScore: 'الدرجة القصوى',
+  examType: 'نوع الاختبار',
+  role: 'الدور',
+  email: 'البريد',
+  scope: 'النطاق',
+  from: 'الاسم السابق',
+  unassignedSubjects: 'مواد أُلغي إسنادها',
+  allGrades: 'كل المراحل',
+  parentPhone: 'جوال ولي الأمر',
+  studentPointsSkipped: 'نقاط قديمة متجاهَلة',
+  pointsRecomputed: 'صفوف أُعيد حسابها',
+}
+
+function readDetails(raw: string | null): string {
+  if (!raw) return ''
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    return Object.entries(parsed)
+      .filter(([, v]) => v !== null && v !== undefined && v !== '')
+      .map(([k, v]) => `${DETAIL_LABELS[k] ?? k}: ${typeof v === 'boolean' ? (v ? 'نعم' : 'لا') : String(v)}`)
+      .join(' · ')
+  } catch {
+    return ''
+  }
 }
 
 export default async function AuditPage() {
@@ -63,6 +102,7 @@ export default async function AuditPage() {
                 <tr>
                   <th className="p-4 font-semibold">الإجراء</th>
                   <th className="p-4 font-semibold">على</th>
+                  <th className="p-4 font-semibold">التفاصيل</th>
                   <th className="p-4 font-semibold">بواسطة</th>
                   <th className="p-4 font-semibold">التاريخ والوقت</th>
                 </tr>
@@ -82,6 +122,9 @@ export default async function AuditPage() {
                         </span>
                       </td>
                       <td className="p-4 font-semibold text-sm">{e.entityName || '—'}</td>
+                      <td className="p-4 text-xs text-muted-foreground max-w-[280px]">
+                        {readDetails(e.details) || '—'}
+                      </td>
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                           <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">

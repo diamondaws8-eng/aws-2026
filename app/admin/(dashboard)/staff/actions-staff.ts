@@ -2,8 +2,8 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { schoolStaff, user, account, session } from '@/lib/db/schema'
-import { eq, and } from 'drizzle-orm'
+import { schoolStaff, user, account, session, gradeLevels } from '@/lib/db/schema'
+import { eq, and, inArray } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { hashPassword } from 'better-auth/crypto'
 import { getAdminAccess } from '@/lib/admin-access'
@@ -33,6 +33,21 @@ const ALLOWED_ROLES = ['quality_manager', 'principal', 'deputy'] as const
 const isAllowedRole = (role: string): role is StaffInput['role'] =>
   (ALLOWED_ROLES as readonly string[]).includes(role)
 
+/**
+ * Grade ids arrive from the browser. A foreign one is not a way in — every
+ * query is filtered by school as well — but it would leave a deputy staring at
+ * empty pages with nothing to explain why, so it is rejected here.
+ */
+async function scopedGradeIds(schoolId: string, ids: string[]): Promise<string[] | null> {
+  const wanted = [...new Set((ids ?? []).filter((id) => typeof id === 'string' && id))]
+  if (wanted.length === 0) return []
+  const rows = await db
+    .select({ id: gradeLevels.id })
+    .from(gradeLevels)
+    .where(and(eq(gradeLevels.schoolId, schoolId), inArray(gradeLevels.id, wanted)))
+  return rows.length === wanted.length ? wanted : null
+}
+
 /** Only the owner and quality managers may manage the admin team. */
 async function requireStaffManager() {
   const access = await getAdminAccess()
@@ -56,6 +71,11 @@ export async function addStaff(input: StaffInput) {
   const [existing] = await db.select().from(user).where(eq(user.email, email)).limit(1)
   if (existing) return { ok: false as const, error: 'هذا البريد الإلكتروني مستخدم بالفعل' }
 
+  const verifiedGrades = input.allGrades ? [] : await scopedGradeIds(access.school.id, input.gradeLevelIds)
+  if (verifiedGrades === null) {
+    return { ok: false as const, error: 'إحدى المراحل المحددة ليست من مراحل هذه المدرسة' }
+  }
+
   const tempPassword = generateTempPassword()
 
   try {
@@ -70,7 +90,12 @@ export async function addStaff(input: StaffInput) {
   const [createdUser] = await db.select().from(user).where(eq(user.email, email)).limit(1)
   if (!createdUser) return { ok: false as const, error: 'تعذّر إنشاء الحساب' }
 
-  await db.update(user).set({ role: 'admin', updatedAt: new Date() }).where(eq(user.id, createdUser.id))
+  // Handed over by another administrator, so the portal stays shut until this
+  // account picks its own — the same rule teachers and parents already follow,
+  // and this account carries more authority than either.
+  await db.update(user)
+    .set({ role: 'admin', mustChangePassword: true, updatedAt: new Date() })
+    .where(eq(user.id, createdUser.id))
 
   await db.insert(schoolStaff).values({
     schoolId: access.school.id,
@@ -79,7 +104,7 @@ export async function addStaff(input: StaffInput) {
     phone: input.phone?.trim() || null,
     role: input.role,
     allGrades: input.allGrades,
-    gradeLevelIds: JSON.stringify(input.allGrades ? [] : input.gradeLevelIds),
+    gradeLevelIds: JSON.stringify(input.allGrades ? [] : verifiedGrades),
     canEdit: resolveCanEdit(input.role, input.canEdit),
     // Password is shown once below and never stored in plaintext.
   })
@@ -104,12 +129,17 @@ export async function editStaff(staffId: string, input: Omit<StaffInput, 'email'
     return { ok: false as const, error: 'غير مصرح بالوصول لهذا الحساب' }
   }
 
+  const verifiedGrades = input.allGrades ? [] : await scopedGradeIds(access.school.id, input.gradeLevelIds)
+  if (verifiedGrades === null) {
+    return { ok: false as const, error: 'إحدى المراحل المحددة ليست من مراحل هذه المدرسة' }
+  }
+
   await db.update(schoolStaff).set({
     fullName: input.fullName.trim(),
     phone: input.phone?.trim() || null,
     role: input.role,
     allGrades: input.allGrades,
-    gradeLevelIds: JSON.stringify(input.allGrades ? [] : input.gradeLevelIds),
+    gradeLevelIds: JSON.stringify(input.allGrades ? [] : verifiedGrades),
     canEdit: resolveCanEdit(input.role, input.canEdit),
   }).where(eq(schoolStaff.id, staffId))
 
@@ -164,6 +194,10 @@ export async function resetStaffPassword(staffId: string) {
 
     await db.update(account).set({ password: hashed, updatedAt: new Date() })
       .where(and(eq(account.userId, staff.userId), eq(account.providerId, 'credential')))
+
+    await db.update(user)
+      .set({ mustChangePassword: true, updatedAt: new Date() })
+      .where(eq(user.id, staff.userId))
 
     const [staffUser] = await db.select({ email: user.email }).from(user).where(eq(user.id, staff.userId)).limit(1)
 

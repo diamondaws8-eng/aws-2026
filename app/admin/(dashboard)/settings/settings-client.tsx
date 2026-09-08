@@ -330,10 +330,22 @@ export default function SettingsClient({
     try {
       const res = await restoreFullBackup(schoolId, pendingRestore.raw)
       if (res.ok) {
-        const total = Object.values(res.counts || {}).reduce((a: number, b) => a + (b as number), 0)
+        // Only the table counts are records. The result also carries diagnostic
+        // figures (rows skipped, totals recomputed), and summing everything
+        // would report more records than the file ever held.
+        const counts = (res.counts ?? {}) as Record<string, number>
+        const total = Object.keys(RESTORE_TABLE_LABELS)
+          .reduce((sum, key) => sum + (counts[key] ?? 0), 0)
+
+        const notes: string[] = []
+        if (res.missingLogins) notes.push(`${res.missingLogins} من حسابات المعلمين لم تعد مرتبطة بتسجيل دخول فعّال`)
+        if (res.missingParentLogins) notes.push(`${res.missingParentLogins} من حسابات أولياء الأمور لم تعد مرتبطة بتسجيل دخول فعّال`)
+        if (counts.studentPointsSkipped) notes.push(`${counts.studentPointsSkipped} صف نقاط قديم تم تجاهله لأنه محسوب تلقائياً الآن`)
+        if (counts.pointsRecomputed) notes.push(`أُعيد حساب نقاط ${counts.pointsRecomputed} صف`)
+
         setRestoreResult({
           ok: true,
-          text: `تمت الاستعادة بنجاح — ${total} سجل${res.missingLogins ? `. تنبيه: ${res.missingLogins} من حسابات المعلمين لم تعد مرتبطة بتسجيل دخول فعّال.` : ''}`,
+          text: `تمت الاستعادة بنجاح — ${total} سجل${notes.length ? `. ${notes.join('. ')}.` : ''}`,
         })
         cancelRestore()
         router.refresh()

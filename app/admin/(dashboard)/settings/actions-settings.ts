@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import {
   schools, gradeLevels, classes, teachers, students, subjects, attendance,
-  gradeEntries, notifications, dailyRecords, lessonRecords, studentPoints, user, schoolStaff
+  gradeEntries, notifications, dailyRecords, lessonRecords, studentPoints, user, schoolStaff, account
 } from '@/lib/db/schema'
 import { eq, inArray, and, ne } from 'drizzle-orm'
 import { getAdminAccess } from '@/lib/admin-access'
@@ -412,21 +412,64 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
     const settingsNow = await getSchoolSettings(schoolId)
     counts.pointsRecomputed = await resyncSchoolPoints(schoolId, settingsNow)
 
-    // Informational: how many restored teacher accounts no longer have a matching login
-    let missingLogins = 0
-    const teacherUserIds: string[] = (d.teachers || []).map((t: any) => t.userId).filter(Boolean)
-    if (teacherUserIds.length) {
-      const existing = await db.select({ id: user.id }).from(user).where(inArray(user.id, teacherUserIds))
-      missingLogins = teacherUserIds.length - existing.length
+    // A restore brings back the teacher and student rows but not the login
+    // accounts, so anyone deleted since the file was written comes back listed
+    // yet unable to sign in. Counting them is the only way the owner finds out.
+    const countMissing = async (ids: string[]) => {
+      const wanted = [...new Set(ids.filter(Boolean))]
+      if (!wanted.length) return 0
+      const existing = await db.select({ id: user.id }).from(user).where(inArray(user.id, wanted))
+      return wanted.length - existing.length
     }
 
-    await logAudit(access, 'backup.restore', access.school.name, { counts, missingLogins })
+    const missingLogins = await countMissing((d.teachers || []).map((t: any) => t.userId))
+    const missingParentLogins = await countMissing((d.students || []).map((st: any) => st.parentUserId))
+
+    await logAudit(access, 'backup.restore', access.school.name, { counts, missingLogins, missingParentLogins })
 
     revalidatePath('/admin', 'layout')
 
-    return { ok: true, counts, missingLogins }
+    return { ok: true, counts, missingLogins, missingParentLogins }
   } catch (error) {
     console.error('Restore Error:', error)
     return { ok: false, error: 'حدث خطأ أثناء الاستعادة. لم يتم تعديل أي بيانات (تم التراجع تلقائياً).' }
+  }
+}
+
+/**
+ * First-login password change for an administrator whose account was created by
+ * someone else. Usable only while the flag stands, so it can never replace the
+ * normal "enter your current password" flow. The owner is never flagged.
+ */
+export async function setOwnAdminPassword(newPassword: string, confirmPassword: string) {
+  const access = await getAdminAccess()
+  if (!access) return { ok: false as const, error: 'غير مصرح بهذا الإجراء' }
+
+  const [me] = await db
+    .select({ mustChange: user.mustChangePassword })
+    .from(user)
+    .where(eq(user.id, access.userId))
+    .limit(1)
+  if (!me?.mustChange) return { ok: false as const, error: 'لا حاجة لتغيير كلمة المرور' }
+
+  if (newPassword !== confirmPassword) {
+    return { ok: false as const, error: 'كلمتا المرور غير متطابقتين' }
+  }
+  if (newPassword.length < 8) {
+    return { ok: false as const, error: 'كلمة المرور يجب أن تكون 8 أحرف أو أرقام على الأقل' }
+  }
+
+  try {
+    const { hashPassword } = await import('better-auth/crypto')
+    const hashed = await hashPassword(newPassword)
+    await db.update(account).set({ password: hashed, updatedAt: new Date() })
+      .where(and(eq(account.userId, access.userId), eq(account.providerId, 'credential')))
+    await db.update(user)
+      .set({ mustChangePassword: false, updatedAt: new Date() })
+      .where(eq(user.id, access.userId))
+    return { ok: true as const }
+  } catch (error) {
+    console.error('Set Admin Password Error:', error)
+    return { ok: false as const, error: 'حدث خطأ أثناء حفظ كلمة المرور' }
   }
 }

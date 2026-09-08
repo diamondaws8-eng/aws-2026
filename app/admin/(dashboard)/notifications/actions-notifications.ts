@@ -66,7 +66,43 @@ export async function sendNotification(data: any) {
 
 export async function deleteNotification(id: string, schoolId: string) {
   const access = await getAdminAccess()
-  if (!access || !access.canEdit || access.school.id !== schoolId) return
+  if (!access || !access.canEdit || access.school.id !== schoolId) {
+    return { ok: false as const, error: 'غير مصرح لك بهذا الإجراء' }
+  }
+
+  const [notice] = await db
+    .select({ classId: notifications.classId, studentId: notifications.studentId })
+    .from(notifications)
+    .where(and(eq(notifications.id, id), eq(notifications.schoolId, schoolId)))
+    .limit(1)
+  if (!notice) return { ok: false as const, error: 'التنبيه غير موجود' }
+
+  // Sending checks the grade scope; deleting has to as well, or a deputy could
+  // remove a notice written for a stage that is not theirs.
+  if (!access.editAllGrades) {
+    let gradeLevelId: string | null = null
+    const classId = notice.classId
+      ?? (notice.studentId
+        ? (await db.select({ classId: students.classId }).from(students).where(eq(students.id, notice.studentId)).limit(1))[0]?.classId ?? null
+        : null)
+
+    if (classId) {
+      const [cls] = await db
+        .select({ gradeLevelId: classes.gradeLevelId })
+        .from(classes)
+        .where(eq(classes.id, classId))
+        .limit(1)
+      gradeLevelId = cls?.gradeLevelId ?? null
+    } else {
+      // A school-wide notice needs school-wide rights to remove.
+      return { ok: false as const, error: 'حذف التنبيهات العامة متاح لمن يملك صلاحية على كل المراحل' }
+    }
+
+    if (!canEditGrade(access, gradeLevelId)) {
+      return { ok: false as const, error: 'غير مصرح لك بحذف تنبيه هذه المرحلة' }
+    }
+  }
+
   await db.delete(notifications).where(
     and(
       eq(notifications.id, id),
@@ -74,4 +110,5 @@ export async function deleteNotification(id: string, schoolId: string) {
     )
   )
   revalidatePath('/admin/notifications')
+  return { ok: true as const }
 }
