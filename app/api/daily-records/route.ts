@@ -20,7 +20,8 @@ export async function GET(req: NextRequest) {
   if (access.status === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   // Shared attendance + this teacher's own assessment, never a colleague's.
-  const { getAbsenceLocks, getRosterForDay } = await import('@/app/teacher/(dashboard)/actions')
+  const { getAbsenceLocks } = await import('@/app/teacher/(dashboard)/actions')
+  const { getRosterForDay } = await import('@/lib/daily-roster')
   const records = await getRosterForDay(classId, date, access.access.userId)
   const absenceLocks = await getAbsenceLocks(classId, date)
 

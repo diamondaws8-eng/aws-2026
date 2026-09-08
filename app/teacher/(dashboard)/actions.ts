@@ -317,6 +317,7 @@ export async function addManualPoints(
 // ── Get daily records for a class on a date ───────────────────────────────────
 export async function getDailyRecords(classId: string, date: string) {
   const { userId } = await requireTeacherForClass(classId)
+  const { getRosterForDay } = await import('@/lib/daily-roster')
   return getRosterForDay(classId, date, userId)
 }
 
@@ -325,69 +326,6 @@ export async function getDailyRecords(classId: string, date: string) {
  * OWN assessment. A colleague's behaviour or homework marks are none of their
  * business — each teacher judges the lesson they taught.
  */
-export async function getRosterForDay(classId: string, date: string, teacherUserId: string) {
-  const [attendance, mine] = await Promise.all([
-    db.select({
-        studentId: dailyRecords.studentId,
-        attendanceStatus: dailyRecords.attendanceStatus,
-        pointsEarned: dailyRecords.pointsEarned,
-      })
-      .from(dailyRecords)
-      .where(and(eq(dailyRecords.classId, classId), eq(dailyRecords.date, date))),
-    db.select({
-        studentId: lessonRecords.studentId,
-        behavior: lessonRecords.behavior,
-        homeworkStatus: lessonRecords.homeworkStatus,
-        materialsStatus: lessonRecords.materialsStatus,
-        participationStatus: lessonRecords.participationStatus,
-        teacherNote: lessonRecords.teacherNote,
-        pointsEarned: lessonRecords.pointsEarned,
-      })
-      .from(lessonRecords)
-      .where(and(
-        eq(lessonRecords.classId, classId),
-        eq(lessonRecords.date, date),
-        eq(lessonRecords.teacherUserId, teacherUserId),
-      )),
-  ])
-
-  const byStudent = new Map(mine.map((m) => [m.studentId, m]))
-  const seen = new Set<string>()
-  const merged = attendance.map((a) => {
-    seen.add(a.studentId)
-    const m = byStudent.get(a.studentId)
-    return {
-      studentId: a.studentId,
-      attendanceStatus: a.attendanceStatus,
-      behavior: m?.behavior ?? null,
-      homeworkStatus: m?.homeworkStatus ?? null,
-      materialsStatus: m?.materialsStatus ?? null,
-      participationStatus: m?.participationStatus ?? null,
-      teacherNote: m?.teacherNote ?? null,
-      pointsEarned: a.pointsEarned + (m?.pointsEarned ?? 0),
-      /** false = this teacher has not filled their own row for the day yet. */
-      mine: !!m,
-    }
-  })
-
-  // A teacher's own row can exist before the register does (rare, but possible
-  // if attendance was cleared) — never drop it.
-  for (const m of mine) {
-    if (seen.has(m.studentId)) continue
-    merged.push({
-      studentId: m.studentId,
-      attendanceStatus: 'present',
-      behavior: m.behavior,
-      homeworkStatus: m.homeworkStatus,
-      materialsStatus: m.materialsStatus,
-      participationStatus: m.participationStatus,
-      teacherNote: m.teacherNote,
-      pointsEarned: m.pointsEarned,
-      mine: true,
-    })
-  }
-  return merged
-}
 
 // ── Get student total points ──────────────────────────────────────────────────
 export async function getStudentTotalPoints(studentId: string) {

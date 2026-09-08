@@ -21,7 +21,6 @@ export default async function StaffPage() {
       allGrades: schoolStaff.allGrades,
       gradeLevelIds: schoolStaff.gradeLevelIds,
       canEdit: schoolStaff.canEdit,
-      tempPassword: schoolStaff.tempPassword,
       email: user.email,
     })
     .from(schoolStaff)

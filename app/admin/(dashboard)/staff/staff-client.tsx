@@ -16,7 +16,6 @@ type StaffRow = {
   role: string
   allGrades: boolean
   canEdit: boolean
-  tempPassword: string | null
   email: string | null
   gradeIds: string[]
 }

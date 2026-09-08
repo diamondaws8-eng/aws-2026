@@ -35,7 +35,11 @@ export async function addTeacher(input: { fullName: string; phone: string }) {
     body: { email, password: tempPassword, name: input.fullName }
   })
   
-  await db.update(user).set({ role: 'teacher', updatedAt: new Date() }).where(eq(user.email, email))
+  // The starter password is handed over on paper, so the portal stays closed
+  // until the teacher replaces it with one only they know.
+  await db.update(user)
+    .set({ role: 'teacher', mustChangePassword: true, updatedAt: new Date() })
+    .where(eq(user.email, email))
   
   const [createdUser] = await db.select().from(user).where(eq(user.email, email)).limit(1)
   
@@ -125,6 +129,12 @@ export async function resetTeacherPassword(teacherId: string, userId: string) {
 
     await db.update(account).set({ password: hashed, updatedAt: new Date() })
       .where(and(eq(account.userId, userId), eq(account.providerId, 'credential')))
+
+    // Issued by an administrator and written on a slip of paper: the teacher
+    // must replace it before the portal opens.
+    await db.update(user)
+      .set({ mustChangePassword: true, updatedAt: new Date() })
+      .where(eq(user.id, userId))
 
     await logAudit(access, 'teacher.passwordReset', teacher.fullName)
 

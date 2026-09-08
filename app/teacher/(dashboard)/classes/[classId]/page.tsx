@@ -43,7 +43,7 @@ export default async function ClassPage({ params }: { params: Promise<{ classId:
   const today = schoolToday()
 
   // Shared attendance + this teacher's own assessment for the day.
-  const { getRosterForDay } = await import('../../actions')
+  const { getRosterForDay } = await import('@/lib/daily-roster')
   const todayRecords = await getRosterForDay(classId, today, userId)
 
   // Points come from each day's record plus manual awards (see lib/points.ts)

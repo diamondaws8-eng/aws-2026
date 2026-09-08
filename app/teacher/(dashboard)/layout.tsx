@@ -1,10 +1,11 @@
 import { PortalLayout } from '@/components/portal-layout'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { teachers, schools } from '@/lib/db/schema'
+import { teachers, schools, user } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
+import { TeacherSetPasswordCard } from './set-password-card'
 
 export default async function TeacherDashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -12,6 +13,17 @@ export default async function TeacherDashboardLayout({ children }: { children: R
 
   const [teacher] = await db.select().from(teachers).where(eq(teachers.userId, session.user.id)).limit(1)
   if (!teacher) redirect('/teacher/login')
+
+  // While the account still holds the password the administration issued,
+  // nothing else in the portal is reachable.
+  const [me] = await db
+    .select({ mustChange: user.mustChangePassword })
+    .from(user)
+    .where(eq(user.id, session.user.id))
+    .limit(1)
+  if (me?.mustChange) {
+    return <TeacherSetPasswordCard teacherName={teacher.fullName} />
+  }
 
   const [school] = await db.select().from(schools).where(eq(schools.id, teacher.schoolId)).limit(1)
 

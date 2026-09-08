@@ -15,3 +15,6 @@ node_modules
 .DS_Store
 # Real student data — never push to git
 deleted-duplicate-school-backup.json
+
+# Temporary debug routes — never commit
+app/api/devcheck/
