@@ -57,8 +57,10 @@ export default async function SubjectDetailsPage({
   let totalPoints = 0
   points.forEach(p => { totalPoints += p.points })
 
+  // حاضر + متأخر — the days the student was in school, matching every other
+  // attendance figure in the system.
   let totalAttendance = 0
-  records.forEach(r => { if (r.attendanceStatus === 'present') totalAttendance++ })
+  records.forEach(r => { if (r.attendanceStatus === 'present' || r.attendanceStatus === 'late') totalAttendance++ })
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">

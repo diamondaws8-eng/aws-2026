@@ -1,5 +1,5 @@
 import { db } from '@/lib/db'
-import { dailyRecords, studentPoints, students, classes } from '@/lib/db/schema'
+import { dailyRecords, lessonRecords, studentPoints, students, classes } from '@/lib/db/schema'
 import { eq, and, inArray, sql, type SQL } from 'drizzle-orm'
 import type { SchoolSettings } from '@/app/admin/(dashboard)/settings/settings-types'
 
@@ -41,18 +41,41 @@ export type DailyStatuses = {
  * the breakdown a parent sees can never drift from what was actually awarded.
  */
 export function derivePointEntries(rec: DailyStatuses, settings: SchoolSettings): PointEntry[] {
+  return [...deriveAttendanceEntries(rec, settings), ...deriveLessonEntries(rec, settings)]
+}
+
+/**
+ * The attendance half — scored ONCE a day, however many teachers saw the pupil.
+ * Being in school is one fact about the day, not one per lesson.
+ */
+export function deriveAttendanceEntries(rec: DailyStatuses, settings: SchoolSettings): PointEntry[] {
+  const f = settings.features
+  const p = settings.points
+  const out: PointEntry[] = []
+  const add = (type: PointType, points: number, reason: string) => {
+    if (points !== 0) out.push({ type, points, reason, date: rec.date })
+  }
+
+  if (f.attendance !== false) {
+    if (rec.attendanceStatus === 'present') add('attendance', p.attendance_present ?? 1, 'حضور اليوم')
+    else if (rec.attendanceStatus === 'late') add('attendance', p.attendance_late ?? 0, 'تأخر')
+    else if (rec.attendanceStatus === 'absent') add('attendance', p.attendance_absent ?? -1, 'غياب بدون عذر')
+  }
+
+  return out
+}
+
+/**
+ * The per-lesson half — scored once per teacher. Doing the homework for six
+ * subjects earns six times what doing it for one earns, which is the point.
+ */
+export function deriveLessonEntries(rec: DailyStatuses, settings: SchoolSettings): PointEntry[] {
   const f = settings.features
   const p = settings.points
   const out: PointEntry[] = []
   const add = (type: PointType, points: number, reason: string) => {
     // A zero-point outcome isn't worth listing.
     if (points !== 0) out.push({ type, points, reason, date: rec.date })
-  }
-
-  if (f.attendance !== false) {
-    if (rec.attendanceStatus === 'present') add('attendance', p.attendance_present ?? 1, 'حضور الحصة')
-    else if (rec.attendanceStatus === 'late') add('attendance', p.attendance_late ?? 0, 'تأخر')
-    else if (rec.attendanceStatus === 'absent') add('attendance', p.attendance_absent ?? -1, 'غياب بدون عذر')
   }
 
   if (f.behavior !== false && rec.behavior) {
@@ -84,6 +107,16 @@ export function totalPointsFor(rec: DailyStatuses, settings: SchoolSettings): nu
   return derivePointEntries(rec, settings).reduce((sum, e) => sum + e.points, 0)
 }
 
+/** What `daily_records.pointsEarned` holds: the attendance half only. */
+export function attendancePointsFor(rec: DailyStatuses, settings: SchoolSettings): number {
+  return deriveAttendanceEntries(rec, settings).reduce((sum, e) => sum + e.points, 0)
+}
+
+/** What `lesson_records.pointsEarned` holds: one teacher's half. */
+export function lessonPointsFor(rec: DailyStatuses, settings: SchoolSettings): number {
+  return deriveLessonEntries(rec, settings).reduce((sum, e) => sum + e.points, 0)
+}
+
 // ─── Keeping the stored total honest ─────────────────────────────────────────
 
 /**
@@ -100,52 +133,63 @@ export function totalPointsFor(rec: DailyStatuses, settings: SchoolSettings): nu
 export async function resyncSchoolPoints(schoolId: string, settings: SchoolSettings): Promise<number> {
   const f = settings.features
   const p = settings.points
-  const terms: SQL[] = []
 
-  if (f.attendance !== false) {
-    terms.push(sql`CASE ${dailyRecords.attendanceStatus}
-      WHEN 'present' THEN ${p.attendance_present ?? 1}::int
-      WHEN 'late'    THEN ${p.attendance_late ?? 0}::int
-      WHEN 'absent'  THEN ${p.attendance_absent ?? -1}::int
-      ELSE 0 END`)
-  }
+  // The register carries the attendance half…
+  const attendanceExpr =
+    f.attendance !== false
+      ? sql`CASE ${dailyRecords.attendanceStatus}
+          WHEN 'present' THEN ${p.attendance_present ?? 1}::int
+          WHEN 'late'    THEN ${p.attendance_late ?? 0}::int
+          WHEN 'absent'  THEN ${p.attendance_absent ?? -1}::int
+          ELSE 0 END`
+      : sql`0`
+
+  // …and each teacher's row carries their own.
+  const lessonTerms: SQL[] = []
   if (f.behavior !== false) {
-    terms.push(sql`CASE ${dailyRecords.behavior}
+    lessonTerms.push(sql`CASE ${lessonRecords.behavior}
       WHEN 'excellent' THEN ${p.behavior_excellent ?? 2}::int
       WHEN 'good'      THEN ${p.behavior_good ?? 1}::int
       WHEN 'issue'     THEN ${p.behavior_bad ?? -2}::int
       ELSE 0 END`)
   }
   if (f.homework !== false) {
-    terms.push(sql`CASE ${dailyRecords.homeworkStatus}
+    lessonTerms.push(sql`CASE ${lessonRecords.homeworkStatus}
       WHEN 'done'    THEN ${p.homework_done ?? 1}::int
       WHEN 'missing' THEN ${p.homework_notdone ?? -1}::int
       ELSE 0 END`)
   }
   if (f.materials !== false) {
-    terms.push(sql`CASE ${dailyRecords.materialsStatus}
+    lessonTerms.push(sql`CASE ${lessonRecords.materialsStatus}
       WHEN 'brought' THEN ${p.materials_brought ?? 1}::int
       WHEN 'missing' THEN ${p.materials_missing ?? -1}::int
       ELSE 0 END`)
   }
   if (f.participation !== false) {
-    terms.push(sql`CASE ${dailyRecords.participationStatus}
+    lessonTerms.push(sql`CASE ${lessonRecords.participationStatus}
       WHEN 'active'   THEN ${p.participation_active ?? 2}::int
       WHEN 'inactive' THEN ${p.participation_inactive ?? 0}::int
       ELSE 0 END`)
   }
+  const lessonExpr = lessonTerms.length ? sql.join(lessonTerms, sql` + `) : sql`0`
 
-  const expr = terms.length ? sql.join(terms, sql` + `) : sql`0`
+  const [attendanceRes, lessonRes] = await Promise.all([
+    db.update(dailyRecords)
+      .set({ pointsEarned: attendanceExpr })
+      .where(and(
+        eq(dailyRecords.schoolId, schoolId),
+        sql`${dailyRecords.pointsEarned} IS DISTINCT FROM (${attendanceExpr})`,
+      )),
+    db.update(lessonRecords)
+      .set({ pointsEarned: lessonExpr })
+      .where(and(
+        eq(lessonRecords.schoolId, schoolId),
+        sql`${lessonRecords.pointsEarned} IS DISTINCT FROM (${lessonExpr})`,
+      )),
+  ])
 
-  const res = await db
-    .update(dailyRecords)
-    .set({ pointsEarned: expr })
-    .where(and(
-      eq(dailyRecords.schoolId, schoolId),
-      sql`${dailyRecords.pointsEarned} IS DISTINCT FROM (${expr})`,
-    ))
-
-  return (res as unknown as { rowCount?: number }).rowCount ?? 0
+  const rows = (r: unknown) => (r as { rowCount?: number }).rowCount ?? 0
+  return rows(attendanceRes) + rows(lessonRes)
 }
 
 // ─── Totals ───────────────────────────────────────────────────────────────────
@@ -153,13 +197,15 @@ export async function resyncSchoolPoints(schoolId: string, settings: SchoolSetti
 
 /** One student's lifetime total. */
 export async function getStudentPointsTotal(studentId: string): Promise<number> {
-  const [daily, manual] = await Promise.all([
+  const [attendance, lessons, manual] = await Promise.all([
     db.select({ v: sql<number>`COALESCE(SUM(${dailyRecords.pointsEarned}), 0)`.mapWith(Number) })
       .from(dailyRecords).where(eq(dailyRecords.studentId, studentId)),
+    db.select({ v: sql<number>`COALESCE(SUM(${lessonRecords.pointsEarned}), 0)`.mapWith(Number) })
+      .from(lessonRecords).where(eq(lessonRecords.studentId, studentId)),
     db.select({ v: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`.mapWith(Number) })
       .from(studentPoints).where(eq(studentPoints.studentId, studentId)),
   ])
-  return (daily[0]?.v ?? 0) + (manual[0]?.v ?? 0)
+  return (attendance[0]?.v ?? 0) + (lessons[0]?.v ?? 0) + (manual[0]?.v ?? 0)
 }
 
 /** One student's total from a single teacher in a single class. */
@@ -168,13 +214,15 @@ export async function getStudentTeacherPointsTotal(
   classId: string,
   teacherUserId: string,
 ): Promise<number> {
+  // Attendance is nobody's in particular — it belongs to the day, so a single
+  // teacher's total is their own lesson score plus what they awarded by hand.
   const [daily, manual] = await Promise.all([
-    db.select({ v: sql<number>`COALESCE(SUM(${dailyRecords.pointsEarned}), 0)`.mapWith(Number) })
-      .from(dailyRecords)
+    db.select({ v: sql<number>`COALESCE(SUM(${lessonRecords.pointsEarned}), 0)`.mapWith(Number) })
+      .from(lessonRecords)
       .where(and(
-        eq(dailyRecords.studentId, studentId),
-        eq(dailyRecords.classId, classId),
-        eq(dailyRecords.teacherUserId, teacherUserId),
+        eq(lessonRecords.studentId, studentId),
+        eq(lessonRecords.classId, classId),
+        eq(lessonRecords.teacherUserId, teacherUserId),
       )),
     db.select({ v: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`.mapWith(Number) })
       .from(studentPoints)
@@ -189,12 +237,17 @@ export async function getStudentTeacherPointsTotal(
 
 /** Totals for every student in a class, keyed by student id. */
 export async function getClassPointsTotals(classId: string): Promise<Record<string, number>> {
-  const [daily, manual] = await Promise.all([
+  const [attendance, lessons, manual] = await Promise.all([
     db.select({
         studentId: dailyRecords.studentId,
         v: sql<number>`COALESCE(SUM(${dailyRecords.pointsEarned}), 0)`.mapWith(Number),
       })
       .from(dailyRecords).where(eq(dailyRecords.classId, classId)).groupBy(dailyRecords.studentId),
+    db.select({
+        studentId: lessonRecords.studentId,
+        v: sql<number>`COALESCE(SUM(${lessonRecords.pointsEarned}), 0)`.mapWith(Number),
+      })
+      .from(lessonRecords).where(eq(lessonRecords.classId, classId)).groupBy(lessonRecords.studentId),
     db.select({
         studentId: studentPoints.studentId,
         v: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`.mapWith(Number),
@@ -203,8 +256,9 @@ export async function getClassPointsTotals(classId: string): Promise<Record<stri
   ])
 
   const totals: Record<string, number> = {}
-  for (const row of daily) totals[row.studentId] = (totals[row.studentId] ?? 0) + row.v
-  for (const row of manual) totals[row.studentId] = (totals[row.studentId] ?? 0) + row.v
+  for (const row of [...attendance, ...lessons, ...manual]) {
+    totals[row.studentId] = (totals[row.studentId] ?? 0) + row.v
+  }
   return totals
 }
 
@@ -223,7 +277,7 @@ export type LeaderboardRow = {
 export async function getLeaderboard(schoolId: string, classIds?: string[] | null): Promise<LeaderboardRow[]> {
   const classFilter = classIds ? (classIds.length ? inArray(students.classId, classIds) : sql`false`) : undefined
 
-  const [roster, daily, manual] = await Promise.all([
+  const [roster, attendance, lessons, manual] = await Promise.all([
     db.select({
         id: students.id,
         name: students.fullName,
@@ -241,6 +295,12 @@ export async function getLeaderboard(schoolId: string, classIds?: string[] | nul
       .from(dailyRecords).where(eq(dailyRecords.schoolId, schoolId)).groupBy(dailyRecords.studentId),
 
     db.select({
+        studentId: lessonRecords.studentId,
+        v: sql<number>`COALESCE(SUM(${lessonRecords.pointsEarned}), 0)`.mapWith(Number),
+      })
+      .from(lessonRecords).where(eq(lessonRecords.schoolId, schoolId)).groupBy(lessonRecords.studentId),
+
+    db.select({
         studentId: studentPoints.studentId,
         v: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`.mapWith(Number),
       })
@@ -248,8 +308,9 @@ export async function getLeaderboard(schoolId: string, classIds?: string[] | nul
   ])
 
   const totals: Record<string, number> = {}
-  for (const row of daily) totals[row.studentId] = (totals[row.studentId] ?? 0) + row.v
-  for (const row of manual) totals[row.studentId] = (totals[row.studentId] ?? 0) + row.v
+  for (const row of [...attendance, ...lessons, ...manual]) {
+    totals[row.studentId] = (totals[row.studentId] ?? 0) + row.v
+  }
 
   return roster
     .map((s) => ({ ...s, totalPoints: totals[s.id] ?? 0 }))
@@ -290,27 +351,38 @@ export async function getStudentPointsHistory(
   const limit = opts?.limit ?? 100
 
   const dailyFilters = [eq(dailyRecords.studentId, studentId)]
+  const lessonFilters = [eq(lessonRecords.studentId, studentId)]
   const manualFilters = [eq(studentPoints.studentId, studentId)]
   if (opts?.teacherUserId) {
-    dailyFilters.push(eq(dailyRecords.teacherUserId, opts.teacherUserId))
+    // Attendance has no owner, so narrowing to one teacher means their lessons.
+    lessonFilters.push(eq(lessonRecords.teacherUserId, opts.teacherUserId))
     manualFilters.push(eq(studentPoints.teacherUserId, opts.teacherUserId))
   }
 
-  const [days, manual] = await Promise.all([
+  const [days, lessons, manual] = await Promise.all([
+    opts?.teacherUserId
+      ? Promise.resolve([])
+      : db.select({
+          date: dailyRecords.date,
+          attendanceStatus: dailyRecords.attendanceStatus,
+        })
+        .from(dailyRecords).where(and(...dailyFilters)),
     db.select({
-        date: dailyRecords.date,
-        attendanceStatus: dailyRecords.attendanceStatus,
-        behavior: dailyRecords.behavior,
-        homeworkStatus: dailyRecords.homeworkStatus,
-        materialsStatus: dailyRecords.materialsStatus,
-        participationStatus: dailyRecords.participationStatus,
+        date: lessonRecords.date,
+        behavior: lessonRecords.behavior,
+        homeworkStatus: lessonRecords.homeworkStatus,
+        materialsStatus: lessonRecords.materialsStatus,
+        participationStatus: lessonRecords.participationStatus,
       })
-      .from(dailyRecords).where(and(...dailyFilters)),
+      .from(lessonRecords).where(and(...lessonFilters)),
     db.select({ date: studentPoints.date, points: studentPoints.points, reason: studentPoints.reason })
       .from(studentPoints).where(and(...manualFilters)),
   ])
 
-  const entries: PointEntry[] = days.flatMap((d) => derivePointEntries(d, settings))
+  const entries: PointEntry[] = [
+    ...days.flatMap((d) => deriveAttendanceEntries(d, settings)),
+    ...lessons.flatMap((l) => deriveLessonEntries(l, settings)),
+  ]
   for (const m of manual) {
     entries.push({ type: 'manual', points: m.points, reason: m.reason, date: m.date })
   }

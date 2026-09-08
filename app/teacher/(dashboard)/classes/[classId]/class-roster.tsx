@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage } from '../../actions'
-import type { DailyStudentRecord } from '../../actions'
+import type { DailyStudentRecord, AbsenceLock, BlockedAbsence } from '../../actions'
 
 type Student = { id: string; fullName: string; parentPhone?: string | null }
 type DailyRecord = {
@@ -28,6 +29,7 @@ type Props = {
   initialRecords: DailyRecord[]
   pointsSummary: PointSummary[]
   savedGrades?: any[]
+  absenceLocks?: AbsenceLock[]
   schoolSettings?: any
   teacherTemplates?: { positive: string[], negative: string[] }
 }
@@ -38,12 +40,22 @@ type Homework = 'done' | 'missing' | 'na'
 type Materials = 'brought' | 'missing' | 'na'
 type Participation = 'active' | 'inactive' | 'na'
 
-const ATT_BTNS: { key: AttStatus; label: string; cls: string }[] = [
-  { key: 'present', label: 'حاضر', cls: 'bg-emerald-100 text-emerald-700 border-emerald-400' },
-  { key: 'absent',  label: 'غائب', cls: 'bg-red-100 text-red-700 border-red-400' },
-  { key: 'late',    label: 'متأخر', cls: 'bg-amber-100 text-amber-700 border-amber-400' },
-  { key: 'excused', label: 'إذن',  cls: 'bg-blue-100 text-blue-700 border-blue-400' },
-]
+/**
+ * Attendance is one binary question — in school or not — with an optional
+ * detail. Offering four equal buttons was what let متأخر and إذن slip out of
+ * every total: they read as separate outcomes instead of shades of the two
+ * that matter. The stored value is still one of the same four strings, so
+ * nothing downstream changes.
+ */
+const IN_SCHOOL: AttStatus[] = ['present', 'late']
+const isInSchool = (s: AttStatus) => IN_SCHOOL.includes(s)
+
+const ATT_LABELS: Record<AttStatus, string> = {
+  present: 'حاضر',
+  late: 'حاضر (متأخر)',
+  absent: 'غائب',
+  excused: 'غائب (بعذر)',
+}
 
 const BEH_BTNS: { key: Behavior; emoji: string; label: string }[] = [
   { key: 'excellent', emoji: '😊', label: 'ممتاز' },
@@ -120,7 +132,7 @@ function formatDateArabic(dateStr: string): string {
 
 // ── MAIN COMPONENT ─────────────────────────────────────────────────────────────
 export default function ClassRoster({
-  classInfo, students, teacherName, schoolName, subjects, initialDate, initialRecords, pointsSummary, savedGrades, schoolSettings, teacherTemplates
+  classInfo, students, teacherName, schoolName, subjects, initialDate, initialRecords, pointsSummary, savedGrades, absenceLocks, schoolSettings, teacherTemplates
 }: Props) {
   const [activeTab, setActiveTab] = useState<'daily' | 'grades' | 'points'>('daily')
   const [selectedDate, setSelectedDate] = useState(initialDate)
@@ -147,6 +159,14 @@ export default function ClassRoster({
 
   // WhatsApp modal
   const [whatsappModal, setWhatsappModal] = useState<{ student: Student; type: 'positive' | 'negative' } | null>(null)
+
+  // An absence recorded by another teacher holds for the whole day, so those
+  // students are locked here and the reason is shown instead of being silent.
+  const [locks, setLocks] = useState<Record<string, AbsenceLock>>(() =>
+    Object.fromEntries((absenceLocks ?? []).map(l => [l.studentId, l]))
+  )
+  const [lockCard, setLockCard] = useState<{ student: Student; lock: AbsenceLock } | null>(null)
+  const [blockedNotice, setBlockedNotice] = useState<BlockedAbsence[]>([])
 
   // Grades Tab State
   const [selectedSubject, setSelectedSubject] = useState<string>(subjects[0]?.id || '')
@@ -195,6 +215,7 @@ export default function ClassRoster({
       const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${newDate}`)
       const data = await res.json()
       initFromRecords(data.records || [])
+      setLocks(Object.fromEntries(((data.absenceLocks ?? []) as AbsenceLock[]).map(l => [l.studentId, l])))
       setSelectedDate(newDate)
     } catch {
       // fallback: reset to defaults
@@ -205,6 +226,7 @@ export default function ClassRoster({
       const part: Record<string, Participation> = {}
       students.forEach(s => { att[s.id] = 'present'; beh[s.id] = 'good'; hw[s.id] = 'done'; mat[s.id] = 'brought'; part[s.id] = 'active' })
       setAttendance(att); setBehavior(beh); setHomework(hw); setMaterials(mat); setParticipation(part); setNotes({})
+      setLocks({})
       setSelectedDate(newDate)
     } finally {
       setLoadingDate(false)
@@ -230,9 +252,19 @@ export default function ClassRoster({
         return
       }
       setSavedMsg('✓ تم حفظ اليوم بنجاح')
+      // An absence another teacher recorded stands: show exactly whose it was.
+      setBlockedNotice(saved.blocked)
+      if (saved.blocked.length) {
+        setAttendance(a => {
+          const next = { ...a }
+          for (const b of saved.blocked) next[b.studentId] = b.status as AttStatus
+          return next
+        })
+      }
       // Refresh points
       const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${selectedDate}`)
       const data = await res.json()
+      setLocks(Object.fromEntries(((data.absenceLocks ?? []) as AbsenceLock[]).map(l => [l.studentId, l])))
       if (data.pointsSummary) {
         const pts: Record<string, number> = {}
         students.forEach(s => { pts[s.id] = 0 })
@@ -338,6 +370,40 @@ export default function ClassRoster({
       {/* ── Daily Tab ── */}
       {activeTab === 'daily' && (
         <div className="flex-1 overflow-auto">
+          <div className="mx-4 mt-4 rounded-xl border border-border bg-muted/30 px-4 py-2.5 text-xs leading-6 text-muted-foreground">
+            <span className="font-semibold text-foreground">الحضور والغياب مشترك</span> بين كل معلمي الفصل — أول من يسجّله يثبّته لليوم،
+            وأي معلم يستطيع منح الطالب إذناً بالخروج في حصته.
+            {' '}أما <span className="font-semibold text-foreground">السلوك والواجب والأدوات والمشاركة</span> فهي تقييمك أنت وحدك في حصتك،
+            لا يراها زميلك ولا تُفرض عليه.
+          </div>
+          {blockedNotice.length > 0 && (
+            <div className="m-4 rounded-2xl border border-red-200 bg-red-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-bold text-red-700 text-sm">
+                    🔒 {blockedNotice.length} من الطلاب سُجِّل غيابهم مسبقاً ولم يتغيّروا
+                  </p>
+                  <ul className="mt-2 space-y-1 text-sm text-red-700/90">
+                    {blockedNotice.map(b => (
+                      <li key={b.studentId}>
+                        <span className="font-semibold">{b.studentName}</span>
+                        {' — '}{ATT_LABELS[(b.status as AttStatus)] ?? 'غائب'}، سجّله {b.teacherName}
+                        {b.at ? ` الساعة ${new Date(b.at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-red-700/80">
+                    الطالب الغائب يُحتسب غائباً في بقية الحصص، ولا يستطيع تعديل الحالة إلا المعلم الذي سجّلها.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setBlockedNotice([])}
+                  className="shrink-0 rounded-full px-2 text-lg leading-none text-red-700 hover:bg-red-100"
+                  aria-label="إغلاق"
+                >×</button>
+              </div>
+            </div>
+          )}
           {students.length === 0 ? (
             <div className="p-12 text-center text-muted-foreground">لا يوجد طلاب في هذا الفصل</div>
           ) : (
@@ -364,29 +430,76 @@ export default function ClassRoster({
                       const hw = homework[student.id] || 'done'
                       const mat = materials[student.id] || 'brought'
                       const part = participation[student.id] || 'active'
-                      const previewPts = calcPoints(att, beh, hw, mat, part, schoolSettings)
+                      const lock = locks[student.id]
+                      const previewPts = calcPoints(lock ? (lock.status as AttStatus) : att, beh, hw, mat, part, schoolSettings)
                       const totalPts = points[student.id] ?? 0
                       const phone = student.parentPhone?.replace(/\D/g, '') || ''
 
                       return (
-                        <tr key={student.id} className={`hover:bg-muted/20 transition-colors ${att === 'absent' ? 'bg-red-50/30' : att === 'late' ? 'bg-amber-50/30' : ''}`}>
+                        <tr key={student.id} className={`hover:bg-muted/20 transition-colors ${lock || att === 'absent' ? 'bg-red-50/30' : att === 'late' ? 'bg-amber-50/30' : ''}`}>
                           <td className="px-3 py-3 text-center text-xs text-muted-foreground">{idx + 1}</td>
-                          <td className="px-3 py-3 font-semibold">{student.fullName}</td>
+                          <td className="px-3 py-3 font-semibold">
+                            <Link href={`/teacher/classes/${classInfo.id}/students/${student.id}`} className="hover:text-primary hover:underline">
+                              {student.fullName}
+                            </Link>
+                          </td>
 
                           {/* Attendance */}
                           {schoolSettings?.features?.attendance !== false && (
                             <td className="px-2 py-2">
-                              <div className="flex gap-1 justify-center flex-wrap">
-                                {ATT_BTNS.map(btn => (
+                              {lock ? (
+                                // Locked: the student is out of school for the whole
+                                // day, so the buttons explain instead of pretending.
+                                <button
+                                  onClick={() => setLockCard({ student, lock })}
+                                  className="mx-auto flex items-center gap-1.5 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors"
+                                  title="اضغط لمعرفة من سجّل الغياب"
+                                >
+                                  <span>🔒</span>
+                                  <span>{ATT_LABELS[(lock.status as AttStatus)] ?? 'غائب'} — مسجَّل مسبقاً</span>
+                                </button>
+                              ) : (
+                                <div className="flex flex-col items-center gap-1.5">
+                                  <div className="flex gap-1 justify-center">
+                                    {/* Pressing the group the student is already in keeps the detail. */}
+                                    <button
+                                      onClick={() => setAttendance(a => ({ ...a, [student.id]: isInSchool(att) ? att : 'present' }))}
+                                      className={`px-4 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                        isInSchool(att)
+                                          ? 'bg-emerald-100 text-emerald-700 border-emerald-400'
+                                          : 'bg-card text-muted-foreground border-border hover:bg-muted'
+                                      }`}
+                                    >حاضر</button>
+                                    <button
+                                      onClick={() => setAttendance(a => ({ ...a, [student.id]: isInSchool(att) ? 'absent' : att }))}
+                                      className={`px-4 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                        !isInSchool(att)
+                                          ? 'bg-red-100 text-red-700 border-red-400'
+                                          : 'bg-card text-muted-foreground border-border hover:bg-muted'
+                                      }`}
+                                    >غائب</button>
+                                  </div>
                                   <button
-                                    key={btn.key}
-                                    onClick={() => setAttendance(a => ({ ...a, [student.id]: btn.key }))}
-                                    className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${
-                                      att === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
+                                    onClick={() => setAttendance(a => ({
+                                      ...a,
+                                      [student.id]: isInSchool(att)
+                                        ? (att === 'late' ? 'present' : 'late')
+                                        : (att === 'excused' ? 'absent' : 'excused'),
+                                    }))}
+                                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border transition-all ${
+                                      att === 'late'
+                                        ? 'bg-amber-100 text-amber-700 border-amber-400'
+                                        : att === 'excused'
+                                          ? 'bg-blue-100 text-blue-700 border-blue-400'
+                                          : 'bg-card text-muted-foreground border-dashed border-border hover:bg-muted'
                                     }`}
-                                  >{btn.label}</button>
-                                ))}
-                              </div>
+                                  >
+                                    {isInSchool(att)
+                                      ? (att === 'late' ? '✓ متأخر' : '+ متأخر')
+                                      : (att === 'excused' ? '✓ بعذر' : '+ بعذر')}
+                                  </button>
+                                </div>
+                              )}
                             </td>
                           )}
 
@@ -679,7 +792,11 @@ export default function ClassRoster({
                   return (
                     <tr key={student.id} className="hover:bg-muted/20">
                       <td className="px-4 py-3 text-muted-foreground">{idx + 1}</td>
-                      <td className="px-4 py-3 font-semibold">{student.fullName}</td>
+                      <td className="px-4 py-3 font-semibold">
+                        <Link href={`/teacher/classes/${classInfo.id}/students/${student.id}`} className="hover:text-primary hover:underline">
+                          {student.fullName}
+                        </Link>
+                      </td>
                       <td className="px-4 py-3 text-center">
                         <span className={`text-lg font-bold ${total >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                           {total > 0 ? '+' : ''}{total}
@@ -751,6 +868,36 @@ export default function ClassRoster({
           </div>
         </div>
       )}
+      {/* ── Absence lock card ── */}
+      {lockCard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-background rounded-3xl shadow-xl border border-border w-full max-w-md overflow-hidden animate-in zoom-in-95">
+            <div className="p-4 border-b border-border bg-red-50 dark:bg-red-950/20 flex items-center justify-between">
+              <h3 className="font-bold text-lg text-red-700 dark:text-red-400">🔒 غياب مسجَّل مسبقاً</h3>
+              <button onClick={() => setLockCard(null)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/10 text-xl leading-none">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm leading-7">
+                الطالب <span className="font-bold">{lockCard.student.fullName}</span> مسجَّل اليوم{' '}
+                <span className="font-bold">{ATT_LABELS[(lockCard.lock.status as AttStatus)] ?? 'غائب'}</span>{' '}
+                بواسطة المعلم <span className="font-bold">{lockCard.lock.teacherName}</span>
+                {lockCard.lock.at
+                  ? ` الساعة ${new Date(lockCard.lock.at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}`
+                  : ''}.
+              </p>
+              <div className="rounded-xl bg-muted/50 border border-border p-3 text-xs leading-6 text-muted-foreground">
+                الطالب الذي خرج من المدرسة يبقى غائباً في <span className="font-semibold text-foreground">جميع الحصص</span> لبقية اليوم،
+                فلا يمكن تحضيره من هنا ولا تغيير حالته. إن كان التسجيل خطأً فالمعلم الذي سجّله هو وحده من يستطيع تعديله.
+              </div>
+              <button
+                onClick={() => setLockCard(null)}
+                className="w-full py-2.5 bg-primary text-primary-foreground rounded-xl font-bold hover:opacity-90"
+              >حسناً</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── WhatsApp Templates Modal ── */}
       {whatsappModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">

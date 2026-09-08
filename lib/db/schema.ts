@@ -239,6 +239,16 @@ export const notifications = pgTable('notifications', {
 ])
 
 // ─── Daily Records (السجل اليومي الشامل) ─────────────────────────────────────
+/**
+ * The attendance register: one row per student per day, shared by every teacher
+ * who visits the class. Whether a pupil was in school is a single fact, so the
+ * first teacher to save it fixes it for the whole day.
+ *
+ * @deprecated on this table: `behavior`, `homeworkStatus`, `materialsStatus`,
+ * `participationStatus` and `teacherNote`. Those are per-lesson judgements and
+ * now live on `lesson_records`; the columns are kept only so records written
+ * before that split remain readable.
+ */
 export const dailyRecords = pgTable('daily_records', {
   id: uuid('id').defaultRandom().primaryKey(),
   schoolId: uuid('school_id').notNull(),
@@ -253,6 +263,16 @@ export const dailyRecords = pgTable('daily_records', {
   participationStatus: text('participation_status').default('active'),
   teacherNote: text('teacher_note'),
   pointsEarned: integer('points_earned').notNull().default(0),
+  /**
+   * Who recorded the absence (FK → user.id), and when.
+   * A student who left the school is absent from every later period too, so the
+   * first teacher to mark them absent owns that decision for the rest of the
+   * day: nobody else may mark them present. Only the teacher named here can
+   * undo it — that is what makes a misclick fixable without opening the lock to
+   * everyone. Null whenever the student is not absent.
+   */
+  absenceMarkedBy: text('absence_marked_by'),
+  absenceMarkedAt: timestamp('absence_marked_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
@@ -264,6 +284,49 @@ export const dailyRecords = pgTable('daily_records', {
   // so a duplicate would silently double a student's points. The database
   // refuses it outright instead of relying on the app checking first.
   uniqueIndex('daily_records_student_class_date_uq').on(t.studentId, t.classId, t.date),
+])
+
+// ─── Lesson Records (تقييم كل معلم على حدة) ──────────────────────────────────
+/**
+ * One row per student per teacher per day.
+ *
+ * Attendance is a single fact about the student's day and lives on
+ * `daily_records`; everything a teacher *judges* — behaviour, homework,
+ * materials, participation — is an opinion about one lesson and belongs to
+ * that teacher alone. A pupil can bring their tools to maths and forget them
+ * in science, and both statements are true at once, which a single shared row
+ * could never express (it is why one teacher's save used to erase another's).
+ *
+ * Points from these rows are summed across teachers: doing the homework for
+ * six subjects is worth more than doing it for one.
+ */
+export const lessonRecords = pgTable('lesson_records', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  schoolId: uuid('school_id').notNull(),
+  classId: uuid('class_id').notNull(),
+  studentId: uuid('student_id').notNull(),
+  teacherUserId: text('teacher_user_id').notNull(), // FK → user.id
+  /** Which subject this assessment belongs to, when the class has one assigned. */
+  subjectId: uuid('subject_id'),
+  date: text('date').notNull(),                     // YYYY-MM-DD
+  behavior: text('behavior'),
+  homeworkStatus: text('homework_status'),
+  materialsStatus: text('materials_status'),
+  participationStatus: text('participation_status'),
+  teacherNote: text('teacher_note'),
+  /** Behaviour + homework + materials + participation. Attendance is NOT here. */
+  pointsEarned: integer('points_earned').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('lesson_records_school_date_idx').on(t.schoolId, t.date),
+  index('lesson_records_class_date_idx').on(t.classId, t.date),
+  index('lesson_records_student_idx').on(t.studentId),
+  index('lesson_records_teacher_date_idx').on(t.teacherUserId, t.date),
+  // A teacher assesses a student once a day. Two subjects taught by the same
+  // teacher to the same class therefore share one row — deliberate, since the
+  // teacher fills one roster per visit.
+  uniqueIndex('lesson_records_student_teacher_date_uq').on(t.studentId, t.teacherUserId, t.date),
 ])
 
 // ─── Student Points Ledger (سجل نقاط الطلاب) ─────────────────────────────────

@@ -1,11 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { formatDateAr } from '@/lib/utils'
+import { formatDateAr, wholePercents } from '@/lib/utils'
 import {
   CalendarCheck2,
   CalendarX2,
   BookCheck,
+  Backpack,
+  Smile,
+  Layers3,
   Sparkles,
   Activity,
   ChevronRight,
@@ -22,18 +25,56 @@ export type DailyTrendPoint = {
   late: number
   excused: number
   attTotal: number
+  /** حاضر + متأخر — the students who were in school. */
+  inSchool: number
+  /** غائب + إذن — the students who were not. */
+  outOfSchool: number
+  /** Assessments recorded that day: one per pupil per teacher. */
+  lessonEntries: number
   homeworkDone: number
   homeworkMissing: number
+  materialsBrought: number
+  materialsMissing: number
   participationActive: number
   participationInactive: number
+  behaviorGood: number
+  behaviorIssue: number
   attendancePct: number
   absencePct: number
   homeworkPct: number
+  materialsPct: number
   participationPct: number
+  behaviorPct: number
   hasAttendance: boolean
   hasHomework: boolean
+  hasMaterials: boolean
   hasParticipation: boolean
+  hasBehavior: boolean
 }
+
+/** One subject's day, as taught by one teacher to one class. */
+export type SubjectStat = {
+  key: string
+  subjectName: string | null
+  teacherName: string | null
+  className: string | null
+  gradeName: string | null
+  entries: number
+  homeworkDone: number
+  homeworkMissing: number
+  materialsBrought: number
+  materialsMissing: number
+  participationActive: number
+  participationInactive: number
+  behaviorGood: number
+  behaviorIssue: number
+  homeworkPct: number | null
+  materialsPct: number | null
+  participationPct: number | null
+  behaviorPct: number | null
+}
+
+export type SubjectHistoryDay = { date: string; subjects: SubjectStat[] }
 
 export type ClassTodayStat = {
   id: string
@@ -44,9 +85,13 @@ export type ClassTodayStat = {
   late: number
   excused: number
   attTotal: number
+  inSchool: number
   attendancePct: number
   homeworkPct: number
+  materialsPct: number
   participationPct: number
+  teacherCount: number
+  lessonEntries: number
   recorded: boolean
 }
 
@@ -189,13 +234,21 @@ function RadialGauge({
 
 // ── Multi-series 14-day trend chart ────────────────────────────────────────────
 
+type TrendSeries = {
+  key: keyof DailyTrendPoint
+  /** The flag that says this day was actually recorded — see the gap logic below. */
+  flag: keyof DailyTrendPoint
+  label: string
+  color: string
+}
+
 function TrendChart({
   trend,
   series,
   highlightIndex,
 }: {
   trend: DailyTrendPoint[]
-  series: { key: keyof DailyTrendPoint; label: string; color: string }[]
+  series: TrendSeries[]
   highlightIndex?: number
 }) {
   const w = 720
@@ -222,21 +275,52 @@ function TrendChart({
           <line x1={highlightX} x2={highlightX} y1={padY} y2={padY + innerH} stroke="currentColor" className="text-foreground/30" strokeWidth={1.5} strokeDasharray="2 3" />
         )}
         {series.map((s) => {
-          const coords = trend.map((t, i) => ({
-            x: padX + i * step,
-            y: padY + innerH - (Number(t[s.key]) / 100) * innerH,
-          }))
-          const linePath = smoothPath(coords)
-          const last = coords[coords.length - 1]
-          const first = coords[0]
-          const areaPath = `${linePath} L ${last.x} ${padY + innerH} L ${first.x} ${padY + innerH} Z`
+          // A day with no record is a GAP, not a zero. Plotting it at 0% claimed
+          // the school scored nothing that day — which is the opposite of "no
+          // data yet", and it dragged the whole line to the floor.
+          const segments: (Point & { i: number })[][] = []
+          let run: (Point & { i: number })[] = []
+          trend.forEach((t, i) => {
+            if (t[s.flag]) {
+              run.push({
+                i,
+                x: padX + i * step,
+                y: padY + innerH - (Number(t[s.key]) / 100) * innerH,
+              })
+            } else if (run.length) {
+              segments.push(run)
+              run = []
+            }
+          })
+          if (run.length) segments.push(run)
+
           return (
             <g key={String(s.key)}>
-              <path d={areaPath} fill={s.color} opacity={0.09} />
-              <path d={linePath} fill="none" stroke={s.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-              {coords.map((c, i) => (
-                <circle key={i} cx={c.x} cy={c.y} r={i === highlightIndex ? 5 : 2.6} fill={s.color} stroke={i === highlightIndex ? 'white' : 'none'} strokeWidth={i === highlightIndex ? 1.5 : 0} />
-              ))}
+              {segments.map((coords, si) => {
+                const linePath = smoothPath(coords)
+                const last = coords[coords.length - 1]
+                const first = coords[0]
+                const areaPath = `${linePath} L ${last.x} ${padY + innerH} L ${first.x} ${padY + innerH} Z`
+                return (
+                  <g key={si}>
+                    {coords.length > 1 && <path d={areaPath} fill={s.color} opacity={0.09} />}
+                    {coords.length > 1 && (
+                      <path d={linePath} fill="none" stroke={s.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                    )}
+                    {coords.map((c) => (
+                      <circle
+                        key={c.i}
+                        cx={c.x}
+                        cy={c.y}
+                        r={c.i === highlightIndex ? 5 : 2.6}
+                        fill={s.color}
+                        stroke={c.i === highlightIndex ? 'white' : 'none'}
+                        strokeWidth={c.i === highlightIndex ? 1.5 : 0}
+                      />
+                    ))}
+                  </g>
+                )
+              })}
             </g>
           )
         })}
@@ -255,7 +339,175 @@ function TrendChart({
             {s.label}
           </span>
         ))}
+        {(() => {
+          const blank = trend.filter((t) => !t.hasAttendance && !t.hasHomework && !t.hasParticipation).length
+          if (blank === 0) return null
+          return (
+            <span className="text-xs text-muted-foreground">
+              — {blank} من {trend.length} يوماً بلا تسجيل، ولا تظهر في الرسم
+            </span>
+          )
+        })()}
       </div>
+    </div>
+  )
+}
+
+/**
+ * The gauges answer "in school or not": a latecomer attended, and إذن is an
+ * excused absence. This strip breaks those two totals back into the four
+ * statuses a teacher actually records, so the counts reconcile on screen.
+ */
+function AttendanceBreakdown({ day }: { day: DailyTrendPoint }) {
+  if (!day.attTotal) return null
+
+  const parts = [
+    { label: 'حاضر', value: day.present, bar: 'bg-emerald-500', dot: 'bg-emerald-500', group: 'حضور' },
+    { label: 'متأخر', value: day.late, bar: 'bg-amber-400', dot: 'bg-amber-400', group: 'حضور' },
+    { label: 'إذن (غياب بعذر)', value: day.excused, bar: 'bg-blue-400', dot: 'bg-blue-400', group: 'غياب' },
+    { label: 'غائب', value: day.absent, bar: 'bg-rose-500', dot: 'bg-rose-500', group: 'غياب' },
+  ]
+  const percents = wholePercents(parts.map((p) => p.value), day.attTotal)
+
+  return (
+    <div className="rounded-2xl border border-border bg-muted/20 p-4 space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-bold">تفصيل الحضور</h3>
+        <p className="text-xs text-muted-foreground">
+          حضور ({day.present} + {day.late} = {day.inSchool}) + غياب ({day.absent} + {day.excused} = {day.outOfSchool})
+          {' '}= {day.attTotal} طالب مسجَّل
+        </p>
+      </div>
+
+      <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
+        {parts.map((p) => (
+          <div key={p.label} className={`h-full ${p.bar}`} style={{ width: `${(p.value / day.attTotal) * 100}%` }} />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {parts.map((p, i) => (
+          <div key={p.label} className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
+            <span className={`size-2.5 shrink-0 rounded-full ${p.dot}`} />
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground truncate">
+                {p.label} <span className="opacity-60">· ضمن ال{p.group}</span>
+              </p>
+              <p className="text-sm font-bold tabular-nums">
+                {p.value} <span className="text-xs font-medium text-muted-foreground">({percents[i]}%)</span>
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** A count with its share, or a dash when that teacher rated nobody. */
+function DetailCell({ good, bad, pct }: { good: number; bad: number; pct: number | null }) {
+  if (pct == null) return <span className="text-muted-foreground">—</span>
+  const tone = pct >= 90 ? 'text-emerald-600' : pct >= 70 ? 'text-amber-600' : 'text-rose-600'
+  return (
+    <span className="whitespace-nowrap">
+      <span className={`font-bold ${tone}`}>{pct}%</span>
+      <span className="text-muted-foreground text-[11px]"> ({good}/{good + bad})</span>
+    </span>
+  )
+}
+
+/**
+ * The point of splitting the register from the lesson rows: a pupil can bring
+ * their tools to maths and forget them in science, and here both show. Every
+ * line is one teacher's own reading of one class, never merged with anyone
+ * else's.
+ */
+function SubjectBreakdown({
+  subjects,
+  homeworkEnabled,
+  materialsEnabled,
+  participationEnabled,
+  behaviorEnabled,
+}: {
+  subjects: SubjectStat[]
+  homeworkEnabled: boolean
+  materialsEnabled: boolean
+  participationEnabled: boolean
+  behaviorEnabled: boolean
+}) {
+  const totalEntries = subjects.reduce((sum, s) => sum + s.entries, 0)
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-6 space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+          <Layers3 className="size-5" />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold">التفصيل حسب المادة والمعلم</h2>
+          <p className="text-sm text-muted-foreground">
+            {subjects.length
+              ? `${subjects.length} سجل تدريس · ${totalEntries} تقييم طالب`
+              : 'لا توجد تقييمات مسجَّلة في هذا اليوم'}
+          </p>
+        </div>
+      </div>
+
+      {subjects.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          سيظهر هنا كل معلم دخل الفصل وما سجّله، مادةً مادة.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-right">
+            <thead className="bg-muted text-muted-foreground text-xs font-semibold">
+              <tr>
+                <th className="px-3 py-3">المادة / المعلم</th>
+                <th className="px-3 py-3">الفصل</th>
+                <th className="px-3 py-3 text-center">طلاب</th>
+                {homeworkEnabled && <th className="px-3 py-3 text-center">الواجب</th>}
+                {materialsEnabled && <th className="px-3 py-3 text-center">الأدوات</th>}
+                {participationEnabled && <th className="px-3 py-3 text-center">المشاركة</th>}
+                {behaviorEnabled && <th className="px-3 py-3 text-center">السلوك</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {subjects.map((s) => (
+                <tr key={s.key} className="hover:bg-muted/30 transition-colors">
+                  <td className="px-3 py-3">
+                    <p className="font-bold">{s.subjectName ?? 'بدون مادة محددة'}</p>
+                    <p className="text-xs text-muted-foreground">{s.teacherName ?? 'معلم غير معروف'}</p>
+                  </td>
+                  <td className="px-3 py-3 text-muted-foreground whitespace-nowrap">
+                    {s.gradeName ? `${s.gradeName} — ` : ''}{s.className ?? '—'}
+                  </td>
+                  <td className="px-3 py-3 text-center font-semibold tabular-nums">{s.entries}</td>
+                  {homeworkEnabled && (
+                    <td className="px-3 py-3 text-center">
+                      <DetailCell good={s.homeworkDone} bad={s.homeworkMissing} pct={s.homeworkPct} />
+                    </td>
+                  )}
+                  {materialsEnabled && (
+                    <td className="px-3 py-3 text-center">
+                      <DetailCell good={s.materialsBrought} bad={s.materialsMissing} pct={s.materialsPct} />
+                    </td>
+                  )}
+                  {participationEnabled && (
+                    <td className="px-3 py-3 text-center">
+                      <DetailCell good={s.participationActive} bad={s.participationInactive} pct={s.participationPct} />
+                    </td>
+                  )}
+                  {behaviorEnabled && (
+                    <td className="px-3 py-3 text-center">
+                      <DetailCell good={s.behaviorGood} bad={s.behaviorIssue} pct={s.behaviorPct} />
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -335,25 +587,35 @@ export function DailyPerformanceCards({
   attendanceEnabled,
   homeworkEnabled,
   participationEnabled,
+  materialsEnabled,
+  behaviorEnabled,
   trend,
   byClassHistory,
+  subjectHistory,
 }: {
   attendanceEnabled: boolean
   homeworkEnabled: boolean
   participationEnabled: boolean
+  materialsEnabled: boolean
+  behaviorEnabled: boolean
   trend: DailyTrendPoint[]
   byClassHistory: ClassHistoryDay[]
+  subjectHistory: SubjectHistoryDay[]
 }) {
   const maxOffset = Math.min(MAX_DAYS_BACK, trend.length - 1)
   const [dayOffset, setDayOffset] = useState(0)
 
-  if (!attendanceEnabled && !homeworkEnabled && !participationEnabled) return null
+  if (!attendanceEnabled && !homeworkEnabled && !participationEnabled && !materialsEnabled && !behaviorEnabled) {
+    return null
+  }
 
   const selectedIndex = trend.length - 1 - dayOffset
   const today = trend[selectedIndex]
 
   const historyMap = new Map(byClassHistory.map((d) => [d.date, d.classes]))
   const byClass = historyMap.get(today.date) ?? []
+  const subjectMap = new Map(subjectHistory.map((d) => [d.date, d.subjects]))
+  const bySubject = subjectMap.get(today.date) ?? []
 
   const dayLabel = dayOffsetLabel(dayOffset)
   const gauges: React.ReactNode[] = []
@@ -363,7 +625,11 @@ export function DailyPerformanceCards({
         key="attendance"
         value={today.attendancePct}
         label={`نسبة الحضور — ${dayLabel}`}
-        sublabel={today.attTotal ? `${today.present} من ${today.attTotal} طالب` : 'لا بيانات مسجلة'}
+        sublabel={
+          today.attTotal
+            ? `${today.inSchool} من ${today.attTotal} في المدرسة (حاضر ${today.present} + متأخر ${today.late})`
+            : 'لا بيانات مسجلة'
+        }
         icon={CalendarCheck2}
         gradientId="gauge-attendance"
         colorFrom="#34d399"
@@ -374,7 +640,11 @@ export function DailyPerformanceCards({
         key="absence"
         value={today.absencePct}
         label={`نسبة الغياب — ${dayLabel}`}
-        sublabel={today.attTotal ? `${today.absent} من ${today.attTotal} طالب` : 'لا بيانات مسجلة'}
+        sublabel={
+          today.attTotal
+            ? `${today.outOfSchool} من ${today.attTotal} غائب (بدون عذر ${today.absent} + بعذر ${today.excused})`
+            : 'لا بيانات مسجلة'
+        }
         icon={CalendarX2}
         gradientId="gauge-absence"
         colorFrom="#fb7185"
@@ -390,7 +660,7 @@ export function DailyPerformanceCards({
         key="homework"
         value={today.homeworkPct}
         label={`إنجاز الواجبات — ${dayLabel}`}
-        sublabel={hwTotal ? `${today.homeworkDone} من ${hwTotal} طالب أنجز واجبه` : 'لا بيانات مسجلة'}
+        sublabel={hwTotal ? `${today.homeworkDone} من ${hwTotal} تسجيل` : 'لا بيانات مسجلة'}
         icon={BookCheck}
         gradientId="gauge-homework"
         colorFrom="#fbbf24"
@@ -406,7 +676,7 @@ export function DailyPerformanceCards({
         key="participation"
         value={today.participationPct}
         label={`نسبة المشاركة — ${dayLabel}`}
-        sublabel={partTotal ? `${today.participationActive} من ${partTotal} طالب فاعل` : 'لا بيانات مسجلة'}
+        sublabel={partTotal ? `${today.participationActive} من ${partTotal} تسجيل` : 'لا بيانات مسجلة'}
         icon={Activity}
         gradientId="gauge-participation"
         colorFrom="#a78bfa"
@@ -416,19 +686,58 @@ export function DailyPerformanceCards({
     )
   }
 
-  const series: { key: keyof DailyTrendPoint; label: string; color: string }[] = []
-  if (attendanceEnabled) {
-    series.push({ key: 'attendancePct', label: 'الحضور', color: '#059669' })
-    series.push({ key: 'absencePct', label: 'الغياب', color: '#e11d48' })
+  if (materialsEnabled) {
+    const matTotal = today.materialsBrought + today.materialsMissing
+    gauges.push(
+      <RadialGauge
+        key="materials"
+        value={today.materialsPct}
+        label={`إحضار الأدوات — ${dayLabel}`}
+        sublabel={matTotal ? `${today.materialsBrought} من ${matTotal} تسجيل` : 'لا بيانات مسجلة'}
+        icon={Backpack}
+        gradientId="gauge-materials"
+        colorFrom="#fb923c"
+        colorTo="#ea580c"
+        glow="rgba(234,88,12,0.5)"
+      />
+    )
   }
-  if (homeworkEnabled) series.push({ key: 'homeworkPct', label: 'إنجاز الواجب', color: '#d97706' })
-  if (participationEnabled) series.push({ key: 'participationPct', label: 'المشاركة', color: '#7c3aed' })
+  if (behaviorEnabled) {
+    const behTotal = today.behaviorGood + today.behaviorIssue
+    gauges.push(
+      <RadialGauge
+        key="behavior"
+        value={today.behaviorPct}
+        label={`السلوك — ${dayLabel}`}
+        sublabel={behTotal ? `${today.behaviorGood} من ${behTotal} تسجيل` : 'لا بيانات مسجلة'}
+        icon={Smile}
+        gradientId="gauge-behavior"
+        colorFrom="#38bdf8"
+        colorTo="#0284c7"
+        glow="rgba(2,132,199,0.5)"
+      />
+    )
+  }
+
+  const series: TrendSeries[] = []
+  if (attendanceEnabled) {
+    series.push({ key: 'attendancePct', flag: 'hasAttendance', label: 'الحضور', color: '#059669' })
+    series.push({ key: 'absencePct', flag: 'hasAttendance', label: 'الغياب', color: '#e11d48' })
+  }
+  if (homeworkEnabled) series.push({ key: 'homeworkPct', flag: 'hasHomework', label: 'إنجاز الواجب', color: '#d97706' })
+  if (materialsEnabled) series.push({ key: 'materialsPct', flag: 'hasMaterials', label: 'الأدوات', color: '#ea580c' })
+  if (participationEnabled) series.push({ key: 'participationPct', flag: 'hasParticipation', label: 'المشاركة', color: '#7c3aed' })
+  if (behaviorEnabled) series.push({ key: 'behaviorPct', flag: 'hasBehavior', label: 'السلوك', color: '#0284c7' })
 
   const rankedClasses = [...byClass].sort((a, b) => {
+    // A class with no record yet is not a 0% class — it has no number at all,
+    // so it can't be ranked as the worst performer. It goes to the end.
+    if (a.recorded !== b.recorded) return a.recorded ? -1 : 1
     if (attendanceEnabled) return a.attendancePct - b.attendancePct
     if (homeworkEnabled) return a.homeworkPct - b.homeworkPct
     return a.participationPct - b.participationPct
   })
+  const recordedCount = byClass.filter((c) => c.recorded).length
 
   return (
     <div className="space-y-6">
@@ -463,6 +772,8 @@ export function DailyPerformanceCards({
             {gauges}
           </div>
 
+          {attendanceEnabled && <AttendanceBreakdown day={today} />}
+
           <div className="pt-2 border-t border-border">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-bold">اتجاه آخر 14 يوماً — على مستوى المدرسة</h3>
@@ -472,12 +783,22 @@ export function DailyPerformanceCards({
         </div>
       </div>
 
+      <SubjectBreakdown
+        subjects={bySubject}
+        homeworkEnabled={homeworkEnabled}
+        materialsEnabled={materialsEnabled}
+        participationEnabled={participationEnabled}
+        behaviorEnabled={behaviorEnabled}
+      />
+
       <div className="rounded-2xl border border-border bg-card p-6 space-y-5">
         <div>
           <h2 className="text-lg font-bold">
             مقارنة الفصول — {dayOffsetLabel(dayOffset)}
           </h2>
-          <p className="text-sm text-muted-foreground">الفصول الأقل نسبة تظهر أولاً لسهولة المتابعة</p>
+          <p className="text-sm text-muted-foreground">
+            الفصول الأقل نسبة تظهر أولاً لسهولة المتابعة · سُجِّل {recordedCount} من {byClass.length} فصلاً
+          </p>
         </div>
         {rankedClasses.length === 0 ? (
           <p className="text-sm text-muted-foreground">لا توجد فصول لعرض المقارنة</p>
@@ -503,20 +824,39 @@ export function DailyPerformanceCards({
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    {attendanceEnabled && (
-                      <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
-                        حضور {cls.attendancePct}%
+                    {!cls.recorded ? (
+                      // Printing "حضور 0%" here stated something the register never said.
+                      <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-muted text-muted-foreground border border-border">
+                        بانتظار تسجيل المعلم
                       </span>
-                    )}
-                    {homeworkEnabled && (
-                      <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
-                        واجب {cls.homeworkPct}%
-                      </span>
-                    )}
-                    {participationEnabled && (
-                      <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-100">
-                        مشاركة {cls.participationPct}%
-                      </span>
+                    ) : (
+                      <>
+                        {attendanceEnabled && (
+                          <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                            حضور {cls.inSchool}/{cls.attTotal} ({cls.attendancePct}%)
+                          </span>
+                        )}
+                        {homeworkEnabled && cls.lessonEntries > 0 && (
+                          <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                            واجب {cls.homeworkPct}%
+                          </span>
+                        )}
+                        {materialsEnabled && cls.lessonEntries > 0 && (
+                          <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-100">
+                            أدوات {cls.materialsPct}%
+                          </span>
+                        )}
+                        {participationEnabled && cls.lessonEntries > 0 && (
+                          <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-100">
+                            مشاركة {cls.participationPct}%
+                          </span>
+                        )}
+                        {cls.teacherCount > 0 && (
+                          <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-muted text-muted-foreground border border-border">
+                            {cls.teacherCount} معلم سجّل
+                          </span>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

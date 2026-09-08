@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import {
   schools, gradeLevels, classes, teachers, students, subjects, attendance,
-  gradeEntries, notifications, dailyRecords, studentPoints, user, schoolStaff
+  gradeEntries, notifications, dailyRecords, lessonRecords, studentPoints, user, schoolStaff
 } from '@/lib/db/schema'
 import { eq, inArray, and, ne } from 'drizzle-orm'
 import { getAdminAccess } from '@/lib/admin-access'
@@ -123,7 +123,7 @@ export async function exportFullBackup(schoolId: string) {
       const [
         schoolRows, gradeLevelRows, classRows, teacherRows, studentRows,
         subjectRows, attendanceRows, gradeEntryRows, notificationRows,
-        dailyRecordRows, studentPointRows,
+        dailyRecordRows, lessonRecordRows, studentPointRows,
       ] = await Promise.all([
         db.select().from(schools).where(eq(schools.id, schoolId)),
         db.select().from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)),
@@ -135,6 +135,7 @@ export async function exportFullBackup(schoolId: string) {
         db.select().from(gradeEntries).where(eq(gradeEntries.schoolId, schoolId)),
         db.select().from(notifications).where(eq(notifications.schoolId, schoolId)),
         db.select().from(dailyRecords).where(eq(dailyRecords.schoolId, schoolId)),
+        db.select().from(lessonRecords).where(eq(lessonRecords.schoolId, schoolId)),
         db.select().from(studentPoints).where(eq(studentPoints.schoolId, schoolId)),
       ])
 
@@ -152,6 +153,7 @@ export async function exportFullBackup(schoolId: string) {
             teachers: teacherRows, students: studentRows, subjects: subjectRows,
             attendance: attendanceRows, gradeEntries: gradeEntryRows,
             notifications: notificationRows, dailyRecords: dailyRecordRows,
+            lessonRecords: lessonRecordRows,
             studentPoints: studentPointRows,
           },
         },
@@ -187,16 +189,17 @@ export async function exportFullBackup(schoolId: string) {
           data: {
             schools: schoolRows, gradeLevels: gradeLevelRows, classes: [], teachers: teacherRows,
             students: [], subjects: [], attendance: [], gradeEntries: [],
-            notifications: [], dailyRecords: [], studentPoints: [],
+            notifications: [], dailyRecords: [], lessonRecords: [], studentPoints: [],
           },
         },
       }
     }
 
-    const [studentRows, subjectRows, dailyRecordRows, studentPointRows, notificationRows] = await Promise.all([
+    const [studentRows, subjectRows, dailyRecordRows, lessonRecordRows, studentPointRows, notificationRows] = await Promise.all([
       db.select().from(students).where(and(eq(students.schoolId, schoolId), inArray(students.classId, classIds))),
       db.select().from(subjects).where(and(eq(subjects.schoolId, schoolId), inArray(subjects.classId, classIds))),
       db.select().from(dailyRecords).where(and(eq(dailyRecords.schoolId, schoolId), inArray(dailyRecords.classId, classIds))),
+      db.select().from(lessonRecords).where(and(eq(lessonRecords.schoolId, schoolId), inArray(lessonRecords.classId, classIds))),
       db.select().from(studentPoints).where(and(eq(studentPoints.schoolId, schoolId), inArray(studentPoints.classId, classIds))),
       db.select().from(notifications).where(and(eq(notifications.schoolId, schoolId), inArray(notifications.classId, classIds))),
     ])
@@ -233,6 +236,7 @@ export async function exportFullBackup(schoolId: string) {
           teachers: teacherRows, students: studentRows, subjects: subjectRows,
           attendance: attendanceRows, gradeEntries: gradeEntryRows,
           notifications: notificationRows, dailyRecords: dailyRecordRows,
+          lessonRecords: lessonRecordRows,
           studentPoints: studentPointRows,
         },
       },
@@ -278,7 +282,7 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
     const toDate = (v: any) => (v ? new Date(v) : v)
     const counts = {
       gradeLevels: 0, classes: 0, subjects: 0, teachers: 0, students: 0,
-      attendance: 0, gradeEntries: 0, notifications: 0, dailyRecords: 0, studentPoints: 0,
+      attendance: 0, gradeEntries: 0, notifications: 0, dailyRecords: 0, lessonRecords: 0, studentPoints: 0,
     }
 
     await db.transaction(async (tx) => {
@@ -294,6 +298,7 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
 
       // Wipe current school-scoped data
       await tx.delete(studentPoints).where(eq(studentPoints.schoolId, schoolId))
+      await tx.delete(lessonRecords).where(eq(lessonRecords.schoolId, schoolId))
       await tx.delete(dailyRecords).where(eq(dailyRecords.schoolId, schoolId))
       await tx.delete(notifications).where(eq(notifications.schoolId, schoolId))
       await tx.delete(gradeEntries).where(eq(gradeEntries.schoolId, schoolId))
@@ -342,6 +347,38 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
         await tx.insert(dailyRecords).values(d.dailyRecords.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), updatedAt: toDate(r.updatedAt) })))
         counts.dailyRecords = d.dailyRecords.length
       }
+      if (Array.isArray(d.lessonRecords) && d.lessonRecords.length) {
+        await tx.insert(lessonRecords).values(d.lessonRecords.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), updatedAt: toDate(r.updatedAt) })))
+        counts.lessonRecords = d.lessonRecords.length
+      }
+      // A file taken before assessments moved out of the register carries them
+      // on daily_records instead; rebuild the per-teacher rows from it so a
+      // restore never silently loses a term of marks.
+      else if (Array.isArray(d.dailyRecords) && d.dailyRecords.length) {
+        const rebuilt = d.dailyRecords
+          .filter((r: any) => r.behavior || r.homeworkStatus || r.materialsStatus || r.participationStatus || r.teacherNote)
+          .map((r: any) => ({
+            schoolId,
+            classId: r.classId,
+            studentId: r.studentId,
+            teacherUserId: r.teacherUserId,
+            subjectId: null,
+            date: r.date,
+            behavior: r.behavior ?? null,
+            homeworkStatus: r.homeworkStatus ?? null,
+            materialsStatus: r.materialsStatus ?? null,
+            participationStatus: r.participationStatus ?? null,
+            teacherNote: r.teacherNote ?? null,
+            pointsEarned: 0,
+            createdAt: toDate(r.createdAt),
+            updatedAt: toDate(r.updatedAt),
+          }))
+        if (rebuilt.length) {
+          await tx.insert(lessonRecords).values(rebuilt)
+          counts.lessonRecords = rebuilt.length
+        }
+      }
+
       if (Array.isArray(d.studentPoints) && d.studentPoints.length) {
         await tx.insert(studentPoints).values(d.studentPoints.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
         counts.studentPoints = d.studentPoints.length

@@ -2,13 +2,13 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { students, dailyRecords, subjects, teachers, user, classes, gradeLevels, gradeEntries, account } from '@/lib/db/schema'
+import { students, dailyRecords, lessonRecords, subjects, teachers, user, classes, gradeLevels, gradeEntries, account } from '@/lib/db/schema'
 import { eq, and, sql, desc } from 'drizzle-orm'
 import { hashPassword } from 'better-auth/crypto'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { authClient } from '@/lib/auth-client'
-import { getStudentPointsTotal, getStudentTeacherPointsTotal, getManualPoints, derivePointEntries } from '@/lib/points'
+import { getStudentPointsTotal, getStudentTeacherPointsTotal, getManualPoints, deriveLessonEntries } from '@/lib/points'
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 export async function requireParent() {
@@ -163,24 +163,37 @@ export async function getStudentDashboard(studentId: string) {
       // Attendance per teacher's records
       let presentCount = 0, absentCount = 0
       if (sub.teacherUserId) {
+        // Attendance belongs to the whole day, not to one subject — so what a
+        // subject reports is how many of ITS lessons the child attended, taken
+        // from the register on the days this teacher assessed them.
         const attRows = await db
           .select({
             status: dailyRecords.attendanceStatus,
             count: sql<number>`COUNT(*)`,
           })
-          .from(dailyRecords)
+          .from(lessonRecords)
+          .innerJoin(
+            dailyRecords,
+            and(
+              eq(dailyRecords.studentId, lessonRecords.studentId),
+              eq(dailyRecords.date, lessonRecords.date),
+            )
+          )
           .where(
             and(
-              eq(dailyRecords.studentId, studentId),
-              eq(dailyRecords.classId, student.classId!),
-              eq(dailyRecords.teacherUserId, sub.teacherUserId)
+              eq(lessonRecords.studentId, studentId),
+              eq(lessonRecords.classId, student.classId!),
+              eq(lessonRecords.teacherUserId, sub.teacherUserId)
             )
           )
           .groupBy(dailyRecords.attendanceStatus)
 
+        // Same definition the admin dashboard uses: a latecomer attended, and
+        // إذن is an excused absence. Counting only 'present' dropped both from
+        // the parent's totals, so the two portals disagreed about the same day.
         attRows.forEach(r => {
-          if (r.status === 'present') presentCount = Number(r.count)
-          if (r.status === 'absent') absentCount = Number(r.count)
+          if (r.status === 'present' || r.status === 'late') presentCount += Number(r.count)
+          if (r.status === 'absent' || r.status === 'excused') absentCount += Number(r.count)
         })
       }
 
@@ -188,17 +201,17 @@ export async function getStudentDashboard(studentId: string) {
       let latestNote: string | null = null
       if (sub.teacherUserId) {
         const [noteRow] = await db
-          .select({ note: dailyRecords.teacherNote, date: dailyRecords.date })
-          .from(dailyRecords)
+          .select({ note: lessonRecords.teacherNote, date: lessonRecords.date })
+          .from(lessonRecords)
           .where(
             and(
-              eq(dailyRecords.studentId, studentId),
-              eq(dailyRecords.classId, student.classId!),
-              eq(dailyRecords.teacherUserId, sub.teacherUserId),
-              sql`${dailyRecords.teacherNote} IS NOT NULL`
+              eq(lessonRecords.studentId, studentId),
+              eq(lessonRecords.classId, student.classId!),
+              eq(lessonRecords.teacherUserId, sub.teacherUserId),
+              sql`${lessonRecords.teacherNote} IS NOT NULL`
             )
           )
-          .orderBy(desc(dailyRecords.date))
+          .orderBy(desc(lessonRecords.date))
           .limit(1)
         latestNote = noteRow?.note ?? null
       }
@@ -288,24 +301,46 @@ export async function getSubjectDetails(studentId: string, subjectId: string) {
     .where(eq(teachers.userId, subject.teacherUserId))
     .limit(1)
 
-  // Get all daily records for this student from this teacher
-  const records = await db
-    .select()
-    .from(dailyRecords)
-    .where(
+  // This teacher's own lessons, each carrying the day's shared attendance so
+  // the page can show "غاب في هذه الحصة" beside the teacher's marks.
+  const lessons = await db
+    .select({
+      id: lessonRecords.id,
+      date: lessonRecords.date,
+      behavior: lessonRecords.behavior,
+      homeworkStatus: lessonRecords.homeworkStatus,
+      materialsStatus: lessonRecords.materialsStatus,
+      participationStatus: lessonRecords.participationStatus,
+      teacherNote: lessonRecords.teacherNote,
+      pointsEarned: lessonRecords.pointsEarned,
+      attendanceStatus: dailyRecords.attendanceStatus,
+    })
+    .from(lessonRecords)
+    .leftJoin(
+      dailyRecords,
       and(
-        eq(dailyRecords.studentId, studentId),
-        eq(dailyRecords.teacherUserId, subject.teacherUserId)
+        eq(dailyRecords.studentId, lessonRecords.studentId),
+        eq(dailyRecords.date, lessonRecords.date),
       )
     )
-    .orderBy(desc(dailyRecords.date))
+    .where(
+      and(
+        eq(lessonRecords.studentId, studentId),
+        eq(lessonRecords.teacherUserId, subject.teacherUserId)
+      )
+    )
+    .orderBy(desc(lessonRecords.date))
+
+  const records = lessons.map((l) => ({ ...l, attendanceStatus: l.attendanceStatus ?? 'present' }))
 
   // Rebuild the breakdown from the very records above — deriving it from the
   // same rows the page renders means the two can never disagree, and it costs
   // no extra query no matter how many days the student has.
   const { getSchoolSettings } = await import('@/app/admin/(dashboard)/settings/actions-settings')
   const settings = await getSchoolSettings(student.schoolId)
-  const derived = records.flatMap((r) => derivePointEntries(r, settings))
+  // Only this teacher's half: the attendance point belongs to the day, not to
+  // any one subject, so counting it here would award it once per subject.
+  const derived = records.flatMap((r) => deriveLessonEntries(r, settings))
   const manual = await getManualPoints(studentId, { teacherUserId: subject.teacherUserId })
   const points = [...derived, ...manual].sort((a, b) => b.date.localeCompare(a.date))
 

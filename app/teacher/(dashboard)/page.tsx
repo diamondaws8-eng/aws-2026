@@ -1,11 +1,10 @@
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
-import { teachers, students, classes, gradeLevels } from '@/lib/db/schema'
+import { students, classes, gradeLevels } from '@/lib/db/schema'
 import { eq, count } from 'drizzle-orm'
-import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { formatDateAr, today } from '@/lib/utils'
+import { requireTeacher, getTeacherVisibleClassIds } from '@/lib/teacher-access'
 
 import { StatCard } from '@/components/stat-card'
 import { EmptyState } from '@/components/empty-state'
@@ -14,34 +13,38 @@ import { Users, BookOpen, AlertCircle } from 'lucide-react'
 export const dynamic = 'force-dynamic'
 
 export default async function TeacherDashboard() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) redirect('/teacher/login')
-  
-  const [teacher] = await db.select().from(teachers).where(eq(teachers.userId, session.user.id)).limit(1)
-  if (!teacher) redirect('/teacher/login')
-  
+  let teacher
+  try {
+    teacher = await requireTeacher()
+  } catch {
+    redirect('/teacher/login')
+  }
+
   // Total students in school
   const [{ count: totalStudents }] = await db
     .select({ count: count() })
     .from(students)
     .where(eq(students.schoolId, teacher.schoolId))
-    
+
   // Total classes in school
   const [{ count: totalClasses }] = await db
     .select({ count: count() })
     .from(classes)
     .where(eq(classes.schoolId, teacher.schoolId))
 
-  // Get grade levels and class counts
+  // Get grade levels and class counts — "available" means available to this
+  // teacher, so it follows the same subject-based visibility as /teacher/classes.
   const gradesData = await db.select().from(gradeLevels).where(eq(gradeLevels.schoolId, teacher.schoolId)).orderBy(gradeLevels.orderIndex)
   const classesData = await db.select().from(classes).where(eq(classes.schoolId, teacher.schoolId))
+  const visibleClassIds = await getTeacherVisibleClassIds(teacher.schoolId, teacher.userId)
+  const visibleClasses = classesData.filter(c => visibleClassIds.has(c.id))
 
-  const gradesWithCounts = gradesData.map(g => {
-    return {
+  const gradesWithCounts = gradesData
+    .map(g => ({
       ...g,
-      classCount: classesData.filter(c => c.gradeLevelId === g.id).length
-    }
-  })
+      classCount: visibleClasses.filter(c => c.gradeLevelId === g.id).length
+    }))
+    .filter(g => g.classCount > 0)
 
   return (
     <div className="p-6 space-y-8">
@@ -63,7 +66,7 @@ export default async function TeacherDashboard() {
       <div>
         <h2 className="text-xl font-bold text-foreground mb-6">الفصول المتاحة</h2>
         {gradesWithCounts.length === 0 ? (
-          <EmptyState title="لا توجد فصول" description="لم تُضف الإدارة أي مراحل دراسية بعد" icon={AlertCircle} />
+          <EmptyState title="لا توجد فصول" description="لا توجد فصول مسندة إليك بعد — تواصل مع الإدارة" icon={AlertCircle} />
 
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

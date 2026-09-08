@@ -2,17 +2,37 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { dailyRecords, studentPoints, gradeEntries, subjects, parentWhatsappMessages, students, classes } from '@/lib/db/schema'
-import { eq, and, desc, sql, inArray } from 'drizzle-orm'
+import { dailyRecords, lessonRecords, studentPoints, gradeEntries, subjects, parentWhatsappMessages, students, classes, teachers } from '@/lib/db/schema'
+import { eq, and, desc, sql, inArray, isNotNull } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { today as schoolToday, isValidDateString } from '@/lib/utils'
-import { totalPointsFor, getStudentPointsTotal, getClassPointsTotals, getStudentPointsHistory as buildPointsHistory } from '@/lib/points'
+import { attendancePointsFor, lessonPointsFor, getStudentPointsTotal, getClassPointsTotals, getStudentPointsHistory as buildPointsHistory } from '@/lib/points'
 import { requireTeacher, requireTeacherForClass } from '@/lib/teacher-access'
 import { logTeacherAudit } from '@/lib/audit'
 
 /** A rejected input comes back as a value: a production build strips the text of a thrown error. */
 export type ActionResult = { ok: true } | { ok: false; error: string }
+
+/**
+ * The two statuses that mean "not in school". Which of them it is (بعذر or not)
+ * is a detail of the same fact, so they lock and unlock together.
+ */
+const OUT_OF_SCHOOL = ['absent', 'excused'] as const
+type OutOfSchool = (typeof OUT_OF_SCHOOL)[number]
+const isOutOfSchool = (status: string): status is OutOfSchool =>
+  (OUT_OF_SCHOOL as readonly string[]).includes(status)
+
+/** An absence another teacher had already recorded, which this save could not override. */
+export type BlockedAbsence = {
+  studentId: string
+  studentName: string
+  teacherName: string
+  status: string
+  at: string | null
+}
+
+export type SaveDailyResult = { ok: true; blocked: BlockedAbsence[] } | { ok: false; error: string }
 
 // ── Save full daily records for a class ──────────────────────────────────────
 export type DailyStudentRecord = {
@@ -30,7 +50,7 @@ export async function saveDailyRecords(
   _schoolId: string,
   date: string,
   records: DailyStudentRecord[]
-): Promise<ActionResult> {
+): Promise<SaveDailyResult> {
   // The school comes from the teacher's own record, never from the browser.
   const access = await requireTeacherForClass(classId)
   const { userId, schoolId } = access
@@ -43,7 +63,7 @@ export async function saveDailyRecords(
   const { getSchoolSettings } = await import('@/app/admin/(dashboard)/settings/actions-settings')
   const settings = await getSchoolSettings(schoolId)
 
-  if (records.length === 0) return { ok: true }
+  if (records.length === 0) return { ok: true, blocked: [] }
 
   // Student ids come from the browser too — keep only those really in this class.
   const enrolled = await db
@@ -52,36 +72,110 @@ export async function saveDailyRecords(
     .where(and(eq(students.classId, classId), inArray(students.id, records.map(r => r.studentId))))
   const enrolledIds = new Set(enrolled.map(s => s.id))
   records = records.filter(r => enrolledIds.has(r.studentId))
-  if (records.length === 0) return { ok: true }
+  if (records.length === 0) return { ok: true, blocked: [] }
 
-  // The day's record stores both the statuses and the resulting total, so the
-  // per-category breakdown never needs rows of its own (see lib/points.ts).
-  const rows = records.map((rec) => ({
-    schoolId,
-    classId,
-    studentId: rec.studentId,
-    teacherUserId: userId,
-    date,
-    attendanceStatus: rec.attendanceStatus,
-    behavior: rec.behavior,
-    homeworkStatus: rec.homeworkStatus,
-    materialsStatus: rec.materialsStatus,
-    participationStatus: rec.participationStatus,
-    teacherNote: rec.teacherNote || null,
-    pointsEarned: totalPointsFor({ ...rec, date }, settings),
-  }))
+  // What is already on the register decides what this save may still change.
+  const existing = await db
+    .select({
+      studentId: dailyRecords.studentId,
+      attendanceStatus: dailyRecords.attendanceStatus,
+      absenceMarkedBy: dailyRecords.absenceMarkedBy,
+      absenceMarkedAt: dailyRecords.absenceMarkedAt,
+    })
+    .from(dailyRecords)
+    .where(and(eq(dailyRecords.classId, classId), eq(dailyRecords.date, date)))
+  const previous = new Map(existing.map((r) => [r.studentId, r]))
+
+  const blockedIds: string[] = []
+
+  // ── 1. The register: one shared row a day, whoever writes it ───────────────
+  const attendanceRows = records.map((rec) => {
+    const prev = previous.get(rec.studentId)
+    const standingAbsence = !!prev && isOutOfSchool(prev.attendanceStatus) && !!prev.absenceMarkedBy
+
+    let attendanceStatus = rec.attendanceStatus
+    let absenceMarkedBy: string | null = null
+    let absenceMarkedAt: Date | null = null
+
+    if (standingAbsence && prev!.absenceMarkedBy !== userId) {
+      // A student who left the school is gone for every later period too, so the
+      // record stands exactly as it was written — no other teacher may mark them
+      // present, late, or change the excuse. Only its author can.
+      if (attendanceStatus !== prev!.attendanceStatus) blockedIds.push(rec.studentId)
+      attendanceStatus = prev!.attendanceStatus as typeof attendanceStatus
+      absenceMarkedBy = prev!.absenceMarkedBy
+      absenceMarkedAt = prev!.absenceMarkedAt
+    } else if (isOutOfSchool(attendanceStatus)) {
+      // Any teacher may send a pupil out — a child can ask to leave in the third
+      // period as easily as the first — and from that moment it is theirs.
+      absenceMarkedBy = standingAbsence ? prev!.absenceMarkedBy : userId
+      absenceMarkedAt = standingAbsence ? prev!.absenceMarkedAt : new Date()
+    }
+    // Anything else leaves both null — that is how the owner undoes an absence.
+
+    return {
+      schoolId,
+      classId,
+      studentId: rec.studentId,
+      teacherUserId: userId,
+      date,
+      attendanceStatus,
+      // Attendance scores once a day, so only that half lives here.
+      pointsEarned: attendancePointsFor({ ...rec, attendanceStatus, date }, settings),
+      absenceMarkedBy,
+      absenceMarkedAt,
+    }
+  })
 
   // One statement for the whole class: the unique index on
   // (student, class, date) decides insert vs. update, so two teachers saving at
   // the same moment can never create a second row for the same day.
   await db
     .insert(dailyRecords)
-    .values(rows)
+    .values(attendanceRows)
     .onConflictDoUpdate({
       target: [dailyRecords.studentId, dailyRecords.classId, dailyRecords.date],
       set: {
         teacherUserId: sql`excluded.teacher_user_id`,
         attendanceStatus: sql`excluded.attendance_status`,
+        pointsEarned: sql`excluded.points_earned`,
+        absenceMarkedBy: sql`excluded.absence_marked_by`,
+        absenceMarkedAt: sql`excluded.absence_marked_at`,
+        updatedAt: new Date(),
+      },
+    })
+
+  // ── 2. This teacher's own assessment, untouched by anyone else ─────────────
+  // Which subject the row belongs to, when the admin has assigned one.
+  const [ownSubject] = await db
+    .select({ id: subjects.id })
+    .from(subjects)
+    .where(and(eq(subjects.classId, classId), eq(subjects.teacherUserId, userId)))
+    .limit(1)
+
+  const lessonRows = records.map((rec) => ({
+    schoolId,
+    classId,
+    studentId: rec.studentId,
+    teacherUserId: userId,
+    subjectId: ownSubject?.id ?? null,
+    date,
+    behavior: rec.behavior,
+    homeworkStatus: rec.homeworkStatus,
+    materialsStatus: rec.materialsStatus,
+    participationStatus: rec.participationStatus,
+    teacherNote: rec.teacherNote || null,
+    pointsEarned: lessonPointsFor({ ...rec, date }, settings),
+  }))
+
+  await db
+    .insert(lessonRecords)
+    .values(lessonRows)
+    .onConflictDoUpdate({
+      target: [lessonRecords.studentId, lessonRecords.teacherUserId, lessonRecords.date],
+      set: {
+        classId: sql`excluded.class_id`,
+        subjectId: sql`excluded.subject_id`,
         behavior: sql`excluded.behavior`,
         homeworkStatus: sql`excluded.homework_status`,
         materialsStatus: sql`excluded.materials_status`,
@@ -100,12 +194,77 @@ export async function saveDailyRecords(
     await logTeacherAudit(access, 'teacher.dailyRecords.backdated', `فصل ${cls?.name ?? ''} — ${date}`, {
       classId,
       date,
-      students: rows.length,
+      students: attendanceRows.length,
     })
   }
 
   revalidatePath(`/teacher/classes/${classId}`)
-  return { ok: true }
+  return { ok: true, blocked: await describeAbsences(classId, date, blockedIds) }
+}
+
+/** Names for the students whose standing absence overrode what was submitted. */
+async function describeAbsences(classId: string, date: string, studentIds: string[]): Promise<BlockedAbsence[]> {
+  if (studentIds.length === 0) return []
+  const rows = await db
+    .select({
+      studentId: dailyRecords.studentId,
+      studentName: students.fullName,
+      teacherName: teachers.fullName,
+      status: dailyRecords.attendanceStatus,
+      at: dailyRecords.absenceMarkedAt,
+    })
+    .from(dailyRecords)
+    .innerJoin(students, eq(students.id, dailyRecords.studentId))
+    .leftJoin(teachers, eq(teachers.userId, dailyRecords.absenceMarkedBy))
+    .where(and(
+      eq(dailyRecords.classId, classId),
+      eq(dailyRecords.date, date),
+      inArray(dailyRecords.studentId, studentIds),
+    ))
+  return rows.map((r) => ({
+    studentId: r.studentId,
+    studentName: r.studentName,
+    teacherName: r.teacherName ?? 'معلم آخر',
+    status: r.status,
+    at: r.at ? r.at.toISOString() : null,
+  }))
+}
+
+/**
+ * Absences on this day that were recorded by somebody else — the roster locks
+ * these students so the teacher sees why before trying to change them.
+ */
+export type AbsenceLock = { studentId: string; teacherName: string; status: string; at: string | null }
+
+export async function getAbsenceLocks(classId: string, date: string): Promise<AbsenceLock[]> {
+  const { userId } = await requireTeacherForClass(classId)
+  if (!isValidDateString(date)) return []
+
+  const rows = await db
+    .select({
+      studentId: dailyRecords.studentId,
+      markedBy: dailyRecords.absenceMarkedBy,
+      status: dailyRecords.attendanceStatus,
+      at: dailyRecords.absenceMarkedAt,
+      teacherName: teachers.fullName,
+    })
+    .from(dailyRecords)
+    .leftJoin(teachers, eq(teachers.userId, dailyRecords.absenceMarkedBy))
+    .where(and(
+      eq(dailyRecords.classId, classId),
+      eq(dailyRecords.date, date),
+      inArray(dailyRecords.attendanceStatus, [...OUT_OF_SCHOOL]),
+      isNotNull(dailyRecords.absenceMarkedBy),
+    ))
+
+  return rows
+    .filter((r) => r.markedBy !== userId)
+    .map((r) => ({
+      studentId: r.studentId,
+      teacherName: r.teacherName ?? 'معلم آخر',
+      status: r.status,
+      at: r.at ? r.at.toISOString() : null,
+    }))
 }
 
 // ── Add manual points ─────────────────────────────────────────────────────────
@@ -157,17 +316,83 @@ export async function addManualPoints(
 
 // ── Get daily records for a class on a date ───────────────────────────────────
 export async function getDailyRecords(classId: string, date: string) {
-  await requireTeacherForClass(classId)
-  return db
-    .select()
-    .from(dailyRecords)
-    .where(and(eq(dailyRecords.classId, classId), eq(dailyRecords.date, date)))
+  const { userId } = await requireTeacherForClass(classId)
+  return getRosterForDay(classId, date, userId)
+}
+
+/**
+ * What one teacher sees when they open a day: the shared attendance plus their
+ * OWN assessment. A colleague's behaviour or homework marks are none of their
+ * business — each teacher judges the lesson they taught.
+ */
+export async function getRosterForDay(classId: string, date: string, teacherUserId: string) {
+  const [attendance, mine] = await Promise.all([
+    db.select({
+        studentId: dailyRecords.studentId,
+        attendanceStatus: dailyRecords.attendanceStatus,
+        pointsEarned: dailyRecords.pointsEarned,
+      })
+      .from(dailyRecords)
+      .where(and(eq(dailyRecords.classId, classId), eq(dailyRecords.date, date))),
+    db.select({
+        studentId: lessonRecords.studentId,
+        behavior: lessonRecords.behavior,
+        homeworkStatus: lessonRecords.homeworkStatus,
+        materialsStatus: lessonRecords.materialsStatus,
+        participationStatus: lessonRecords.participationStatus,
+        teacherNote: lessonRecords.teacherNote,
+        pointsEarned: lessonRecords.pointsEarned,
+      })
+      .from(lessonRecords)
+      .where(and(
+        eq(lessonRecords.classId, classId),
+        eq(lessonRecords.date, date),
+        eq(lessonRecords.teacherUserId, teacherUserId),
+      )),
+  ])
+
+  const byStudent = new Map(mine.map((m) => [m.studentId, m]))
+  const seen = new Set<string>()
+  const merged = attendance.map((a) => {
+    seen.add(a.studentId)
+    const m = byStudent.get(a.studentId)
+    return {
+      studentId: a.studentId,
+      attendanceStatus: a.attendanceStatus,
+      behavior: m?.behavior ?? null,
+      homeworkStatus: m?.homeworkStatus ?? null,
+      materialsStatus: m?.materialsStatus ?? null,
+      participationStatus: m?.participationStatus ?? null,
+      teacherNote: m?.teacherNote ?? null,
+      pointsEarned: a.pointsEarned + (m?.pointsEarned ?? 0),
+      /** false = this teacher has not filled their own row for the day yet. */
+      mine: !!m,
+    }
+  })
+
+  // A teacher's own row can exist before the register does (rare, but possible
+  // if attendance was cleared) — never drop it.
+  for (const m of mine) {
+    if (seen.has(m.studentId)) continue
+    merged.push({
+      studentId: m.studentId,
+      attendanceStatus: 'present',
+      behavior: m.behavior,
+      homeworkStatus: m.homeworkStatus,
+      materialsStatus: m.materialsStatus,
+      participationStatus: m.participationStatus,
+      teacherNote: m.teacherNote,
+      pointsEarned: m.pointsEarned,
+      mine: true,
+    })
+  }
+  return merged
 }
 
 // ── Get student total points ──────────────────────────────────────────────────
 export async function getStudentTotalPoints(studentId: string) {
   const { schoolId } = await requireTeacher()
-  await requireStudentInSchool(studentId, schoolId)
+  await requireStudentAccessible(studentId, schoolId)
   return getStudentPointsTotal(studentId)
 }
 
@@ -182,20 +407,25 @@ export async function getClassPointsSummary(classId: string) {
 // Rebuilt from each day's record plus any manual awards.
 export async function getStudentPointsHistory(studentId: string, _schoolId: string) {
   const { schoolId } = await requireTeacher()
-  await requireStudentInSchool(studentId, schoolId)
+  await requireStudentAccessible(studentId, schoolId)
   const { getSchoolSettings } = await import('@/app/admin/(dashboard)/settings/actions-settings')
   const settings = await getSchoolSettings(schoolId)
   return buildPointsHistory(studentId, settings)
 }
 
-/** A student id from the browser is only usable inside the caller's own school. */
-async function requireStudentInSchool(studentId: string, schoolId: string) {
+/**
+ * A student id from the browser is only usable inside the caller's own school
+ * — and, once the student's class has an assigned subject, only for the
+ * teacher(s) assigned to it (the same rule that guards the class itself).
+ */
+async function requireStudentAccessible(studentId: string, schoolId: string) {
   const [row] = await db
-    .select({ id: students.id })
+    .select({ id: students.id, classId: students.classId })
     .from(students)
     .where(and(eq(students.id, studentId), eq(students.schoolId, schoolId)))
     .limit(1)
   if (!row) throw new Error('غير مصرح ببيانات هذا الطالب')
+  if (row.classId) await requireTeacherForClass(row.classId)
 }
 
 // ── Save grades ──────────────────────────────────────────────────────────────
@@ -226,7 +456,8 @@ export async function saveGrades(input: {
 
   if (!Array.isArray(input.entries) || input.entries.length === 0) return { ok: true }
 
-  // A subject id on its own says nothing — it could name another class's subject.
+  // A subject id on its own says nothing — it could name another class's
+  // subject, or a colleague's subject in this same class.
   const [subject] = await db
     .select({ id: subjects.id, name: subjects.name })
     .from(subjects)
@@ -234,9 +465,10 @@ export async function saveGrades(input: {
       eq(subjects.id, input.subjectId),
       eq(subjects.classId, input.classId),
       eq(subjects.schoolId, schoolId),
+      eq(subjects.teacherUserId, userId),
     ))
     .limit(1)
-  if (!subject) return { ok: false, error: 'المادة المختارة ليست من مواد هذا الفصل' }
+  if (!subject) return { ok: false, error: 'المادة المختارة ليست من موادك في هذا الفصل' }
 
   const examName = String(input.examName ?? '').trim().slice(0, 120)
   if (!examName) return { ok: false, error: 'اسم الاختبار مطلوب' }
@@ -314,12 +546,14 @@ export async function saveGrades(input: {
 }
 
 // ── Get saved grades for a class ──────────────────────────────────────────────
+// Scoped to the caller's own subjects — a colleague teaching another subject
+// in the same class should not see these exam scores.
 export async function getSavedGrades(classId: string) {
-  await requireTeacherForClass(classId)
+  const { userId } = await requireTeacherForClass(classId)
   const classSubjects = await db
     .select({ id: subjects.id })
     .from(subjects)
-    .where(eq(subjects.classId, classId))
+    .where(and(eq(subjects.classId, classId), eq(subjects.teacherUserId, userId)))
     
   if (classSubjects.length === 0) return []
   

@@ -59,6 +59,28 @@ export function getDaysInMonth(year: number, month: number): string[] {
   return days
 }
 
+// ─── Percentage helpers ───────────────────────────────────────────────────────
+
+/**
+ * Rounds parts into whole percentages that still add up to exactly 100.
+ * Rounding each part on its own is what makes a breakdown read 99% or 101%.
+ */
+export function wholePercents(values: number[], total: number): number[] {
+  if (!total) return values.map(() => 0)
+  const exact = values.map((v) => (v / total) * 100)
+  const out = exact.map(Math.floor)
+  let remainder = 100 - out.reduce((a, b) => a + b, 0)
+  const byFraction = exact
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => b.frac - a.frac)
+  for (const { i } of byFraction) {
+    if (remainder <= 0) break
+    out[i] += 1
+    remainder -= 1
+  }
+  return out
+}
+
 // ─── Attendance helpers ───────────────────────────────────────────────────────
 
 export const ATTENDANCE_STATUS = {
