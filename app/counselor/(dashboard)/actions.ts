@@ -11,6 +11,23 @@ import { today as schoolToday } from '@/lib/utils'
 /** A rejected input comes back as a value: a production build strips thrown messages. */
 export type CaseResult = { ok: true } | { ok: false; error: string }
 
+/**
+ * Informing a family returns the WhatsApp address to open. Building it on the
+ * server means the screen never depends on having fetched the number earlier,
+ * and the caller can open the tab inside the click that saved the decision —
+ * opening it afterwards is what browsers block as a popup.
+ */
+export type InformResult = { ok: true; waUrl: string | null } | { ok: false; error: string }
+
+/** Any spelling of a Saudi mobile reduced to the form wa.me expects. */
+function toMsisdn(raw: string | null | undefined): string {
+  const d = (raw ?? '').replace(/\D/g, '')
+  if (!d) return ''
+  if (d.startsWith('966')) return d
+  if (d.startsWith('0')) return `966${d.slice(1)}`
+  return `966${d}`
+}
+
 const MAX_NOTE = 2000
 
 /** Proves the case is inside this counsellor's stages before it can be read or decided. */
@@ -131,10 +148,17 @@ export async function dismissCase(caseId: string, counselorNote: string): Promis
  * the whole flow is that what arrives at a home has been through someone
  * trained to phrase it.
  */
-export async function informParent(caseId: string, message: string, counselorNote: string): Promise<CaseResult> {
+export async function informParent(caseId: string, message: string, counselorNote: string): Promise<InformResult> {
   const { access, row } = await requireOwnCase(caseId)
   const text = String(message ?? '').trim()
   if (text.length < 10) return { ok: false, error: 'نص الرسالة قصير جداً' }
+
+  const [target] = await db
+    .select({ parentPhone: students.parentPhone })
+    .from(students)
+    .where(eq(students.id, row.studentId))
+    .limit(1)
+  const msisdn = toMsisdn(target?.parentPhone)
 
   await db.update(behaviorCases).set({
     status: 'parent_informed',
@@ -161,7 +185,10 @@ export async function informParent(caseId: string, message: string, counselorNot
   await logCounselorAudit(access, 'case.parentInformed', student?.fullName ?? '', { caseId, date: row.date })
 
   revalidatePath('/counselor')
-  return { ok: true }
+  return {
+    ok: true,
+    waUrl: msisdn ? `https://wa.me/${msisdn}?text=${encodeURIComponent(text)}` : null,
+  }
 }
 
 /** Hand it to a named deputy — never to "the stage". */

@@ -140,6 +140,8 @@ function CaseDecision({ c, onClose }: { c: InboxCase; onClose: () => void }) {
       setBusy(true)
       try {
         setContact(await getParentContact(c.id))
+      } catch {
+        setError('تعذّر جلب رقم ولي الأمر — يمكنك المتابعة وسيُفتح واتساب عند التأكيد')
       } finally {
         setBusy(false)
       }
@@ -149,20 +151,42 @@ function CaseDecision({ c, onClose }: { c: InboxCase; onClose: () => void }) {
   const submit = async () => {
     setBusy(true)
     setError('')
+
+    // The tab has to be opened inside the click itself. Opening it after the
+    // save returns puts it outside the user gesture, and every browser blocks
+    // it as a popup — which is why confirming appeared to do nothing at all.
+    const waTab = decision === 'parent' ? window.open('', '_blank') : null
+
     try {
-      let res: { ok: boolean; error?: string }
+      let res: { ok: boolean; error?: string; waUrl?: string | null }
       if (decision === 'private') res = await resolveCasePrivately(c.id, note)
       else if (decision === 'dismiss') res = await dismissCase(c.id, note)
       else if (decision === 'parent') res = await informParent(c.id, message, note)
       else if (decision === 'escalate') res = await escalateCase(c.id, targetId, note)
-      else return
+      else { waTab?.close(); return }
 
       if (!res.ok) {
+        waTab?.close()
         setError(res.error || 'تعذّر حفظ القرار')
         return
       }
+
+      if (decision === 'parent') {
+        if (res.waUrl && waTab) {
+          waTab.location.href = res.waUrl
+        } else {
+          waTab?.close()
+          if (!res.waUrl) {
+            // Saved, but there is nobody to send it to — say so instead of
+            // leaving the user waiting for a window that will never appear.
+            setError('حُفظ القرار، لكن لا يوجد رقم جوال مسجَّل لولي أمر هذا الطالب')
+            return
+          }
+        }
+      }
       onClose()
     } catch {
+      waTab?.close()
       setError('حدث خطأ غير متوقع')
     } finally {
       setBusy(false)
@@ -319,7 +343,7 @@ function CaseDecision({ c, onClose }: { c: InboxCase; onClose: () => void }) {
                   rel="noreferrer"
                   className="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2"
                 >
-                  <Phone className="size-4" /> فتح واتساب — {contact.parentPhone}
+                  <Phone className="size-4" /> فتح واتساب الآن — {contact.parentPhone}
                 </a>
               ) : contact ? (
                 <p className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">
@@ -328,7 +352,7 @@ function CaseDecision({ c, onClose }: { c: InboxCase; onClose: () => void }) {
               ) : null}
               <label className="block text-sm font-bold mb-1.5">نص الرسالة لولي الأمر</label>
               <p className="text-xs text-muted-foreground mb-2">
-                اكتبها بصياغتك. هذه هي الفائدة من مرور الحالة عليك.
+                اكتبها بصياغتك — هذه هي الفائدة من مرور الحالة عليك. وعند «تأكيد القرار» سيُفتح واتساب بالنص جاهزاً.
               </p>
               <textarea
                 value={message}

@@ -95,16 +95,34 @@ function DecisionModal({ c, onClose }: { c: EscalatedCase; onClose: () => void }
   const submit = async () => {
     setBusy(true)
     setError('')
+
+    // Opened inside the click, redirected after the save — the other order is
+    // blocked as a popup, and confirming looked like it did nothing.
+    const waTab = choice === 'parent' ? window.open('', '_blank') : null
+
     try {
-      let res: { ok: boolean; error?: string }
+      let res: { ok: boolean; error?: string; waUrl?: string | null }
       if (choice === 'handled') res = await adminHandleCase(c.id, note)
       else if (choice === 'return') res = await returnCaseToCounselor(c.id, note)
       else if (choice === 'parent') res = await adminInformParent(c.id, message, note)
-      else return
+      else { waTab?.close(); return }
 
-      if (!res.ok) { setError(res.error || 'تعذّر حفظ القرار'); return }
+      if (!res.ok) { waTab?.close(); setError(res.error || 'تعذّر حفظ القرار'); return }
+
+      if (choice === 'parent') {
+        if (res.waUrl && waTab) {
+          waTab.location.href = res.waUrl
+        } else {
+          waTab?.close()
+          if (!res.waUrl) {
+            setError('حُفظ القرار، لكن لا يوجد رقم جوال مسجَّل لولي أمر هذا الطالب')
+            return
+          }
+        }
+      }
       onClose()
     } catch {
+      waTab?.close()
       setError('حدث خطأ غير متوقع')
     } finally {
       setBusy(false)
@@ -165,7 +183,7 @@ function DecisionModal({ c, onClose }: { c: EscalatedCase; onClose: () => void }
                   rel="noreferrer"
                   className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2"
                 >
-                  <Phone className="size-4" /> فتح واتساب — {contact.parentPhone}
+                  <Phone className="size-4" /> فتح واتساب الآن — {contact.parentPhone}
                 </a>
               ) : (
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">
@@ -174,6 +192,7 @@ function DecisionModal({ c, onClose }: { c: EscalatedCase; onClose: () => void }
               )}
               <div>
                 <label className="block text-sm font-bold mb-1.5">نص الرسالة</label>
+                <p className="text-xs text-muted-foreground mb-2">عند «تأكيد القرار» سيُفتح واتساب بالنص جاهزاً.</p>
                 <textarea
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}

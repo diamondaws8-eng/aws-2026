@@ -10,6 +10,18 @@ import { today as schoolToday } from '@/lib/utils'
 
 export type CaseActionResult = { ok: true } | { ok: false; error: string }
 
+/** Same as the counsellor's: the address is built here so the tab can be opened
+ *  inside the click that saved the decision, which is what keeps it unblocked. */
+export type InformResult = { ok: true; waUrl: string | null } | { ok: false; error: string }
+
+function toMsisdn(raw: string | null | undefined): string {
+  const d = (raw ?? '').replace(/\D/g, '')
+  if (!d) return ''
+  if (d.startsWith('966')) return d
+  if (d.startsWith('0')) return `966${d.slice(1)}`
+  return `966${d}`
+}
+
 const MAX_NOTE = 2000
 
 /**
@@ -78,14 +90,22 @@ export async function adminHandleCase(caseId: string, note: string): Promise<Cas
 }
 
 /** Tell the family, in the administration's own words. */
-export async function adminInformParent(caseId: string, message: string, note: string): Promise<CaseActionResult> {
+export async function adminInformParent(caseId: string, message: string, note: string): Promise<InformResult> {
   const guard = await requireCaseForAdmin(caseId)
   if (!guard.ok) return guard
   const { access, row } = guard
 
-  if (String(message ?? '').trim().length < 10) {
+  const text = String(message ?? '').trim()
+  if (text.length < 10) {
     return { ok: false, error: 'نص الرسالة قصير جداً' }
   }
+
+  const [target] = await db
+    .select({ parentPhone: students.parentPhone })
+    .from(students)
+    .where(eq(students.id, row.studentId))
+    .limit(1)
+  const msisdn = toMsisdn(target?.parentPhone)
 
   await db.update(behaviorCases).set({
     status: 'parent_informed',
@@ -108,7 +128,10 @@ export async function adminInformParent(caseId: string, message: string, note: s
 
   await logAudit(access, 'case.parentInformed', await studentName(row.studentId), { caseId, date: row.date })
   revalidatePath('/admin/cases')
-  return { ok: true }
+  return {
+    ok: true,
+    waUrl: msisdn ? `https://wa.me/${msisdn}?text=${encodeURIComponent(text)}` : null,
+  }
 }
 
 /**
