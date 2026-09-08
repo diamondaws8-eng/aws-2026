@@ -97,6 +97,21 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
     if (res && !res.ok) alert(res.error)
   }
 
+  const handleDeleteSubject = async (subjectId: string, subjectName: string) => {
+    if (!confirm(`حذف مادة "${subjectName}"؟ سيُلغى إسناد معلمها لهذا الفصل.`)) return
+    setLoading(subjectId, true)
+    const res = await deleteSubject(subjectId)
+    setLoading(subjectId, false)
+    if (res && !res.ok) alert(res.error)
+  }
+
+  const handleAssignTeacher = async (subjectId: string, teacherUserId: string) => {
+    setLoading(subjectId, true)
+    const res = await assignTeacherToSubject(subjectId, teacherUserId || null)
+    setLoading(subjectId, false)
+    if (res && !res.ok) alert(res.error)
+  }
+
   const handleEditClass = async (classId: string) => {
     if (!editingClassName.trim()) return
     setLoading(classId, true)
@@ -380,11 +395,7 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
                                     {editable ? (
                                       <select
                                         defaultValue={sub.teacherUserId || ''}
-                                        onChange={async (e) => {
-                                          setLoading(sub.id, true)
-                                          await assignTeacherToSubject(sub.id, e.target.value || null)
-                                          setLoading(sub.id, false)
-                                        }}
+                                        onChange={(e) => handleAssignTeacher(sub.id, e.target.value)}
                                         className="text-xs border border-border rounded-lg px-2 py-1 bg-background focus:outline-none focus:ring-1 focus:ring-primary max-w-[160px]"
                                         disabled={loadingActions.has(sub.id)}
                                       >
@@ -406,7 +417,7 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
                                   </div>
 
                                   {editable && (
-                                    <button onClick={() => deleteSubject(sub.id)}
+                                    <button onClick={() => handleDeleteSubject(sub.id, sub.name)}
                                       className="p-1 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0">
                                       <Trash2 className="size-3.5" />
                                     </button>

@@ -4,25 +4,36 @@ import { useMemo, useState } from 'react'
 import { EmptyState } from '@/components/empty-state'
 import { BookOpen, MessageCircle, ThumbsDown, ThumbsUp } from 'lucide-react'
 
+/**
+ * `positive` and `negative` count STUDENTS, not messages: a teacher who sends
+ * three notes about one pupil counts once. That also means the two cannot be
+ * added together — a pupil who got both would be counted twice — so the honest
+ * total comes from its own query as `studentsMessaged`.
+ */
 type ClassStat = {
   id: string
   name: string
   gradeName: string | null
   positive: number
   negative: number
+  studentsMessaged: number
 }
 
 function DonutChart({
   positive,
   negative,
+  studentsMessaged,
   size = 188,
   id,
 }: {
   positive: number
   negative: number
+  studentsMessaged: number
   size?: number
   id: string
 }) {
+  // The ring is drawn from the two tallies; the number in the middle is the
+  // real headcount, which is smaller whenever a pupil received both kinds.
   const total = positive + negative
   const stroke = 22
   const r = (size - stroke) / 2
@@ -82,8 +93,8 @@ function DonutChart({
         )}
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-3xl font-bold tracking-tight">{total}</span>
-        <span className="text-xs text-muted-foreground mt-0.5">إجمالي الطلاب</span>
+        <span className="text-3xl font-bold tracking-tight">{studentsMessaged}</span>
+        <span className="text-xs text-muted-foreground mt-0.5">طالباً وصلته رسالة</span>
       </div>
     </div>
   )
@@ -115,10 +126,12 @@ export function ParentMessagesToday({
   classStats,
   todayPositive,
   todayNegative,
+  todayStudentsMessaged,
 }: {
   classStats: ClassStat[]
   todayPositive: number
   todayNegative: number
+  todayStudentsMessaged: number
 }) {
   const [selectedClassId, setSelectedClassId] = useState(classStats[0]?.id ?? '')
 
@@ -147,17 +160,17 @@ export function ParentMessagesToday({
             </div>
             <div>
               <h2 className="text-lg font-bold">رسائل أولياء الأمور اليوم — كل الفصول</h2>
-              <p className="text-sm text-muted-foreground">توزيع الرسائل الإيجابية والسلبية على مستوى المدرسة</p>
+              <p className="text-sm text-muted-foreground">عدد الطلاب الذين وصلتهم رسالة، موزّعين على النوع</p>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 items-center">
-            <DonutChart id="school" positive={todayPositive} negative={todayNegative} />
+            <DonutChart id="school" positive={todayPositive} negative={todayNegative} studentsMessaged={todayStudentsMessaged} />
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/70 p-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-emerald-800">رسائل إيجابية</span>
+                    <span className="text-sm text-emerald-800">طلاب برسالة إيجابية</span>
                     <ThumbsUp className="size-4 text-emerald-600" />
                   </div>
                   <p className="mt-2 text-3xl font-bold text-emerald-700">{todayPositive}</p>
@@ -167,7 +180,7 @@ export function ParentMessagesToday({
                 </div>
                 <div className="rounded-2xl border border-rose-200/70 bg-rose-50/70 p-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-rose-800">رسائل سلبية</span>
+                    <span className="text-sm text-rose-800">طلاب برسالة سلبية</span>
                     <ThumbsDown className="size-4 text-rose-600" />
                   </div>
                   <p className="mt-2 text-3xl font-bold text-rose-700">{todayNegative}</p>
@@ -231,7 +244,7 @@ export function ParentMessagesToday({
 
         {selected ? (
           <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 items-center">
-            <DonutChart id="class" positive={selected.positive} negative={selected.negative} size={172} />
+            <DonutChart id="class" positive={selected.positive} negative={selected.negative} studentsMessaged={selected.studentsMessaged} size={172} />
             <div className="space-y-5">
               <div>
                 <p className="text-sm text-muted-foreground">{selected.gradeName ?? 'مرحلة غير معروفة'}</p>

@@ -26,7 +26,9 @@ function relativeTimeAr(date: Date): string {
   if (hours < 24) return `منذ ${hours} س`
   const days = Math.floor(hours / 24)
   if (days < 7) return `منذ ${days} يوم`
-  return date.toLocaleDateString('ar-SA', { day: 'numeric', month: 'short' })
+  // 'ar-SA' on its own renders the Hijri calendar, which would not match the
+  // Gregorian dates shown everywhere else in the portal.
+  return date.toLocaleDateString('ar-SA-u-ca-gregory', { day: 'numeric', month: 'short' })
 }
 
 export function RecentNotifications({ notifications }: { notifications: Notif[] }) {

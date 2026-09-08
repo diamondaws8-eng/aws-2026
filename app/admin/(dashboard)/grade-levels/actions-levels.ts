@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { gradeLevels, classes, subjects, students } from '@/lib/db/schema'
+import { gradeLevels, classes, subjects, students, teachers, gradeEntries } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { getAdminAccess, canEditGrade, canViewGrade, type AdminAccess } from '@/lib/admin-access'
@@ -152,23 +152,57 @@ export async function addSubject(formData: FormData) {
 
 export async function deleteSubject(id: string) {
   const [subject] = await db.select().from(subjects).where(eq(subjects.id, id)).limit(1)
-  if (!subject) return
+  if (!subject) return { ok: false as const, error: 'المادة غير موجودة' }
   const cls = await gradeIdOfClass(subject.classId)
   const access = await requireGradeEditor(cls?.gradeLevelId ?? null)
-  if (!access || !cls || cls.schoolId !== access.school.id) return
+  if (!access || !cls || cls.schoolId !== access.school.id) {
+    return { ok: false as const, error: 'غير مصرح لك بهذا الإجراء' }
+  }
+
+  // Nothing in the database stops the row from going, and the exam marks filed
+  // under it are read back through the subject — so deleting it makes a term of
+  // grades unreachable. Refuse, the way deleting a class with pupils is refused.
+  const marks = await db
+    .select({ id: gradeEntries.id })
+    .from(gradeEntries)
+    .where(eq(gradeEntries.subjectId, id))
+  if (marks.length > 0) {
+    return {
+      ok: false as const,
+      error: `لا يمكن حذف "${subject.name}" لأن بها ${marks.length} درجة مسجَّلة. احذف الدرجات أولاً أو أبقِ المادة.`,
+    }
+  }
+
   await db.delete(subjects).where(eq(subjects.id, id))
   await logAudit(access, 'subject.delete', subject.name)
   revalidatePath('/admin/grade-levels')
+  return { ok: true as const }
 }
 
 export async function assignTeacherToSubject(subjectId: string, teacherUserId: string | null) {
   const [subject] = await db.select().from(subjects).where(eq(subjects.id, subjectId)).limit(1)
-  if (!subject) return
+  if (!subject) return { ok: false as const, error: 'المادة غير موجودة' }
   const cls = await gradeIdOfClass(subject.classId)
   const access = await requireGradeEditor(cls?.gradeLevelId ?? null)
-  if (!access || !cls || cls.schoolId !== access.school.id) return
+  if (!access || !cls || cls.schoolId !== access.school.id) {
+    return { ok: false as const, error: 'غير مصرح لك بهذا الإجراء' }
+  }
+
+  // An id that belongs to nobody would still mark the class as "assigned", and
+  // the teacher portal then hands it to whoever holds a subject in it — which
+  // would be no one. The whole class would be locked out.
+  if (teacherUserId) {
+    const [teacher] = await db
+      .select({ id: teachers.id })
+      .from(teachers)
+      .where(and(eq(teachers.userId, teacherUserId), eq(teachers.schoolId, access.school.id)))
+      .limit(1)
+    if (!teacher) return { ok: false as const, error: 'هذا المعلم ليس من معلمي المدرسة' }
+  }
+
   await db.update(subjects).set({ teacherUserId }).where(eq(subjects.id, subjectId))
   revalidatePath('/admin/grade-levels')
+  return { ok: true as const }
 }
 
 // ─── Reads ────────────────────────────────────────────────────────────────────

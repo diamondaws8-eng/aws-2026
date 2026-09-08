@@ -50,8 +50,10 @@ export default async function AdminDashboardPage() {
     classList,
     classRows,
     todayMessageCounts,
+    todayClassStudentTotals,
     [todayPositive],
     [todayNegative],
+    [todayStudentsMessaged],
     leaderboardData,
     settings,
     dailyTrendRows,
@@ -103,6 +105,20 @@ export default async function AdminDashboardPage() {
       ))
       .groupBy(parentWhatsappMessages.classId, parentWhatsappMessages.type),
 
+    // Counted per class without splitting by type: adding the positive and the
+    // negative tallies would count a pupil who got both of them twice.
+    db.select({
+        classId: parentWhatsappMessages.classId,
+        studentCount: sql<number>`COUNT(DISTINCT ${parentWhatsappMessages.studentId})`.mapWith(Number),
+      })
+      .from(parentWhatsappMessages)
+      .where(and(
+        eq(parentWhatsappMessages.schoolId, school.id),
+        eq(parentWhatsappMessages.date, todayStr),
+        inScopeClasses(parentWhatsappMessages.classId)
+      ))
+      .groupBy(parentWhatsappMessages.classId),
+
     db.select({ value: sql<number>`COUNT(DISTINCT ${parentWhatsappMessages.studentId})`.mapWith(Number) })
       .from(parentWhatsappMessages)
       .where(and(
@@ -118,6 +134,14 @@ export default async function AdminDashboardPage() {
         eq(parentWhatsappMessages.schoolId, school.id),
         eq(parentWhatsappMessages.date, todayStr),
         eq(parentWhatsappMessages.type, 'negative'),
+        inScopeClasses(parentWhatsappMessages.classId)
+      )),
+
+    db.select({ value: sql<number>`COUNT(DISTINCT ${parentWhatsappMessages.studentId})`.mapWith(Number) })
+      .from(parentWhatsappMessages)
+      .where(and(
+        eq(parentWhatsappMessages.schoolId, school.id),
+        eq(parentWhatsappMessages.date, todayStr),
         inScopeClasses(parentWhatsappMessages.classId)
       )),
 
@@ -251,10 +275,13 @@ export default async function AdminDashboardPage() {
     countsByClass.set(row.classId, current)
   }
 
+  const studentsByClass = new Map(todayClassStudentTotals.map((r) => [r.classId, r.studentCount]))
+
   const classStats = classRows.map((cls) => ({
     ...cls,
     positive: countsByClass.get(cls.id)?.positive ?? 0,
     negative: countsByClass.get(cls.id)?.negative ?? 0,
+    studentsMessaged: studentsByClass.get(cls.id) ?? 0,
   }))
 
   const dailyTrendMap = new Map(dailyTrendRows.map((r) => [r.date, r]))
@@ -421,6 +448,7 @@ export default async function AdminDashboardPage() {
         classStats={classStats}
         todayPositive={todayPositive.value}
         todayNegative={todayNegative.value}
+        todayStudentsMessaged={todayStudentsMessaged.value}
       />
 
       <DailyPerformanceCards

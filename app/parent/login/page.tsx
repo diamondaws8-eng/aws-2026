@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { authClient } from '@/lib/auth-client'
+import { parentEmailCandidates } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { BackToPortals } from '@/components/back-to-portals'
@@ -19,14 +20,19 @@ export default function ParentLoginPage() {
     setLoading(true)
     setError('')
 
-    const cleanedPhone = phone.replace(/\D/g, '')
-    const email = `${cleanedPhone}@parent.midad.local`
+    // Accounts were filed under the digits whoever added the student happened
+    // to type, so 501234567 and 0501234567 are both real addresses in the
+    // database. Trying one of them and reporting "wrong password" is what sent
+    // parents to the school to reset a password that was never wrong.
+    const candidates = parentEmailCandidates(phone)
 
     try {
-      const { error: signInError } = await authClient.signIn.email({
-        email,
-        password,
-      })
+      let signInError: unknown = null
+      for (const email of candidates) {
+        const res = await authClient.signIn.email({ email, password })
+        signInError = res.error
+        if (!res.error) break
+      }
 
       if (signInError) {
         setError('بيانات الدخول غير صحيحة. تأكد من رقم الجوال وكلمة المرور.')

@@ -123,6 +123,34 @@ export function gradeColor(pct: number): string {
 
 // ─── Parent phone → email ─────────────────────────────────────────────────────
 
+/**
+ * A Saudi mobile written any of the ways people actually write it — 0501234567,
+ * 501234567, +966 50 123 4567, 966501234567 — reduced to the same nine digits.
+ */
+export function parentPhoneKey(phone: string | null | undefined): string {
+  let digits = (phone ?? '').replace(/\D/g, '')
+  if (digits.startsWith('966')) digits = digits.slice(3)
+  if (digits.startsWith('0')) digits = digits.slice(1)
+  return digits
+}
+
+/** The login address for a parent, from any spelling of their number. */
 export function parentEmail(phone: string): string {
-  return `${phone.replace(/\D/g, '')}@parent.midad.local`
+  return `${parentPhoneKey(phone)}@parent.midad.local`
+}
+
+/**
+ * Every address an existing account might already be filed under.
+ *
+ * Accounts were created from the raw digits as typed, so most sit at
+ * `5XXXXXXXX@…` while a few sit at `05XXXXXXXX@…`. Looking up only the
+ * canonical form would miss the latter and create a second login for a family
+ * that already has one; logging in with only one form is why a parent who typed
+ * their number with the leading zero was told their password was wrong.
+ */
+export function parentEmailCandidates(phone: string | null | undefined): string[] {
+  const raw = (phone ?? '').replace(/\D/g, '')
+  const key = parentPhoneKey(phone)
+  const forms = [key, raw, `0${key}`, `966${key}`].filter(Boolean)
+  return [...new Set(forms)].map((d) => `${d}@parent.midad.local`)
 }

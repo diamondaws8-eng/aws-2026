@@ -6,6 +6,7 @@ import {
   dailyRecords, studentPoints, attendance, gradeEntries, parentWhatsappMessages, notifications,
 } from '@/lib/db/schema'
 import { eq, and, inArray, ne } from 'drizzle-orm'
+import { parentEmail, parentEmailCandidates } from '@/lib/utils'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/lib/auth'
 import { headers } from 'next/headers'
@@ -58,10 +59,14 @@ export async function addStudent(input: any) {
     let parentUserId = null
 
     if (input.parentPhone) {
-      const phoneDigits     = input.parentPhone.replace(/\D/g, '')
-      const parentEmailAddr = `${phoneDigits}@parent.midad.local`
-
-      const [existingUser] = await db.select().from(user).where(eq(user.email, parentEmailAddr)).limit(1)
+      // Look under every spelling so a sibling entered as 0501234567 joins the
+      // login already created for 501234567 instead of getting a second one.
+      const parentEmailAddr = parentEmail(input.parentPhone)
+      const [existingUser] = await db
+        .select()
+        .from(user)
+        .where(inArray(user.email, parentEmailCandidates(input.parentPhone)))
+        .limit(1)
 
       if (!existingUser) {
         try {
@@ -76,7 +81,11 @@ export async function addStudent(input: any) {
         }
       }
 
-      const [pUser] = await db.select().from(user).where(eq(user.email, parentEmailAddr)).limit(1)
+      const [pUser] = await db
+        .select()
+        .from(user)
+        .where(inArray(user.email, parentEmailCandidates(input.parentPhone)))
+        .limit(1)
       parentUserId = pUser?.id ?? null
     }
 
@@ -165,10 +174,14 @@ export async function editStudent(id: string, input: any) {
     let parentUserId = null
 
     if (input.parentPhone) {
-      const phoneDigits     = input.parentPhone.replace(/\D/g, '')
-      const parentEmailAddr = `${phoneDigits}@parent.midad.local`
-
-      const [existingUser] = await db.select().from(user).where(eq(user.email, parentEmailAddr)).limit(1)
+      // Look under every spelling so a sibling entered as 0501234567 joins the
+      // login already created for 501234567 instead of getting a second one.
+      const parentEmailAddr = parentEmail(input.parentPhone)
+      const [existingUser] = await db
+        .select()
+        .from(user)
+        .where(inArray(user.email, parentEmailCandidates(input.parentPhone)))
+        .limit(1)
 
       if (!existingUser) {
         try {
@@ -183,7 +196,11 @@ export async function editStudent(id: string, input: any) {
         }
       }
 
-      const [pUser] = await db.select().from(user).where(eq(user.email, parentEmailAddr)).limit(1)
+      const [pUser] = await db
+        .select()
+        .from(user)
+        .where(inArray(user.email, parentEmailCandidates(input.parentPhone)))
+        .limit(1)
       parentUserId = pUser?.id ?? null
     }
 
@@ -249,13 +266,15 @@ export async function importStudents(
 
       if (row.parentPhone) {
         // Excel sometimes exports numbers as floats e.g. 5012345678.0
-        const phoneDigits     = String(row.parentPhone).replace(/\.0+$/, '').replace(/\D/g, '')
-        const parentEmailAddr = `${phoneDigits}@parent.midad.local`
+        const rawPhone        = String(row.parentPhone).replace(/\.0+$/, '')
+        const parentEmailAddr = parentEmail(rawPhone)
 
+        // Siblings across two import files, spelled differently, must land on
+        // the one login — see parentEmailCandidates.
         const [existingUser] = await db
           .select()
           .from(user)
-          .where(eq(user.email, parentEmailAddr))
+          .where(inArray(user.email, parentEmailCandidates(rawPhone)))
           .limit(1)
 
         if (!existingUser) {
@@ -272,7 +291,11 @@ export async function importStudents(
           }
         }
         
-        const [pUser] = await db.select().from(user).where(eq(user.email, parentEmailAddr)).limit(1)
+        const [pUser] = await db
+          .select()
+          .from(user)
+          .where(inArray(user.email, parentEmailCandidates(rawPhone)))
+          .limit(1)
         parentUserId = pUser?.id ?? null
       }
 
