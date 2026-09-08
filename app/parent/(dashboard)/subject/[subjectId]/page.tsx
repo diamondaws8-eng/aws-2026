@@ -199,8 +199,8 @@ export default async function SubjectDetailsPage({
                   {/* Point breakdown */}
                   {dayPoints.length > 0 && (
                     <div className="pt-2 border-t border-border/50 space-y-1">
-                      {dayPoints.map(p => (
-                        <div key={p.id} className="flex items-center justify-between text-xs">
+                      {dayPoints.map((p, i) => (
+                        <div key={`${p.date}-${p.type}-${i}`} className="flex items-center justify-between text-xs">
                           <span className="text-muted-foreground flex items-center gap-1.5">
                             <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 shrink-0" />
                             {p.reason}

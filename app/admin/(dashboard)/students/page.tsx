@@ -1,19 +1,14 @@
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
-import { schools, students, classes, gradeLevels } from '@/lib/db/schema'
+import { students, classes, gradeLevels } from '@/lib/db/schema'
 import { eq, asc } from 'drizzle-orm'
-import { headers } from 'next/headers'
-import { redirect } from 'next/navigation'
 import StudentsClient from './students-client'
+import { requireAdminAccess, canViewGrade, canEditGrade } from '@/lib/admin-access'
 
 export const dynamic = 'force-dynamic'
 
 export default async function StudentsPage() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) redirect('/admin/login')
-  
-  const [school] = await db.select().from(schools).where(eq(schools.adminId, session.user.id)).limit(1)
-  if (!school) redirect('/admin/setup')
+  const access = await requireAdminAccess()
+  const school = access.school
 
   const studentsList = await db
     .select({
@@ -21,8 +16,10 @@ export default async function StudentsPage() {
       fullName: students.fullName,
       nationalId: students.nationalId,
       parentPhone: students.parentPhone,
+      parentUserId: students.parentUserId,
       className: classes.name,
       gradeName: gradeLevels.name,
+      gradeLevelId: classes.gradeLevelId,
       classId: students.classId
     })
     .from(students)
@@ -35,16 +32,26 @@ export default async function StudentsPage() {
     .select({
       id: classes.id,
       name: classes.name,
-      gradeName: gradeLevels.name
+      gradeName: gradeLevels.name,
+      gradeLevelId: classes.gradeLevelId,
     })
     .from(classes)
     .leftJoin(gradeLevels, eq(classes.gradeLevelId, gradeLevels.id))
     .where(eq(classes.schoolId, school.id))
 
-  const formattedClasses = classesList.map(c => ({
-    id: c.id,
-    name: `${c.gradeName || 'مرحلة غير معروفة'} - ${c.name}`
-  }))
+  // Deputies only see the grades assigned to them; unassigned students stay
+  // with the roles that can see the whole school.
+  const visibleStudents = studentsList
+    .filter((s) => canViewGrade(access, s.gradeLevelId))
+    .map((s) => ({ ...s, canEdit: canEditGrade(access, s.gradeLevelId) }))
+
+  const formattedClasses = classesList
+    .filter((c) => canViewGrade(access, c.gradeLevelId))
+    .map(c => ({
+      id: c.id,
+      name: `${c.gradeName || 'مرحلة غير معروفة'} - ${c.name}`,
+      canEdit: canEditGrade(access, c.gradeLevelId),
+    }))
 
   return (
     <div className="space-y-6">
@@ -55,7 +62,12 @@ export default async function StudentsPage() {
         </div>
       </div>
 
-      <StudentsClient students={studentsList} classes={formattedClasses} schoolId={school.id} />
+      <StudentsClient
+        students={visibleStudents}
+        classes={formattedClasses}
+        schoolId={school.id}
+        canCreate={access.canEdit && formattedClasses.some(c => c.canEdit)}
+      />
     </div>
   )
 }

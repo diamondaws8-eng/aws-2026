@@ -1,9 +1,11 @@
 import { Analytics } from '@vercel/analytics/next'
-import { Cairo, Geist_Mono } from 'next/font/google'
+import { Cairo, Geist_Mono, Reem_Kufi } from 'next/font/google'
 import type { Metadata, Viewport } from 'next'
 
 const cairo = Cairo({ subsets: ['arabic', 'latin'], variable: '--font-cairo' })
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
+// Kufic display face — used for the school's name so it reads as a brand mark.
+const reemKufi = Reem_Kufi({ subsets: ['arabic'], variable: '--font-kufi-src', weight: ['400', '600', '700'] })
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -33,7 +35,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
-      <body className={`${cairo.variable} ${geistMono.variable} font-sans antialiased bg-background text-foreground transition-colors duration-300`} suppressHydrationWarning>
+      <body className={`${cairo.variable} ${geistMono.variable} ${reemKufi.variable} font-sans antialiased bg-background text-foreground transition-colors duration-300`} suppressHydrationWarning>
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

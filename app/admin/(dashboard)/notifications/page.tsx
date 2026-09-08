@@ -1,23 +1,28 @@
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
-import { schools, classes, students, notifications } from '@/lib/db/schema'
+import { classes, students, notifications } from '@/lib/db/schema'
 import { eq, desc, and, or, isNull, gt, sql } from 'drizzle-orm'
-import { headers } from 'next/headers'
-import { redirect } from 'next/navigation'
 import NotificationsClient from './notifications-client'
+import { requireAdminAccess, canViewGrade } from '@/lib/admin-access'
 
 export const dynamic = 'force-dynamic'
 
 export default async function NotificationsPage() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) redirect('/admin/login')
-  
-  const [school] = await db.select().from(schools).where(eq(schools.adminId, session.user.id)).limit(1)
-  if (!school) redirect('/admin/setup')
+  const access = await requireAdminAccess()
+  const school = access.school
 
-  const classesList = await db.select().from(classes).where(eq(classes.schoolId, school.id))
-  const studentsList = await db.select({ id: students.id, fullName: students.fullName }).from(students).where(eq(students.schoolId, school.id))
-  
+  const allClasses = await db.select().from(classes).where(eq(classes.schoolId, school.id))
+  const classesList = allClasses.filter((c) => canViewGrade(access, c.gradeLevelId))
+  const visibleClassIds = new Set(classesList.map((c) => c.id))
+
+  const allStudents = await db
+    .select({ id: students.id, fullName: students.fullName, classId: students.classId })
+    .from(students)
+    .where(eq(students.schoolId, school.id))
+  const studentsList = access.viewAllGrades
+    ? allStudents
+    : allStudents.filter((s) => s.classId && visibleClassIds.has(s.classId))
+
+
   const notifs = await db.select()
     .from(notifications)
     .where(
@@ -38,12 +43,13 @@ export default async function NotificationsPage() {
         </div>
       </div>
 
-      <NotificationsClient 
-        schoolId={school.id} 
-        userId={session.user.id} 
-        classes={classesList} 
-        students={studentsList} 
-        notifications={notifs} 
+      <NotificationsClient
+        schoolId={school.id}
+        userId={access.userId}
+        classes={classesList}
+        students={studentsList}
+        notifications={notifs}
+        canSend={access.canEdit}
       />
     </div>
   )

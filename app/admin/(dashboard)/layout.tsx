@@ -1,23 +1,32 @@
 import { PortalLayout } from '@/components/portal-layout'
-import { auth } from '@/lib/auth'
-import { db } from '@/lib/db'
-import { schools } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
-import { headers } from 'next/headers'
-import { redirect } from 'next/navigation'
+import type { PortalNavLink } from '@/components/portal-layout'
+import { requireAdminAccess } from '@/lib/admin-access'
 
 export default async function AdminDashboardLayout({ children }: { children: React.ReactNode }) {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) redirect('/admin/login')
+  const access = await requireAdminAccess()
 
-  const [school] = await db.select().from(schools).where(eq(schools.adminId, session.user.id)).limit(1)
-  if (!school) redirect('/admin/setup')
+  const links: PortalNavLink[] = [
+    { href: '/admin', label: 'الرئيسية', icon: 'LayoutDashboard', exact: true },
+    { href: '/admin/grade-levels', label: 'المراحل والفصول', icon: 'Layers' },
+    { href: '/admin/students', label: 'الطلاب', icon: 'Users' },
+    { href: '/admin/teachers', label: 'المعلمون', icon: 'UserCog' },
+    { href: '/admin/notifications', label: 'التنبيهات', icon: 'Bell' },
+    ...(access.canManageStaff
+      ? [
+          { href: '/admin/staff', label: 'فريق الإدارة', icon: 'ClipboardList' as const },
+          { href: '/admin/audit', label: 'سجل التدقيق', icon: 'BarChart2' as const },
+        ]
+      : []),
+    { href: '/admin/settings', label: 'الإعدادات', icon: 'Settings' },
+  ]
 
   return (
     <PortalLayout
       role="admin"
-      user={{ name: session.user.name, email: session.user.email }}
-      schoolName={school.name}
+      user={{ name: access.name, email: access.email }}
+      schoolName={access.school.name}
+      roleLabel={access.roleLabel}
+      links={links}
     >
       {children}
     </PortalLayout>

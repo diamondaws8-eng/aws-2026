@@ -5,7 +5,7 @@ import { eq, count } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { formatDateAr } from '@/lib/utils'
+import { formatDateAr, today } from '@/lib/utils'
 
 import { StatCard } from '@/components/stat-card'
 import { EmptyState } from '@/components/empty-state'
@@ -48,7 +48,7 @@ export default async function TeacherDashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">أهلاً، {teacher.fullName}</h1>
-          <p className="text-muted-foreground mt-1">{formatDateAr(new Date().toISOString().split('T')[0])}</p>
+          <p className="text-muted-foreground mt-1">{formatDateAr(today())}</p>
         </div>
         <Link href="/teacher/classes" className="bg-primary text-primary-foreground px-4 py-2 rounded-xl font-semibold text-center hover:bg-primary/90 transition-colors">
           الذهاب للفصول &larr;

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { authClient } from '@/lib/auth-client'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { BackToPortals } from '@/components/back-to-portals'
 import { BrandLogo } from '@/components/brand-logo'
 
 export default function TeacherLogin() {
@@ -42,6 +43,9 @@ export default function TeacherLogin() {
     <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4 relative">
       <div className="absolute top-6 left-6">
         <ThemeToggle />
+      </div>
+      <div className="absolute top-6 right-6">
+        <BackToPortals />
       </div>
       <div className="max-w-md w-full bg-card border border-border rounded-2xl p-6 sm:p-8 shadow-sm">
         <div className="text-center mb-8">

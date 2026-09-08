@@ -1,19 +1,14 @@
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
-import { schools, teachers } from '@/lib/db/schema'
+import { teachers } from '@/lib/db/schema'
 import { eq, asc } from 'drizzle-orm'
-import { headers } from 'next/headers'
-import { redirect } from 'next/navigation'
 import TeachersClient from './teachers-client'
+import { requireAdminAccess } from '@/lib/admin-access'
 
 export const dynamic = 'force-dynamic'
 
 export default async function TeachersPage() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) redirect('/admin/login')
-  
-  const [school] = await db.select().from(schools).where(eq(schools.adminId, session.user.id)).limit(1)
-  if (!school) redirect('/admin/setup')
+  const access = await requireAdminAccess()
+  const school = access.school
 
   const teachersList = await db
     .select()
@@ -30,7 +25,7 @@ export default async function TeachersPage() {
         </div>
       </div>
 
-      <TeachersClient teachers={teachersList} schoolId={school.id} />
+      <TeachersClient teachers={teachersList} schoolId={school.id} canManage={access.canManageTeachers} />
     </div>
   )
 }

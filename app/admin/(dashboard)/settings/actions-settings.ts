@@ -4,9 +4,11 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import {
   schools, gradeLevels, classes, teachers, students, subjects, attendance,
-  gradeEntries, notifications, dailyRecords, studentPoints
+  gradeEntries, notifications, dailyRecords, studentPoints, user, schoolStaff
 } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import { eq, inArray, and, ne } from 'drizzle-orm'
+import { getAdminAccess } from '@/lib/admin-access'
+import { logAudit } from '@/lib/audit'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import type { SchoolSettings } from './settings-types'
@@ -38,12 +40,58 @@ export async function getSchoolSettings(schoolId: string): Promise<SchoolSetting
 
 // ── Save school settings ──────────────────────────────────────────────────────
 export async function saveSchoolSettings(schoolId: string, settings: SchoolSettings) {
+  const access = await getAdminAccess()
+  if (!access || !access.canManageSchoolSettings || access.school.id !== schoolId) {
+    return { ok: false, error: 'غير مصرح بتعديل إعدادات المدرسة' }
+  }
   await db
     .update(schools)
     .set({ settings: JSON.stringify(settings) })
     .where(eq(schools.id, schoolId))
+
+  // Point values may have changed — bring every stored daily total back in line
+  // with the new rules so no parent sees a breakdown that doesn't add up.
+  const { resyncSchoolPoints } = await import('@/lib/points')
+  await resyncSchoolPoints(schoolId, settings)
+
+  await logAudit(access, 'settings.update', access.school.name)
   revalidatePath('/admin')
   return { ok: true }
+}
+
+// ── Update own profile (name + login email) ───────────────────────────────────
+// Available to every admin-portal role for their OWN account only.
+export async function updateAdminProfile(input: { name: string; email: string }) {
+  const access = await getAdminAccess()
+  if (!access) return { ok: false as const, error: 'غير مصرح بهذا الإجراء' }
+
+  const name = input.name.trim()
+  const email = input.email.trim().toLowerCase()
+  if (!name) return { ok: false as const, error: 'الاسم مطلوب' }
+  if (!email || !email.includes('@')) return { ok: false as const, error: 'البريد الإلكتروني غير صالح' }
+
+  // Email is the login identifier — it must stay unique across all accounts.
+  const [taken] = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(and(eq(user.email, email), ne(user.id, access.userId)))
+    .limit(1)
+  if (taken) return { ok: false as const, error: 'هذا البريد الإلكتروني مستخدم بحساب آخر' }
+
+  try {
+    await db.update(user).set({ name, email, updatedAt: new Date() }).where(eq(user.id, access.userId))
+
+    // Keep the staff record's display name in sync
+    if (access.staffId) {
+      await db.update(schoolStaff).set({ fullName: name }).where(eq(schoolStaff.id, access.staffId))
+    }
+
+    revalidatePath('/admin', 'layout')
+    return { ok: true as const }
+  } catch (error) {
+    console.error('Update Profile Error:', error)
+    return { ok: false as const, error: 'حدث خطأ أثناء حفظ البيانات' }
+  }
 }
 
 // ── Change admin password ─────────────────────────────────────────────────────
@@ -59,30 +107,262 @@ export async function changeAdminPassword(currentPassword: string, newPassword: 
   }
 }
 
-// ── Export Full Backup ────────────────────────────────────────────────────────
+// ── Export Backup ─────────────────────────────────────────────────────────────
+// The owner and quality managers get the whole school; a principal scoped to
+// certain grade levels gets a backup limited to those grades.
 export async function exportFullBackup(schoolId: string) {
+  const access = await getAdminAccess()
+  if (!access || !access.canBackup || access.school.id !== schoolId) {
+    return { ok: false, error: 'غير مصرح لك بأخذ نسخة احتياطية' }
+  }
+
   try {
-    const backupData = {
-      timestamp: new Date().toISOString(),
-      schoolId,
-      version: '1.0',
-      data: {
-        schools: await db.select().from(schools).where(eq(schools.id, schoolId)),
-        gradeLevels: await db.select().from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)),
-        classes: await db.select().from(classes).where(eq(classes.schoolId, schoolId)),
-        teachers: await db.select().from(teachers).where(eq(teachers.schoolId, schoolId)),
-        students: await db.select().from(students).where(eq(students.schoolId, schoolId)),
-        subjects: await db.select().from(subjects).where(eq(subjects.schoolId, schoolId)),
-        attendance: await db.select().from(attendance).where(eq(attendance.schoolId, schoolId)),
-        gradeEntries: await db.select().from(gradeEntries).where(eq(gradeEntries.schoolId, schoolId)),
-        notifications: await db.select().from(notifications).where(eq(notifications.schoolId, schoolId)),
-        dailyRecords: await db.select().from(dailyRecords).where(eq(dailyRecords.schoolId, schoolId)),
-        studentPoints: await db.select().from(studentPoints).where(eq(studentPoints.schoolId, schoolId)),
+    const wholeSchool = access.backupAllGrades
+
+    if (wholeSchool) {
+      const [
+        schoolRows, gradeLevelRows, classRows, teacherRows, studentRows,
+        subjectRows, attendanceRows, gradeEntryRows, notificationRows,
+        dailyRecordRows, studentPointRows,
+      ] = await Promise.all([
+        db.select().from(schools).where(eq(schools.id, schoolId)),
+        db.select().from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)),
+        db.select().from(classes).where(eq(classes.schoolId, schoolId)),
+        db.select().from(teachers).where(eq(teachers.schoolId, schoolId)),
+        db.select().from(students).where(eq(students.schoolId, schoolId)),
+        db.select().from(subjects).where(eq(subjects.schoolId, schoolId)),
+        db.select().from(attendance).where(eq(attendance.schoolId, schoolId)),
+        db.select().from(gradeEntries).where(eq(gradeEntries.schoolId, schoolId)),
+        db.select().from(notifications).where(eq(notifications.schoolId, schoolId)),
+        db.select().from(dailyRecords).where(eq(dailyRecords.schoolId, schoolId)),
+        db.select().from(studentPoints).where(eq(studentPoints.schoolId, schoolId)),
+      ])
+
+      await logAudit(access, 'backup.export', access.school.name, { scope: 'full', students: studentRows.length })
+
+      return {
+        ok: true,
+        data: {
+          timestamp: new Date().toISOString(),
+          schoolId,
+          version: '1.1',
+          scope: { type: 'full' as const, gradeIds: [] as string[], gradeNames: [] as string[] },
+          data: {
+            schools: schoolRows, gradeLevels: gradeLevelRows, classes: classRows,
+            teachers: teacherRows, students: studentRows, subjects: subjectRows,
+            attendance: attendanceRows, gradeEntries: gradeEntryRows,
+            notifications: notificationRows, dailyRecords: dailyRecordRows,
+            studentPoints: studentPointRows,
+          },
+        },
       }
     }
-    return { ok: true, data: backupData }
+
+    // ── Scoped backup: only the grades this manager is responsible for ────────
+    const scopedGradeIds = access.gradeIds
+    if (scopedGradeIds.length === 0) {
+      return { ok: false, error: 'لا توجد مراحل مسندة لحسابك لأخذ نسخة منها' }
+    }
+
+    const [schoolRows, gradeLevelRows, classRows, teacherRows] = await Promise.all([
+      db.select().from(schools).where(eq(schools.id, schoolId)),
+      db.select().from(gradeLevels).where(and(eq(gradeLevels.schoolId, schoolId), inArray(gradeLevels.id, scopedGradeIds))),
+      db.select().from(classes).where(and(eq(classes.schoolId, schoolId), inArray(classes.gradeLevelId, scopedGradeIds))),
+      db.select().from(teachers).where(eq(teachers.schoolId, schoolId)),
+    ])
+
+    const classIds = classRows.map((c) => c.id)
+    if (classIds.length === 0) {
+      return {
+        ok: true,
+        data: {
+          timestamp: new Date().toISOString(),
+          schoolId,
+          version: '1.1',
+          scope: {
+            type: 'grades' as const,
+            gradeIds: scopedGradeIds,
+            gradeNames: gradeLevelRows.map((g) => g.name),
+          },
+          data: {
+            schools: schoolRows, gradeLevels: gradeLevelRows, classes: [], teachers: teacherRows,
+            students: [], subjects: [], attendance: [], gradeEntries: [],
+            notifications: [], dailyRecords: [], studentPoints: [],
+          },
+        },
+      }
+    }
+
+    const [studentRows, subjectRows, dailyRecordRows, studentPointRows, notificationRows] = await Promise.all([
+      db.select().from(students).where(and(eq(students.schoolId, schoolId), inArray(students.classId, classIds))),
+      db.select().from(subjects).where(and(eq(subjects.schoolId, schoolId), inArray(subjects.classId, classIds))),
+      db.select().from(dailyRecords).where(and(eq(dailyRecords.schoolId, schoolId), inArray(dailyRecords.classId, classIds))),
+      db.select().from(studentPoints).where(and(eq(studentPoints.schoolId, schoolId), inArray(studentPoints.classId, classIds))),
+      db.select().from(notifications).where(and(eq(notifications.schoolId, schoolId), inArray(notifications.classId, classIds))),
+    ])
+
+    const studentIds = studentRows.map((s) => s.id)
+    const [attendanceRows, gradeEntryRows] = await Promise.all([
+      studentIds.length
+        ? db.select().from(attendance).where(and(eq(attendance.schoolId, schoolId), inArray(attendance.studentId, studentIds)))
+        : Promise.resolve([]),
+      studentIds.length
+        ? db.select().from(gradeEntries).where(and(eq(gradeEntries.schoolId, schoolId), inArray(gradeEntries.studentId, studentIds)))
+        : Promise.resolve([]),
+    ])
+
+    await logAudit(access, 'backup.export', access.school.name, {
+      scope: 'grades',
+      gradeNames: gradeLevelRows.map((g) => g.name),
+      students: studentRows.length,
+    })
+
+    return {
+      ok: true,
+      data: {
+        timestamp: new Date().toISOString(),
+        schoolId,
+        version: '1.1',
+        scope: {
+          type: 'grades' as const,
+          gradeIds: scopedGradeIds,
+          gradeNames: gradeLevelRows.map((g) => g.name),
+        },
+        data: {
+          schools: schoolRows, gradeLevels: gradeLevelRows, classes: classRows,
+          teachers: teacherRows, students: studentRows, subjects: subjectRows,
+          attendance: attendanceRows, gradeEntries: gradeEntryRows,
+          notifications: notificationRows, dailyRecords: dailyRecordRows,
+          studentPoints: studentPointRows,
+        },
+      },
+    }
   } catch (error) {
     console.error("Backup Error:", error)
     return { ok: false, error: 'حدث خطأ أثناء أخذ النسخة الاحتياطية' }
+  }
+}
+
+// ── Restore Full Backup ───────────────────────────────────────────────────────
+// Replaces ALL of the school's data with the contents of a previously
+// exported backup file, inside a single transaction (all-or-nothing).
+// Note: login accounts (email/password) for teachers and parents are NOT
+// part of the backup — if an account was deleted after the backup was taken,
+// the restored row comes back but that person will not be able to log in
+// until the admin re-creates their account.
+export async function restoreFullBackup(schoolId: string, backup: any) {
+  try {
+    const access = await getAdminAccess()
+    if (!access || !access.canRestore || access.school.id !== schoolId) {
+      return { ok: false, error: 'الاستعادة متاحة للمالك فقط' }
+    }
+    const school = access.school
+
+    if (!backup || typeof backup !== 'object' || !backup.data || typeof backup.data !== 'object') {
+      return { ok: false, error: 'ملف النسخة الاحتياطية غير صالح أو تالف' }
+    }
+    if (backup.schoolId && backup.schoolId !== schoolId) {
+      return { ok: false, error: 'هذه النسخة الاحتياطية تعود لمدرسة أخرى ولا يمكن استعادتها هنا' }
+    }
+    // A partial (per-grade) backup must never be restored: the restore wipes the
+    // whole school first, so it would delete every grade missing from the file.
+    if (backup.scope?.type === 'grades') {
+      const names = Array.isArray(backup.scope.gradeNames) ? backup.scope.gradeNames.join('، ') : ''
+      return {
+        ok: false,
+        error: `هذه نسخة جزئية${names ? ` (${names})` : ''} وليست نسخة كاملة للمدرسة. استعادتها ستحذف بقية المراحل، لذلك لا يمكن استخدامها هنا — استخدم نسخة كاملة.`,
+      }
+    }
+
+    const d = backup.data
+    const toDate = (v: any) => (v ? new Date(v) : v)
+    const counts = {
+      gradeLevels: 0, classes: 0, subjects: 0, teachers: 0, students: 0,
+      attendance: 0, gradeEntries: 0, notifications: 0, dailyRecords: 0, studentPoints: 0,
+    }
+
+    await db.transaction(async (tx) => {
+      // Restore the school's own editable fields — never trust id/adminId from the file
+      const backupSchool = Array.isArray(d.schools) ? d.schools[0] : null
+      if (backupSchool) {
+        await tx.update(schools).set({
+          name: backupSchool.name ?? school.name,
+          academicYear: backupSchool.academicYear ?? school.academicYear,
+          settings: backupSchool.settings ?? school.settings,
+        }).where(eq(schools.id, schoolId))
+      }
+
+      // Wipe current school-scoped data
+      await tx.delete(studentPoints).where(eq(studentPoints.schoolId, schoolId))
+      await tx.delete(dailyRecords).where(eq(dailyRecords.schoolId, schoolId))
+      await tx.delete(notifications).where(eq(notifications.schoolId, schoolId))
+      await tx.delete(gradeEntries).where(eq(gradeEntries.schoolId, schoolId))
+      await tx.delete(attendance).where(eq(attendance.schoolId, schoolId))
+      await tx.delete(subjects).where(eq(subjects.schoolId, schoolId))
+      await tx.delete(students).where(eq(students.schoolId, schoolId))
+      await tx.delete(teachers).where(eq(teachers.schoolId, schoolId))
+      await tx.delete(classes).where(eq(classes.schoolId, schoolId))
+      await tx.delete(gradeLevels).where(eq(gradeLevels.schoolId, schoolId))
+
+      // Re-insert everything from the backup, preserving original ids so
+      // cross-table references (class -> grade level, subject -> class, ...) stay intact
+      if (Array.isArray(d.gradeLevels) && d.gradeLevels.length) {
+        await tx.insert(gradeLevels).values(d.gradeLevels.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        counts.gradeLevels = d.gradeLevels.length
+      }
+      if (Array.isArray(d.classes) && d.classes.length) {
+        await tx.insert(classes).values(d.classes.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        counts.classes = d.classes.length
+      }
+      if (Array.isArray(d.teachers) && d.teachers.length) {
+        await tx.insert(teachers).values(d.teachers.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        counts.teachers = d.teachers.length
+      }
+      if (Array.isArray(d.students) && d.students.length) {
+        await tx.insert(students).values(d.students.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        counts.students = d.students.length
+      }
+      if (Array.isArray(d.subjects) && d.subjects.length) {
+        await tx.insert(subjects).values(d.subjects.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        counts.subjects = d.subjects.length
+      }
+      if (Array.isArray(d.attendance) && d.attendance.length) {
+        await tx.insert(attendance).values(d.attendance.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        counts.attendance = d.attendance.length
+      }
+      if (Array.isArray(d.gradeEntries) && d.gradeEntries.length) {
+        await tx.insert(gradeEntries).values(d.gradeEntries.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        counts.gradeEntries = d.gradeEntries.length
+      }
+      if (Array.isArray(d.notifications) && d.notifications.length) {
+        await tx.insert(notifications).values(d.notifications.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), expiresAt: toDate(r.expiresAt) })))
+        counts.notifications = d.notifications.length
+      }
+      if (Array.isArray(d.dailyRecords) && d.dailyRecords.length) {
+        await tx.insert(dailyRecords).values(d.dailyRecords.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), updatedAt: toDate(r.updatedAt) })))
+        counts.dailyRecords = d.dailyRecords.length
+      }
+      if (Array.isArray(d.studentPoints) && d.studentPoints.length) {
+        await tx.insert(studentPoints).values(d.studentPoints.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        counts.studentPoints = d.studentPoints.length
+      }
+    })
+
+    // Informational: how many restored teacher accounts no longer have a matching login
+    let missingLogins = 0
+    const teacherUserIds: string[] = (d.teachers || []).map((t: any) => t.userId).filter(Boolean)
+    if (teacherUserIds.length) {
+      const existing = await db.select({ id: user.id }).from(user).where(inArray(user.id, teacherUserIds))
+      missingLogins = teacherUserIds.length - existing.length
+    }
+
+    await logAudit(access, 'backup.restore', access.school.name, { counts, missingLogins })
+
+    revalidatePath('/admin', 'layout')
+
+    return { ok: true, counts, missingLogins }
+  } catch (error) {
+    console.error('Restore Error:', error)
+    return { ok: false, error: 'حدث خطأ أثناء الاستعادة. لم يتم تعديل أي بيانات (تم التراجع تلقائياً).' }
   }
 }

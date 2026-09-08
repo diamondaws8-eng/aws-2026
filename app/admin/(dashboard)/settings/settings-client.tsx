@@ -1,8 +1,37 @@
 'use client'
 
-import { useState } from 'react'
-import { saveSchoolSettings, changeAdminPassword, exportFullBackup } from './actions-settings'
+import { useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { saveSchoolSettings, changeAdminPassword, exportFullBackup, restoreFullBackup, updateAdminProfile } from './actions-settings'
+import { requireAllParentsToChangePassword } from '../students/actions-students'
 import type { SchoolSettings } from './settings-types'
+import {
+  Sliders, MessageCircle, Lock, Database, Save, Backpack, Star,
+  CalendarCheck2, BookOpen, Hand, Award, ShieldAlert, Trash2, Loader2,
+  Download, KeyRound, CheckCircle2, XCircle, Upload, FileJson, AlertTriangle, RotateCcw, X,
+  UserCircle, Users,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+
+// ── Backup file summary shape ───────────────────────────────────────────────────
+type BackupSummary = {
+  timestamp?: string
+  raw: any
+  counts: Record<string, number>
+}
+
+const RESTORE_TABLE_LABELS: Record<string, string> = {
+  gradeLevels: 'مرحلة دراسية',
+  classes: 'فصل',
+  subjects: 'مادة',
+  teachers: 'معلم',
+  students: 'طالب',
+  attendance: 'سجل حضور',
+  gradeEntries: 'درجة',
+  notifications: 'تنبيه',
+  dailyRecords: 'سجل يومي',
+  studentPoints: 'نقطة طالب',
+}
 
 // ── Toggle Switch ─────────────────────────────────────────────────────────────
 function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
@@ -52,15 +81,28 @@ function PointInput({
 }
 
 // ── Section Card ─────────────────────────────────────────────────────────────
-function Section({ title, icon, children }: { title: string; icon: string; children: React.ReactNode }) {
+function Section({ title, icon: Icon, children }: { title: string; icon: LucideIcon; children: React.ReactNode }) {
   return (
-    <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm">
-      <div className="px-6 py-4 border-b border-border bg-muted/30 flex items-center gap-2">
-        <span className="text-xl">{icon}</span>
+    <div className="relative overflow-hidden bg-card border border-border rounded-3xl shadow-sm">
+      <div className="absolute -top-16 -left-12 size-40 rounded-full bg-primary/5 blur-3xl pointer-events-none" />
+      <div className="relative px-6 py-4 border-b border-border bg-muted/30 flex items-center gap-3">
+        <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Icon className="size-4.5" />
+        </div>
         <h2 className="font-bold text-base">{title}</h2>
       </div>
-      <div className="p-6">{children}</div>
+      <div className="relative p-6">{children}</div>
     </div>
+  )
+}
+
+// ── Status message (with icon) ─────────────────────────────────────────────────
+function StatusMsg({ ok, text }: { ok: boolean; text: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-sm font-semibold animate-in fade-in ${ok ? 'text-emerald-600' : 'text-red-600'}`}>
+      {ok ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
+      {text}
+    </span>
   )
 }
 
@@ -69,14 +111,47 @@ export default function SettingsClient({
   schoolId,
   initialSettings,
   adminEmail,
+  adminName,
+  roleLabel,
+  canManageSchoolSettings,
+  canBackup,
+  backupAllGrades = true,
+  canRestore = false,
 }: {
   schoolId: string
   initialSettings: SchoolSettings
   adminEmail: string
+  adminName: string
+  roleLabel: string
+  canManageSchoolSettings: boolean
+  canBackup: boolean
+  backupAllGrades?: boolean
+  canRestore?: boolean
 }) {
   const [settings, setSettings] = useState<SchoolSettings>(initialSettings)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  // Profile form (own account — available to every admin-portal role)
+  const [profileName, setProfileName]   = useState(adminName)
+  const [profileEmail, setProfileEmail] = useState(adminEmail)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileMsg, setProfileMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setProfileLoading(true)
+    setProfileMsg(null)
+    try {
+      const res = await updateAdminProfile({ name: profileName, email: profileEmail })
+      if (res.ok) setProfileMsg({ ok: true, text: 'تم حفظ بياناتك بنجاح' })
+      else setProfileMsg({ ok: false, text: res.error || 'حدث خطأ أثناء الحفظ' })
+    } catch {
+      setProfileMsg({ ok: false, text: 'حدث خطأ غير متوقع' })
+    } finally {
+      setProfileLoading(false)
+    }
+  }
 
   // Password form
   const [currentPw, setCurrentPw]   = useState('')
@@ -123,9 +198,9 @@ export default function SettingsClient({
     setSaveMsg(null)
     try {
       await saveSchoolSettings(schoolId, settings)
-      setSaveMsg({ ok: true, text: '✅ تم حفظ الإعدادات بنجاح' })
+      setSaveMsg({ ok: true, text: 'تم حفظ الإعدادات بنجاح' })
     } catch {
-      setSaveMsg({ ok: false, text: '❌ حدث خطأ أثناء الحفظ' })
+      setSaveMsg({ ok: false, text: 'حدث خطأ أثناء الحفظ' })
     } finally {
       setSaving(false)
       setTimeout(() => setSaveMsg(null), 3000)
@@ -141,7 +216,7 @@ export default function SettingsClient({
     setPwMsg(null)
     const result = await changeAdminPassword(currentPw, newPw)
     if (result.ok) {
-      setPwMsg({ ok: true, text: '✅ تم تغيير كلمة المرور بنجاح' })
+      setPwMsg({ ok: true, text: 'تم تغيير كلمة المرور بنجاح' })
       setCurrentPw(''); setNewPw(''); setConfirmPw('')
     } else {
       setPwMsg({ ok: false, text: result.error || 'حدث خطأ' })
@@ -164,12 +239,13 @@ export default function SettingsClient({
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `backup_midad_${new Date().toISOString().split('T')[0]}.json`
+        const scoped = (res.data as any)?.scope?.type === 'grades'
+        a.download = `backup_midad_${scoped ? 'partial_' : ''}${new Date().toISOString().split('T')[0]}.json`
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
         URL.revokeObjectURL(url)
-        setBackupMsg({ ok: true, text: '✅ تم تحميل النسخة الاحتياطية بنجاح' })
+        setBackupMsg({ ok: true, text: 'تم تحميل النسخة الاحتياطية بنجاح' })
       } else {
         setBackupMsg({ ok: false, text: res.error || 'حدث خطأ أثناء أخذ النسخة' })
       }
@@ -180,12 +256,146 @@ export default function SettingsClient({
     }
   }
 
+  // ── Bulk rotation of parent passwords ────────────────────────────────────────
+  const [rotateOpen, setRotateOpen] = useState(false)
+  const [rotatePhrase, setRotatePhrase] = useState('')
+  const [rotating, setRotating] = useState(false)
+  const [rotateMsg, setRotateMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const handleRotateParents = async () => {
+    if (rotatePhrase !== 'تغيير') return
+    setRotating(true)
+    setRotateMsg(null)
+    try {
+      const res = await requireAllParentsToChangePassword(schoolId)
+      if (res.ok) {
+        setRotateOpen(false)
+        setRotatePhrase('')
+        setRotateMsg({ ok: true, text: `تم — سيُطلب من ${res.count} ولي أمر اختيار كلمة مرور خاصة به عند أول دخول` })
+      } else {
+        setRotateMsg({ ok: false, text: res.error || 'حدث خطأ' })
+      }
+    } catch {
+      setRotateMsg({ ok: false, text: 'حدث خطأ غير متوقع' })
+    } finally {
+      setRotating(false)
+    }
+  }
+
+  // ── Restore ──────────────────────────────────────────────────────────────────
+  const router = useRouter()
+  const restoreFileRef = useRef<HTMLInputElement>(null)
+  const [pendingRestore, setPendingRestore] = useState<BackupSummary | null>(null)
+  const [restoreFileError, setRestoreFileError] = useState<string | null>(null)
+  const [confirmPhrase, setConfirmPhrase] = useState('')
+  const [restoring, setRestoring] = useState(false)
+  const [restoreResult, setRestoreResult] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const handleRestoreFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setRestoreFileError(null)
+    setRestoreResult(null)
+    setConfirmPhrase('')
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text)
+      if (!parsed || typeof parsed !== 'object' || !parsed.data || typeof parsed.data !== 'object') {
+        setRestoreFileError('هذا الملف ليس نسخة احتياطية صالحة')
+        setPendingRestore(null)
+        return
+      }
+      const counts: Record<string, number> = {}
+      for (const key of Object.keys(RESTORE_TABLE_LABELS)) {
+        counts[key] = Array.isArray(parsed.data[key]) ? parsed.data[key].length : 0
+      }
+      setPendingRestore({ timestamp: parsed.timestamp, raw: parsed, counts })
+    } catch {
+      setRestoreFileError('تعذّرت قراءة الملف — تأكد أنه ملف JSON صالح من ميزة النسخ الاحتياطي')
+      setPendingRestore(null)
+    }
+  }
+
+  const cancelRestore = () => {
+    setPendingRestore(null)
+    setConfirmPhrase('')
+    setRestoreFileError(null)
+    if (restoreFileRef.current) restoreFileRef.current.value = ''
+  }
+
+  const handleConfirmRestore = async () => {
+    if (!pendingRestore || confirmPhrase !== 'استعادة') return
+    setRestoring(true)
+    setRestoreResult(null)
+    try {
+      const res = await restoreFullBackup(schoolId, pendingRestore.raw)
+      if (res.ok) {
+        const total = Object.values(res.counts || {}).reduce((a: number, b) => a + (b as number), 0)
+        setRestoreResult({
+          ok: true,
+          text: `تمت الاستعادة بنجاح — ${total} سجل${res.missingLogins ? `. تنبيه: ${res.missingLogins} من حسابات المعلمين لم تعد مرتبطة بتسجيل دخول فعّال.` : ''}`,
+        })
+        cancelRestore()
+        router.refresh()
+      } else {
+        setRestoreResult({ ok: false, text: res.error || 'حدث خطأ أثناء الاستعادة' })
+      }
+    } catch {
+      setRestoreResult({ ok: false, text: 'حدث خطأ غير متوقع أثناء الاستعادة' })
+    } finally {
+      setRestoring(false)
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
 
+      {/* ── Section 0: My profile (every role) ───────────────────────────────── */}
+      <Section title="الملف الشخصي" icon={UserCircle}>
+        <p className="text-sm text-muted-foreground mb-5">
+          صلاحيتك في النظام: <span className="font-bold text-foreground">{roleLabel}</span>
+        </p>
+        <form onSubmit={handleSaveProfile} className="space-y-4 max-w-md">
+          <div>
+            <label className="block text-sm font-semibold mb-1.5">الاسم</label>
+            <input
+              type="text"
+              required
+              value={profileName}
+              onChange={e => setProfileName(e.target.value)}
+              className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-1.5">البريد الإلكتروني (اسم الدخول)</label>
+            <input
+              type="email"
+              required
+              value={profileEmail}
+              onChange={e => setProfileEmail(e.target.value)}
+              className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-sm dir-ltr text-right"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              بعد التغيير ستستخدم البريد الجديد لتسجيل الدخول، وكلمة المرور تبقى كما هي.
+            </p>
+          </div>
+
+          {profileMsg && <StatusMsg ok={profileMsg.ok} text={profileMsg.text} />}
+
+          <button
+            type="submit"
+            disabled={profileLoading}
+            className="px-8 py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity inline-flex items-center gap-2"
+          >
+            {profileLoading ? <><Loader2 className="size-4 animate-spin" /> جاري الحفظ...</> : <><Save className="size-4" /> حفظ البيانات</>}
+          </button>
+        </form>
+      </Section>
+
       {/* ── Section 1: Features & Points ─────────────────────────────────────── */}
-      <Section title="التحكم في ميزات جدول المعلم" icon="🎛️">
+      {canManageSchoolSettings && (
+      <Section title="التحكم في ميزات جدول المعلم" icon={Sliders}>
         <p className="text-sm text-muted-foreground mb-5">
           يمكنك تفعيل أو تعطيل كل ميزة في الجدول اليومي للمعلم. الميزات المعطّلة لن تظهر للمعلم ولن تؤثر في النقاط.
         </p>
@@ -195,7 +405,9 @@ export default function SettingsClient({
           <div className={`rounded-2xl border p-4 transition-all ${settings.features.attendance ? 'border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-800' : 'border-border bg-muted/30 opacity-60'}`}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
-                <span className="text-2xl">📅</span>
+                <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400">
+                  <CalendarCheck2 className="size-4.5" />
+                </div>
                 <div>
                   <p className="font-bold">حضور الحصص</p>
                   <p className="text-xs text-muted-foreground mt-0.5">تسجيل حضور وغياب وتأخر الطلاب</p>
@@ -217,7 +429,9 @@ export default function SettingsClient({
           <div className={`rounded-2xl border p-4 transition-all ${settings.features.behavior ? 'border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800' : 'border-border bg-muted/30 opacity-60'}`}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
-                <span className="text-2xl">⭐</span>
+                <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400">
+                  <Star className="size-4.5" />
+                </div>
                 <div>
                   <p className="font-bold">درجة السلوك</p>
                   <p className="text-xs text-muted-foreground mt-0.5">تقييم سلوك الطالب (ممتاز / جيد / يحتاج تحسين)</p>
@@ -239,7 +453,9 @@ export default function SettingsClient({
           <div className={`rounded-2xl border p-4 transition-all ${settings.features.homework ? 'border-violet-200 bg-violet-50 dark:bg-violet-950/20 dark:border-violet-800' : 'border-border bg-muted/30 opacity-60'}`}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
-                <span className="text-2xl">📚</span>
+                <div className="flex size-9 items-center justify-center rounded-xl bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-400">
+                  <BookOpen className="size-4.5" />
+                </div>
                 <div>
                   <p className="font-bold">الواجب المنزلي</p>
                   <p className="text-xs text-muted-foreground mt-0.5">متابعة إنجاز الواجب (منجز / لم ينجزه)</p>
@@ -260,7 +476,9 @@ export default function SettingsClient({
           <div className={`rounded-2xl border p-4 transition-all ${settings.features.materials ? 'border-orange-200 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-800' : 'border-border bg-muted/30 opacity-60'}`}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
-                <span className="text-2xl">🎒</span>
+                <div className="flex size-9 items-center justify-center rounded-xl bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400">
+                  <Backpack className="size-4.5" />
+                </div>
                 <div>
                   <p className="font-bold">الأدوات المدرسية</p>
                   <p className="text-xs text-muted-foreground mt-0.5">متابعة إحضار الطالب للأدوات (أحضر / لم يحضر)</p>
@@ -281,7 +499,9 @@ export default function SettingsClient({
           <div className={`rounded-2xl border p-4 transition-all ${settings.features.participation ? 'border-sky-200 bg-sky-50 dark:bg-sky-950/20 dark:border-sky-800' : 'border-border bg-muted/30 opacity-60'}`}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
-                <span className="text-2xl">🙋‍♂️</span>
+                <div className="flex size-9 items-center justify-center rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-400">
+                  <Hand className="size-4.5" />
+                </div>
                 <div>
                   <p className="font-bold">المشاركة الصفية</p>
                   <p className="text-xs text-muted-foreground mt-0.5">تقييم تفاعل الطالب ومشاركته (مشارك / غير مشارك)</p>
@@ -304,20 +524,18 @@ export default function SettingsClient({
           <button
             onClick={handleSaveSettings}
             disabled={saving}
-            className="px-8 py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity"
+            className="px-8 py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity inline-flex items-center gap-2"
           >
-            {saving ? '⏳ جاري الحفظ...' : '💾 حفظ الإعدادات'}
+            {saving ? <><Loader2 className="size-4 animate-spin" /> جاري الحفظ...</> : <><Save className="size-4" /> حفظ الإعدادات</>}
           </button>
-          {saveMsg && (
-            <span className={`text-sm font-semibold animate-in fade-in ${saveMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>
-              {saveMsg.text}
-            </span>
-          )}
+          {saveMsg && <StatusMsg ok={saveMsg.ok} text={saveMsg.text} />}
         </div>
       </Section>
+      )}
 
       {/* ── Section 1.5: WhatsApp Templates ─────────────────────────────────── */}
-      <Section title="قوالب رسائل الواتساب" icon="💬">
+      {canManageSchoolSettings && (
+      <Section title="قوالب رسائل الواتساب" icon={MessageCircle}>
         <p className="text-sm text-muted-foreground mb-5">
           يمكنك إنشاء عدة قوالب لرسائل الواتساب التي يرسلها المعلم لأولياء الأمور. استخدم المتغيرات التالية لتعويضها تلقائياً عند الإرسال:
           <br/>
@@ -333,7 +551,7 @@ export default function SettingsClient({
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-emerald-600 flex items-center gap-2">
-                <span className="p-1.5 bg-emerald-100 dark:bg-emerald-950/50 rounded-lg">🏅</span> القوالب الإيجابية (إشادة / شكر)
+                <span className="p-1.5 bg-emerald-100 dark:bg-emerald-950/50 rounded-lg text-emerald-700 dark:text-emerald-400"><Award className="size-4" /></span> القوالب الإيجابية (إشادة / شكر)
               </h3>
               <button
                 onClick={() => addTemplate('positive')}
@@ -360,7 +578,7 @@ export default function SettingsClient({
                     className="w-10 flex-shrink-0 flex items-center justify-center bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-colors"
                     title="حذف القالب"
                   >
-                    🗑️
+                    <Trash2 className="size-4" />
                   </button>
                 </div>
               ))}
@@ -373,7 +591,7 @@ export default function SettingsClient({
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-red-600 flex items-center gap-2">
-                <span className="p-1.5 bg-red-100 dark:bg-red-950/50 rounded-lg">⚠️</span> القوالب السلبية (تنبيه / ملاحظة)
+                <span className="p-1.5 bg-red-100 dark:bg-red-950/50 rounded-lg text-red-700 dark:text-red-400"><ShieldAlert className="size-4" /></span> القوالب السلبية (تنبيه / ملاحظة)
               </h3>
               <button
                 onClick={() => addTemplate('negative')}
@@ -400,7 +618,7 @@ export default function SettingsClient({
                     className="w-10 flex-shrink-0 flex items-center justify-center bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-colors"
                     title="حذف القالب"
                   >
-                    🗑️
+                    <Trash2 className="size-4" />
                   </button>
                 </div>
               ))}
@@ -413,22 +631,19 @@ export default function SettingsClient({
           <button
             onClick={handleSaveSettings}
             disabled={saving}
-            className="px-8 py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity"
+            className="px-8 py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity inline-flex items-center gap-2"
           >
-            {saving ? '⏳ جاري الحفظ...' : '💾 حفظ التعديلات'}
+            {saving ? <><Loader2 className="size-4 animate-spin" /> جاري الحفظ...</> : <><Save className="size-4" /> حفظ التعديلات</>}
           </button>
-          {saveMsg && (
-            <span className={`text-sm font-semibold animate-in fade-in ${saveMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>
-              {saveMsg.text}
-            </span>
-          )}
+          {saveMsg && <StatusMsg ok={saveMsg.ok} text={saveMsg.text} />}
         </div>
       </Section>
+      )}
 
       {/* ── Section 2: Change Password ───────────────────────────────────────── */}
-      <Section title="تغيير كلمة المرور" icon="🔐">
+      <Section title="تغيير كلمة المرور" icon={Lock}>
         <p className="text-sm text-muted-foreground mb-5">
-          حساب المدير: <span className="font-mono bg-muted px-2 py-0.5 rounded-lg text-xs">{adminEmail}</span>
+          حسابك: <span className="font-mono bg-muted px-2 py-0.5 rounded-lg text-xs">{adminEmail}</span>
         </p>
 
         <form onSubmit={handleChangePassword} className="space-y-4 max-w-md">
@@ -472,7 +687,8 @@ export default function SettingsClient({
           </div>
 
           {pwMsg && (
-            <div className={`rounded-xl p-3 text-sm font-semibold ${pwMsg.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800 dark:text-emerald-300' : 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/30 dark:border-red-800 dark:text-red-300'}`}>
+            <div className={`flex items-center gap-2 rounded-xl p-3 text-sm font-semibold ${pwMsg.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800 dark:text-emerald-300' : 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/30 dark:border-red-800 dark:text-red-300'}`}>
+              {pwMsg.ok ? <CheckCircle2 className="size-4 shrink-0" /> : <XCircle className="size-4 shrink-0" />}
               {pwMsg.text}
             </div>
           )}
@@ -480,17 +696,85 @@ export default function SettingsClient({
           <button
             type="submit"
             disabled={pwLoading || (!!confirmPw && newPw !== confirmPw)}
-            className="w-full py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity"
+            className="w-full py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity inline-flex items-center justify-center gap-2"
           >
-            {pwLoading ? '⏳ جاري التغيير...' : '🔐 تغيير كلمة المرور'}
+            {pwLoading ? <><Loader2 className="size-4 animate-spin" /> جاري التغيير...</> : <><KeyRound className="size-4" /> تغيير كلمة المرور</>}
           </button>
         </form>
       </Section>
 
-      {/* ── Section 3: Backup ────────────────────────────────────────────────── */}
-      <Section title="النسخ الاحتياطي والأمان" icon="💾">
+      {/* ── Section 2.5: Parent account security (owner only) ────────────────── */}
+      {canRestore && (
+      <Section title="أمان حسابات أولياء الأمور" icon={Users}>
+        <p className="text-sm text-muted-foreground mb-4">
+          كل ولي أمر جديد يبدأ بكلمة المرور الافتراضية <span className="font-mono bg-muted px-1.5 py-0.5 rounded">12345678</span>،
+          وعند أول دخول يطلب منه النظام اختيار كلمة مرور خاصة به قبل أن يرى أي بيانات — فلا تحتاج لتتبّع كلمات المرور.
+          <br />
+          هذا الزر يعيد تطبيق نفس الطلب على <span className="font-bold">جميع</span> أولياء الأمور الحاليين.
+        </p>
+        <p className="text-sm text-emerald-700 bg-emerald-50 dark:bg-emerald-950/20 p-3 rounded-xl flex items-start gap-2 mb-4">
+          <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
+          <span>
+            لا يترتب على هذا الإجراء إغلاق أي حساب — أولياء الأمور يدخلون بنفس كلمة مرورهم الحالية،
+            ثم يُطلب منهم اختيار كلمة جديدة مع شرح السبب.
+          </span>
+        </p>
+
+        {!rotateOpen ? (
+          <button
+            onClick={() => { setRotateOpen(true); setRotateMsg(null) }}
+            className="px-6 py-3 bg-amber-600 text-white font-bold rounded-xl hover:opacity-90 inline-flex items-center gap-2 transition-transform hover:-translate-y-0.5"
+          >
+            <KeyRound className="size-4" /> إلزام الجميع باختيار كلمة مرور خاصة
+          </button>
+        ) : (
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-4 space-y-4">
+            <div>
+              <label className="block text-sm font-semibold mb-1.5 text-amber-900 dark:text-amber-200">
+                اكتب كلمة <span className="font-mono bg-white/70 dark:bg-black/20 px-1.5 py-0.5 rounded">تغيير</span> للتأكيد
+              </label>
+              <input
+                type="text"
+                value={rotatePhrase}
+                onChange={e => setRotatePhrase(e.target.value)}
+                disabled={rotating}
+                className="w-full max-w-xs p-2.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-background outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                placeholder="تغيير"
+              />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleRotateParents}
+                disabled={rotating || rotatePhrase !== 'تغيير'}
+                className="px-6 py-2.5 bg-amber-600 text-white font-bold rounded-xl hover:opacity-90 disabled:opacity-40 inline-flex items-center gap-2"
+              >
+                {rotating
+                  ? <><Loader2 className="size-4 animate-spin" /> جاري التنفيذ...</>
+                  : <><KeyRound className="size-4" /> تنفيذ</>}
+              </button>
+              <button
+                onClick={() => { setRotateOpen(false); setRotatePhrase('') }}
+                disabled={rotating}
+                className="px-6 py-2.5 bg-muted text-muted-foreground font-semibold rounded-xl hover:bg-muted/80 disabled:opacity-50"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        )}
+
+        {rotateMsg && <div className="mt-3"><StatusMsg ok={rotateMsg.ok} text={rotateMsg.text} /></div>}
+      </Section>
+      )}
+
+      {/* ── Section 3: Backup (owner only) ───────────────────────────────────── */}
+      {canBackup && (
+      <Section title="النسخ الاحتياطي والأمان" icon={Database}>
         <p className="text-sm text-muted-foreground mb-5">
-          يمكنك تحميل نسخة احتياطية كاملة (بصيغة JSON) تحتوي على كافة بيانات النظام (فصول، طلاب، معلمين، درجات، وسجلات حضور) للرجوع إليها في حالات الطوارئ.
+          {backupAllGrades
+            ? 'يمكنك تحميل نسخة احتياطية كاملة (بصيغة JSON) تحتوي على كافة بيانات النظام (فصول، طلاب، معلمين، درجات، وسجلات حضور) للرجوع إليها في حالات الطوارئ.'
+            : 'يمكنك تحميل نسخة احتياطية (بصيغة JSON) تشمل المراحل المسندة إليك فقط — بفصولها وطلابها وموادها وسجلات حضورها ودرجاتها.'}
         </p>
 
         <div className="flex items-center gap-4">
@@ -499,16 +783,108 @@ export default function SettingsClient({
             disabled={backupLoading}
             className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-2"
           >
-            {backupLoading ? '⏳ جاري تجهيز النسخة...' : '📥 تحميل النسخة الاحتياطية الآن'}
+            {backupLoading ? <><Loader2 className="size-4 animate-spin" /> جاري تجهيز النسخة...</> : <><Download className="size-4" /> تحميل النسخة الاحتياطية الآن</>}
           </button>
-          
-          {backupMsg && (
-            <span className={`text-sm font-semibold animate-in fade-in ${backupMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>
-              {backupMsg.text}
-            </span>
-          )}
+
+          {backupMsg && <StatusMsg ok={backupMsg.ok} text={backupMsg.text} />}
         </div>
+
+        {!backupAllGrades && (
+          <p className="mt-3 text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/20 p-3 rounded-xl flex items-start gap-2">
+            <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+            هذه نسخة جزئية للاحتفاظ بها كسجل لمراحلك — لا تصلح لاستعادة المدرسة بالكامل، والاستعادة متاحة للمالك وحده.
+          </p>
+        )}
+
+        {canRestore && (
+        <>
+        <hr className="border-border my-6" />
+
+        {/* ── Restore from backup ── */}
+        <div>
+          <h3 className="font-bold flex items-center gap-2 mb-1.5">
+            <RotateCcw className="size-4 text-indigo-600" /> الاستعادة من نسخة احتياطية
+          </h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            ارفع ملف JSON نزّلته سابقاً من هذه الميزة لاستعادة بيانات المدرسة كما كانت وقت أخذ النسخة.
+            <span className="block text-amber-600 font-semibold text-xs mt-1">
+              تنبيه: هذا الإجراء يستبدل كل البيانات الحالية (فصول، طلاب، معلمين، درجات، حضور) بمحتوى الملف ولا يمكن التراجع عنه.
+              لا يشمل ذلك حسابات الدخول (البريد وكلمة المرور).
+            </span>
+          </p>
+
+          {!pendingRestore && (
+            <label className="inline-flex items-center gap-2 px-5 py-2.5 bg-muted hover:bg-muted/70 text-foreground font-semibold rounded-xl cursor-pointer transition-colors">
+              <Upload className="size-4" /> اختيار ملف النسخة الاحتياطية
+              <input ref={restoreFileRef} type="file" accept="application/json,.json" onChange={handleRestoreFileChange} className="hidden" />
+            </label>
+          )}
+
+          {restoreFileError && (
+            <p className="text-sm text-red-600 mt-2 inline-flex items-center gap-1.5"><XCircle className="size-4" />{restoreFileError}</p>
+          )}
+
+          {pendingRestore && (
+            <div className="rounded-2xl border border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-4 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400">
+                  <AlertTriangle className="size-4.5" />
+                </div>
+                <div>
+                  <p className="font-bold text-amber-900 dark:text-amber-200">تأكيد الاستعادة</p>
+                  <p className="text-sm text-amber-800 dark:text-amber-300 mt-0.5">
+                    {pendingRestore.timestamp
+                      ? `النسخة الاحتياطية بتاريخ: ${new Date(pendingRestore.timestamp).toLocaleString('ar-SA')}`
+                      : 'تاريخ النسخة غير معروف'}
+                  </p>
+                </div>
+                <button onClick={cancelRestore} className="mr-auto p-1.5 text-amber-700 hover:bg-amber-100 rounded-lg transition-colors" title="إلغاء">
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(RESTORE_TABLE_LABELS).map(([key, label]) => (
+                  <span key={key} className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-white/70 dark:bg-black/20 border border-amber-200 dark:border-amber-800">
+                    <FileJson className="size-3" /> {pendingRestore.counts[key] ?? 0} {label}
+                  </span>
+                ))}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-1.5 text-amber-900 dark:text-amber-200">
+                  اكتب كلمة <span className="font-mono bg-white/70 dark:bg-black/20 px-1.5 py-0.5 rounded">استعادة</span> للتأكيد
+                </label>
+                <input
+                  type="text"
+                  value={confirmPhrase}
+                  onChange={e => setConfirmPhrase(e.target.value)}
+                  className="w-full max-w-xs p-2.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-background outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                  placeholder="استعادة"
+                />
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleConfirmRestore}
+                  disabled={restoring || confirmPhrase !== 'استعادة'}
+                  className="px-6 py-2.5 bg-red-600 text-white font-bold rounded-xl hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center gap-2"
+                >
+                  {restoring ? <><Loader2 className="size-4 animate-spin" /> جاري الاستعادة...</> : <><RotateCcw className="size-4" /> تأكيد الاستعادة نهائياً</>}
+                </button>
+                <button onClick={cancelRestore} disabled={restoring} className="px-6 py-2.5 bg-muted text-muted-foreground font-semibold rounded-xl hover:bg-muted/80 disabled:opacity-50">
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          )}
+
+          {restoreResult && <div className="mt-3"><StatusMsg ok={restoreResult.ok} text={restoreResult.text} /></div>}
+        </div>
+        </>
+        )}
       </Section>
+      )}
 
     </div>
   )

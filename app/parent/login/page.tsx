@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import { authClient } from '@/lib/auth-client'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { BackToPortals } from '@/components/back-to-portals'
 import { BrandLogo } from '@/components/brand-logo'
 
 export default function ParentLoginPage() {
@@ -45,6 +45,9 @@ export default function ParentLoginPage() {
     <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4 relative">
       <div className="absolute top-6 left-6">
         <ThemeToggle />
+      </div>
+      <div className="absolute top-6 right-6">
+        <BackToPortals />
       </div>
       <div className="max-w-md w-full bg-card p-8 rounded-3xl shadow-sm border border-border">
         <div className="text-center mb-8">
@@ -87,7 +90,8 @@ export default function ParentLoginPage() {
               className="w-full p-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary text-left"
             />
             <p className="text-xs text-muted-foreground mt-2">
-              كلمة المرور الافتراضية هي <strong>12345678</strong> (بمجرد تغييرها من الإعدادات، لن تتمكن من الدخول إلا بكلمة المرور الجديدة).
+              إذا كانت هذه أول مرة، استخدم كلمة المرور المبدئية <strong>12345678</strong> وسيطلب منك النظام
+              اختيار كلمة مرور خاصة بك. وإذا نسيت كلمتك، تواصل مع إدارة المدرسة.
             </p>
           </div>
 
@@ -100,11 +104,6 @@ export default function ParentLoginPage() {
           </button>
         </form>
 
-        <div className="mt-6 text-center">
-          <Link href="/" className="text-sm text-primary hover:underline">
-            العودة للصفحة الرئيسية
-          </Link>
-        </div>
       </div>
     </div>
   )

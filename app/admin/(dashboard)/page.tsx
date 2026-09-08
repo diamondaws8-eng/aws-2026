@@ -1,58 +1,175 @@
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
-import { schools, students, teachers, classes, gradeLevels, notifications, studentPoints, parentWhatsappMessages } from '@/lib/db/schema'
-import { eq, desc, and, isNull, count, or, gt, sql, asc } from 'drizzle-orm'
-import { today } from '@/lib/utils'
-import { headers } from 'next/headers'
-import { redirect } from 'next/navigation'
-import { StatCard } from '@/components/stat-card'
-import { EmptyState } from '@/components/empty-state'
-import { Users, GraduationCap, Layers, BookOpen, Bell } from 'lucide-react'
+import { students, teachers, classes, gradeLevels, notifications, parentWhatsappMessages, dailyRecords } from '@/lib/db/schema'
+import { eq, desc, and, isNull, count, or, gt, gte, sql, asc, inArray } from 'drizzle-orm'
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
+import { today, schoolDate } from '@/lib/utils'
+import { requireAdminAccess } from '@/lib/admin-access'
+import { getLeaderboard } from '@/lib/points'
 import { LeaderboardClient } from './leaderboard-client'
 import { ParentMessagesToday } from './parent-messages-today'
+import { DailyPerformanceCards } from './daily-performance-cards'
+import { HeroStats } from './hero-stats'
+import { RecentNotifications } from './recent-notifications'
+import { getSchoolSettings } from './settings/actions-settings'
 
 export const dynamic = 'force-dynamic'
 
 export default async function AdminDashboardPage() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) redirect('/admin/login')
+  const access = await requireAdminAccess()
+  const school = access.school
 
-  const [school] = await db.select().from(schools).where(eq(schools.adminId, session.user.id)).limit(1)
-  if (!school) redirect('/admin/setup')
-
-  const [studentCount] = await db.select({ value: count() }).from(students).where(eq(students.schoolId, school.id))
-  const [teacherCount] = await db.select({ value: count() }).from(teachers).where(eq(teachers.schoolId, school.id))
-  const [classCount] = await db.select({ value: count() }).from(classes).where(eq(classes.schoolId, school.id))
-  const [gradeCount] = await db.select({ value: count() }).from(gradeLevels).where(eq(gradeLevels.schoolId, school.id))
-
-  const classList = await db
-    .select({ id: classes.id, name: classes.name })
-    .from(classes)
-    .where(eq(classes.schoolId, school.id))
-
-  const classRows = await db
-    .select({
-      id: classes.id,
-      name: classes.name,
-      gradeName: gradeLevels.name,
-      gradeOrder: gradeLevels.orderIndex,
-    })
-    .from(classes)
-    .leftJoin(gradeLevels, eq(classes.gradeLevelId, gradeLevels.id))
-    .where(eq(classes.schoolId, school.id))
-    .orderBy(asc(gradeLevels.orderIndex), asc(classes.name))
+  // A deputy only sees the grades assigned to them.
+  const scopedGradeIds = access.viewAllGrades ? null : access.gradeIds
+  const scopedClassRows = scopedGradeIds
+    ? await db.select({ id: classes.id }).from(classes).where(
+        and(eq(classes.schoolId, school.id), scopedGradeIds.length ? inArray(classes.gradeLevelId, scopedGradeIds) : sql`false`)
+      )
+    : null
+  const scopedClassIds = scopedClassRows?.map((c) => c.id) ?? null
+  const inScopeClasses = (column: AnyPgColumn) =>
+    scopedClassIds ? (scopedClassIds.length ? inArray(column, scopedClassIds) : sql`false`) : undefined
 
   const todayStr = today()
 
-  const todayMessageCounts = await db
-    .select({
-      classId: parentWhatsappMessages.classId,
-      type: parentWhatsappMessages.type,
-      studentCount: sql<number>`COUNT(DISTINCT ${parentWhatsappMessages.studentId})`.mapWith(Number),
-    })
-    .from(parentWhatsappMessages)
-    .where(and(eq(parentWhatsappMessages.schoolId, school.id), eq(parentWhatsappMessages.date, todayStr)))
-    .groupBy(parentWhatsappMessages.classId, parentWhatsappMessages.type)
+  // ── Daily performance window (14-day trend, 8-day per-class history) ────────
+  const trendDays: string[] = []
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    trendDays.push(schoolDate(d))
+  }
+  const backNavDays = trendDays.slice(-8) // today + up to 7 previous days, ascending
+
+  // None of these depend on each other, so they run in parallel — the dashboard
+  // used to wait for a dozen sequential round trips to the database.
+  const [
+    [studentCount],
+    [teacherCount],
+    [classCount],
+    [gradeCount],
+    classList,
+    classRows,
+    todayMessageCounts,
+    [todayPositive],
+    [todayNegative],
+    leaderboardData,
+    settings,
+    dailyTrendRows,
+    historyClassRows,
+    recentNotifications,
+  ] = await Promise.all([
+    db.select({ value: count() }).from(students)
+      .where(and(eq(students.schoolId, school.id), inScopeClasses(students.classId))),
+
+    db.select({ value: count() }).from(teachers).where(eq(teachers.schoolId, school.id)),
+
+    db.select({ value: count() }).from(classes)
+      .where(and(eq(classes.schoolId, school.id), inScopeClasses(classes.id))),
+
+    db.select({ value: count() }).from(gradeLevels)
+      .where(and(
+        eq(gradeLevels.schoolId, school.id),
+        scopedGradeIds ? (scopedGradeIds.length ? inArray(gradeLevels.id, scopedGradeIds) : sql`false`) : undefined
+      )),
+
+    db.select({ id: classes.id, name: classes.name })
+      .from(classes)
+      .where(and(eq(classes.schoolId, school.id), inScopeClasses(classes.id))),
+
+    db.select({
+        id: classes.id,
+        name: classes.name,
+        gradeName: gradeLevels.name,
+        gradeOrder: gradeLevels.orderIndex,
+      })
+      .from(classes)
+      .leftJoin(gradeLevels, eq(classes.gradeLevelId, gradeLevels.id))
+      .where(and(eq(classes.schoolId, school.id), inScopeClasses(classes.id)))
+      .orderBy(asc(gradeLevels.orderIndex), asc(classes.name)),
+
+    db.select({
+        classId: parentWhatsappMessages.classId,
+        type: parentWhatsappMessages.type,
+        studentCount: sql<number>`COUNT(DISTINCT ${parentWhatsappMessages.studentId})`.mapWith(Number),
+      })
+      .from(parentWhatsappMessages)
+      .where(and(
+        eq(parentWhatsappMessages.schoolId, school.id),
+        eq(parentWhatsappMessages.date, todayStr),
+        inScopeClasses(parentWhatsappMessages.classId)
+      ))
+      .groupBy(parentWhatsappMessages.classId, parentWhatsappMessages.type),
+
+    db.select({ value: sql<number>`COUNT(DISTINCT ${parentWhatsappMessages.studentId})`.mapWith(Number) })
+      .from(parentWhatsappMessages)
+      .where(and(
+        eq(parentWhatsappMessages.schoolId, school.id),
+        eq(parentWhatsappMessages.date, todayStr),
+        eq(parentWhatsappMessages.type, 'positive'),
+        inScopeClasses(parentWhatsappMessages.classId)
+      )),
+
+    db.select({ value: sql<number>`COUNT(DISTINCT ${parentWhatsappMessages.studentId})`.mapWith(Number) })
+      .from(parentWhatsappMessages)
+      .where(and(
+        eq(parentWhatsappMessages.schoolId, school.id),
+        eq(parentWhatsappMessages.date, todayStr),
+        eq(parentWhatsappMessages.type, 'negative'),
+        inScopeClasses(parentWhatsappMessages.classId)
+      )),
+
+    getLeaderboard(school.id, scopedClassIds),
+
+    getSchoolSettings(school.id),
+
+    db.select({
+        date: dailyRecords.date,
+        present: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.attendanceStatus} = 'present')`.mapWith(Number),
+        absent: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.attendanceStatus} = 'absent')`.mapWith(Number),
+        late: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.attendanceStatus} = 'late')`.mapWith(Number),
+        excused: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.attendanceStatus} = 'excused')`.mapWith(Number),
+        homeworkDone: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.homeworkStatus} = 'done')`.mapWith(Number),
+        homeworkMissing: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.homeworkStatus} = 'missing')`.mapWith(Number),
+        participationActive: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.participationStatus} = 'active')`.mapWith(Number),
+        participationInactive: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.participationStatus} = 'inactive')`.mapWith(Number),
+      })
+      .from(dailyRecords)
+      .where(and(
+        eq(dailyRecords.schoolId, school.id),
+        gte(dailyRecords.date, trendDays[0]),
+        inScopeClasses(dailyRecords.classId)
+      ))
+      .groupBy(dailyRecords.date),
+
+    db.select({
+        date: dailyRecords.date,
+        classId: dailyRecords.classId,
+        present: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.attendanceStatus} = 'present')`.mapWith(Number),
+        absent: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.attendanceStatus} = 'absent')`.mapWith(Number),
+        late: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.attendanceStatus} = 'late')`.mapWith(Number),
+        excused: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.attendanceStatus} = 'excused')`.mapWith(Number),
+        homeworkDone: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.homeworkStatus} = 'done')`.mapWith(Number),
+        homeworkMissing: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.homeworkStatus} = 'missing')`.mapWith(Number),
+        participationActive: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.participationStatus} = 'active')`.mapWith(Number),
+        participationInactive: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.participationStatus} = 'inactive')`.mapWith(Number),
+      })
+      .from(dailyRecords)
+      .where(and(
+        eq(dailyRecords.schoolId, school.id),
+        gte(dailyRecords.date, backNavDays[0]),
+        inScopeClasses(dailyRecords.classId)
+      ))
+      .groupBy(dailyRecords.date, dailyRecords.classId),
+
+    db.select()
+      .from(notifications)
+      .where(and(
+        eq(notifications.schoolId, school.id),
+        or(isNull(notifications.expiresAt), gt(notifications.expiresAt, sql`now()`))
+      ))
+      .orderBy(desc(notifications.createdAt))
+      .limit(5),
+  ])
 
   const countsByClass = new Map<string, { positive: number; negative: number }>()
   for (const row of todayMessageCounts) {
@@ -68,59 +185,70 @@ export default async function AdminDashboardPage() {
     negative: countsByClass.get(cls.id)?.negative ?? 0,
   }))
 
-  const [todayPositive] = await db
-    .select({
-      value: sql<number>`COUNT(DISTINCT ${parentWhatsappMessages.studentId})`.mapWith(Number),
-    })
-    .from(parentWhatsappMessages)
-    .where(
-      and(
-        eq(parentWhatsappMessages.schoolId, school.id),
-        eq(parentWhatsappMessages.date, todayStr),
-        eq(parentWhatsappMessages.type, 'positive')
-      )
-    )
+  const dailyTrendMap = new Map(dailyTrendRows.map((r) => [r.date, r]))
+  const dailyTrend = trendDays.map((date) => {
+    const r = dailyTrendMap.get(date)
+    const present = r?.present ?? 0
+    const absent = r?.absent ?? 0
+    const late = r?.late ?? 0
+    const excused = r?.excused ?? 0
+    const homeworkDone = r?.homeworkDone ?? 0
+    const homeworkMissing = r?.homeworkMissing ?? 0
+    const participationActive = r?.participationActive ?? 0
+    const participationInactive = r?.participationInactive ?? 0
+    const attTotal = present + absent + late + excused
+    const hwTotal = homeworkDone + homeworkMissing
+    const partTotal = participationActive + participationInactive
+    return {
+      date,
+      present, absent, late, excused, attTotal,
+      homeworkDone, homeworkMissing,
+      participationActive, participationInactive,
+      attendancePct: attTotal ? Math.round((present / attTotal) * 100) : 0,
+      absencePct: attTotal ? Math.round((absent / attTotal) * 100) : 0,
+      homeworkPct: hwTotal ? Math.round((homeworkDone / hwTotal) * 100) : 0,
+      participationPct: partTotal ? Math.round((participationActive / partTotal) * 100) : 0,
+      hasAttendance: attTotal > 0,
+      hasHomework: hwTotal > 0,
+      hasParticipation: partTotal > 0,
+    }
+  })
 
-  const [todayNegative] = await db
-    .select({
-      value: sql<number>`COUNT(DISTINCT ${parentWhatsappMessages.studentId})`.mapWith(Number),
-    })
-    .from(parentWhatsappMessages)
-    .where(
-      and(
-        eq(parentWhatsappMessages.schoolId, school.id),
-        eq(parentWhatsappMessages.date, todayStr),
-        eq(parentWhatsappMessages.type, 'negative')
-      )
-    )
+  // Per-class breakdown for today and up to 7 days back (for the day-back navigator)
+  const historyMap = new Map<string, Map<string, (typeof historyClassRows)[number]>>()
+  for (const row of historyClassRows) {
+    if (!historyMap.has(row.date)) historyMap.set(row.date, new Map())
+    historyMap.get(row.date)!.set(row.classId, row)
+  }
 
-  const leaderboardData = await db
-    .select({
-      id: students.id,
-      name: students.fullName,
-      classId: students.classId,
-      className: classes.name,
-      totalPoints: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`.mapWith(Number)
+  const byClassHistory = backNavDays.map((date) => {
+    const dayMap = historyMap.get(date)
+    const classesForDay = classRows.map((cls) => {
+      const r = dayMap?.get(cls.id)
+      const present = r?.present ?? 0
+      const absent = r?.absent ?? 0
+      const late = r?.late ?? 0
+      const excused = r?.excused ?? 0
+      const homeworkDone = r?.homeworkDone ?? 0
+      const homeworkMissing = r?.homeworkMissing ?? 0
+      const participationActive = r?.participationActive ?? 0
+      const participationInactive = r?.participationInactive ?? 0
+      const attTotal = present + absent + late + excused
+      const hwTotal = homeworkDone + homeworkMissing
+      const partTotal = participationActive + participationInactive
+      return {
+        id: cls.id,
+        name: cls.name,
+        gradeName: cls.gradeName,
+        present, absent, late, excused, attTotal,
+        attendancePct: attTotal ? Math.round((present / attTotal) * 100) : 0,
+        homeworkPct: hwTotal ? Math.round((homeworkDone / hwTotal) * 100) : 0,
+        participationPct: partTotal ? Math.round((participationActive / partTotal) * 100) : 0,
+        recorded: attTotal > 0 || hwTotal > 0 || partTotal > 0,
+      }
     })
-    .from(students)
-    .leftJoin(classes, eq(students.classId, classes.id))
-    .leftJoin(studentPoints, eq(students.id, studentPoints.studentId))
-    .where(eq(students.schoolId, school.id))
-    .groupBy(students.id, students.fullName, students.classId, classes.name)
-    .having(sql`COALESCE(SUM(${studentPoints.points}), 0) > 0`)
-    .orderBy(desc(sql`COALESCE(SUM(${studentPoints.points}), 0)`))
-
-  const recentNotifications = await db
-    .select()
-    .from(notifications)
-    .where(
-      and(
-        eq(notifications.schoolId, school.id),
-        or(isNull(notifications.expiresAt), gt(notifications.expiresAt, sql`now()`))
-      )
-    )
-    .orderBy(desc(notifications.createdAt))
-    .limit(5)
+    return { date, classes: classesForDay }
+  })
 
   return (
     <div className="p-6 space-y-6">
@@ -131,12 +259,12 @@ export default async function AdminDashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="إجمالي الطلاب" value={studentCount.value} icon={Users} accent="blue" />
-        <StatCard label="إجمالي المعلمين" value={teacherCount.value} icon={GraduationCap} accent="emerald" />
-        <StatCard label="الفصول الدراسية" value={classCount.value} icon={BookOpen} accent="amber" />
-        <StatCard label="المراحل الدراسية" value={gradeCount.value} icon={Layers} accent="violet" />
-      </div>
+      <HeroStats
+        studentCount={studentCount.value}
+        teacherCount={teacherCount.value}
+        classCount={classCount.value}
+        gradeCount={gradeCount.value}
+      />
 
       <ParentMessagesToday
         classStats={classStats}
@@ -144,27 +272,17 @@ export default async function AdminDashboardPage() {
         todayNegative={todayNegative.value}
       />
 
+      <DailyPerformanceCards
+        attendanceEnabled={settings.features.attendance}
+        homeworkEnabled={settings.features.homework}
+        participationEnabled={settings.features.participation}
+        trend={dailyTrend}
+        byClassHistory={byClassHistory}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <LeaderboardClient students={leaderboardData} classes={classList} />
-
-        <div className="bg-card border border-border rounded-2xl p-6">
-          <h2 className="text-lg font-bold mb-4">آخر التنبيهات</h2>
-          {recentNotifications.length > 0 ? (
-            <div className="space-y-3">
-              {recentNotifications.map((notif) => (
-                <div key={notif.id} className="p-3 rounded-xl bg-muted">
-                  <h3 className="font-bold text-sm">{notif.title}</h3>
-                  <p className="text-sm text-muted-foreground mt-1">{notif.body}</p>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {notif.createdAt.toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' })}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState title="لا يوجد تنبيهات" description="لم يتم إرسال أي تنبيهات مؤخراً" icon={Bell} />
-          )}
-        </div>
+        <RecentNotifications notifications={recentNotifications} />
       </div>
     </div>
   )

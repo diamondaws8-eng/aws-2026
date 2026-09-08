@@ -1,14 +1,26 @@
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { students } from '@/lib/db/schema'
+import { students, user } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { PortalLayout } from '@/components/portal-layout'
+import { SetPasswordCard } from './set-password-card'
 
 export default async function ParentDashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect('/parent/login')
+
+  // While the account still has the shared starter password, nothing else is
+  // reachable — the parent must pick their own password first.
+  const [me] = await db
+    .select({ mustChange: user.mustChangePassword })
+    .from(user)
+    .where(eq(user.id, session.user.id))
+    .limit(1)
+  if (me?.mustChange) {
+    return <SetPasswordCard parentName={session.user.name} />
+  }
 
   // Get school name from first linked student
   const [firstStudent] = await db

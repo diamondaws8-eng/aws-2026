@@ -1,10 +1,12 @@
 import { db } from '@/lib/db'
 import { auth } from '@/lib/auth'
-import { classes, gradeLevels, students, subjects, teachers, schools, dailyRecords, studentPoints } from '@/lib/db/schema'
-import { eq, and, sql } from 'drizzle-orm'
+import { classes, gradeLevels, students, subjects, teachers, schools, dailyRecords } from '@/lib/db/schema'
+import { eq, and } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import ClassRoster from './class-roster'
+import { today as schoolToday } from '@/lib/utils'
+import { getClassPointsTotals } from '@/lib/points'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,7 +33,7 @@ export default async function ClassPage({ params }: { params: Promise<{ classId:
     .from(subjects)
     .where(eq(subjects.classId, classId))
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = schoolToday()
 
   // Get today's daily records
   const todayRecords = await db
@@ -39,15 +41,9 @@ export default async function ClassPage({ params }: { params: Promise<{ classId:
     .from(dailyRecords)
     .where(and(eq(dailyRecords.classId, classId), eq(dailyRecords.date, today)))
 
-  // Get points summary for all students in class
-  const pointsSummary = await db
-    .select({
-      studentId: studentPoints.studentId,
-      total: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`,
-    })
-    .from(studentPoints)
-    .where(eq(studentPoints.classId, classId))
-    .groupBy(studentPoints.studentId)
+  // Points come from each day's record plus manual awards (see lib/points.ts)
+  const totalsByStudent = await getClassPointsTotals(classId)
+  const pointsSummary = Object.entries(totalsByStudent).map(([studentId, total]) => ({ studentId, total }))
 
   // Get saved grades
   const { getSavedGrades } = await import('../../actions')

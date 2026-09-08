@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { dailyRecords, studentPoints } from '@/lib/db/schema'
-import { eq, and, sql } from 'drizzle-orm'
+import { dailyRecords } from '@/lib/db/schema'
+import { eq, and } from 'drizzle-orm'
+import { getClassPointsTotals } from '@/lib/points'
+import { getTeacherAccess } from '@/lib/teacher-access'
+import { classes } from '@/lib/db/schema'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -12,19 +15,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing params' }, { status: 400 })
   }
 
+  // Behaviour notes and attendance are sensitive — this must never answer an
+  // anonymous request just because the caller knows a class id.
+  const access = await getTeacherAccess()
+  if (!access) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const [owned] = await db
+    .select({ id: classes.id })
+    .from(classes)
+    .where(and(eq(classes.id, classId), eq(classes.schoolId, access.schoolId)))
+    .limit(1)
+  if (!owned) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const records = await db
     .select()
     .from(dailyRecords)
     .where(and(eq(dailyRecords.classId, classId), eq(dailyRecords.date, date)))
 
-  const pointsSummary = await db
-    .select({
-      studentId: studentPoints.studentId,
-      total: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`,
-    })
-    .from(studentPoints)
-    .where(eq(studentPoints.classId, classId))
-    .groupBy(studentPoints.studentId)
+  const totalsByStudent = await getClassPointsTotals(classId)
+  const pointsSummary = Object.entries(totalsByStudent).map(([studentId, total]) => ({ studentId, total }))
 
   return NextResponse.json({
     records: records.map(r => ({

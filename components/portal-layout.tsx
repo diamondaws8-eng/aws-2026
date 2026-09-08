@@ -21,8 +21,10 @@ import {
   Settings,
   Menu,
   X,
-  PanelRightClose
+  PanelRightClose,
+  ShieldAlert,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 import { ThemeToggle } from '@/components/theme-toggle'
 import { BrandLogo } from '@/components/brand-logo'
@@ -70,20 +72,44 @@ const navConfig = {
 
 type Role = keyof typeof navConfig
 
+const ICON_MAP = {
+  LayoutDashboard, Layers, Users, UserCog, Bell, Settings, BookOpen, ClipboardList, CheckSquare, BarChart2,
+} as const
+
+export type NavIconName = keyof typeof ICON_MAP
+
+/** Serializable nav link, so a server component can decide which links a role gets. */
+export type PortalNavLink = { href: string; label: string; icon: NavIconName; exact?: boolean }
+
 interface PortalLayoutProps {
   role: Role
   user: { name: string; email: string }
   schoolName?: string
+  /** Overrides the default per-role links (used by the admin portal's role system). */
+  links?: PortalNavLink[]
+  /** Overrides the portal label under the logo, e.g. "مدير الجودة". */
+  roleLabel?: string
   children: React.ReactNode
 }
 
-export function PortalLayout({ role, user, schoolName, children }: PortalLayoutProps) {
+export function PortalLayout({ role, user, schoolName, links, roleLabel, children }: PortalLayoutProps) {
   const nav = navConfig[role]
+  const navLinks: { href: string; label: string; icon: LucideIcon; exact?: boolean }[] = links
+    ? links.map((l) => ({ href: l.href, label: l.label, icon: ICON_MAP[l.icon], exact: l.exact }))
+    : nav.links.map((l) => ({
+        href: l.href,
+        label: l.label,
+        icon: l.icon,
+        exact: 'exact' in l ? l.exact : undefined,
+      }))
   const pathname = usePathname()
   const router = useRouter()
 
   const [isOpen, setIsOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const [logoutPhrase, setLogoutPhrase] = useState('')
+  const [loggingOut, setLoggingOut] = useState(false)
 
   useEffect(() => {
     const handleResize = () => {
@@ -103,10 +129,19 @@ export function PortalLayout({ role, user, schoolName, children }: PortalLayoutP
   }, [pathname, isMobile])
 
   async function handleLogout() {
-    await authClient.signOut()
-    router.push(nav.loginHref)
-    router.refresh()
+    setLoggingOut(true)
+    try {
+      await authClient.signOut()
+      router.push(nav.loginHref)
+      router.refresh()
+    } finally {
+      setLoggingOut(false)
+      setLogoutConfirmOpen(false)
+      setLogoutPhrase('')
+    }
   }
+
+  const logoutConfirmed = logoutPhrase.trim().toLowerCase() === 'aws'
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -136,13 +171,7 @@ export function PortalLayout({ role, user, schoolName, children }: PortalLayoutP
         {/* Logo / Portal name */}
         <div className="border-b border-border px-5 py-5 relative">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <BrandLogo size={40} rounded="rounded-xl" />
-              <div>
-                <p className="text-xs text-muted-foreground">مدارس الأوس الأهلية</p>
-                <p className="text-sm font-bold">{nav.label}</p>
-              </div>
-            </div>
+            <BrandLogo size={40} rounded="rounded-xl" href={null} />
             <div className="flex items-center gap-2">
               <ThemeToggle />
               <button 
@@ -153,21 +182,20 @@ export function PortalLayout({ role, user, schoolName, children }: PortalLayoutP
               </button>
             </div>
           </div>
-          {schoolName && (
-            <p className="mt-3 truncate text-xs font-medium text-muted-foreground">
-              {schoolName}
-            </p>
-          )}
+
+          {/* The school's name, shown once, on its own line as the brand mark */}
+          <p className="font-kufi mt-3 text-lg leading-snug font-semibold text-foreground">
+            {schoolName ?? 'مدارس الأوس الأهلية'}
+          </p>
         </div>
 
         {/* Nav links */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="space-y-1">
-            {nav.links.map((link) => {
-              const isActive =
-                'exact' in link && link.exact
-                  ? pathname === link.href
-                  : pathname.startsWith(link.href)
+            {navLinks.map((link) => {
+              const isActive = link.exact
+                ? pathname === link.href
+                : pathname.startsWith(link.href)
               const Icon = link.icon
               return (
                 <li key={link.href}>
@@ -197,11 +225,13 @@ export function PortalLayout({ role, user, schoolName, children }: PortalLayoutP
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{user.name}</p>
+              {/* The person's role sits with the person, not in the brand header */}
+              <p className="truncate text-xs font-semibold text-primary">{roleLabel ?? nav.label}</p>
               <p className="truncate text-xs text-muted-foreground">{user.email}</p>
             </div>
           </div>
           <button
-            onClick={handleLogout}
+            onClick={() => setLogoutConfirmOpen(true)}
             className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
           >
             <LogOut className="size-4" />
@@ -209,6 +239,52 @@ export function PortalLayout({ role, user, schoolName, children }: PortalLayoutP
           </button>
         </div>
       </aside>
+
+      {/* ── Logout confirmation ─────────────────────────────────────────────── */}
+      {logoutConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-3xl bg-card p-6 shadow-xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex size-11 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+                <ShieldAlert className="size-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold">تأكيد تسجيل الخروج</h2>
+                <p className="text-sm text-muted-foreground">اكتب <span className="font-mono font-bold">aws</span> للتأكيد</p>
+              </div>
+            </div>
+            <input
+              autoFocus
+              type="text"
+              value={logoutPhrase}
+              onChange={(e) => setLogoutPhrase(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && logoutConfirmed && !loggingOut) handleLogout()
+                if (e.key === 'Escape') { setLogoutConfirmOpen(false); setLogoutPhrase('') }
+              }}
+              placeholder="aws"
+              className="w-full rounded-xl border border-border bg-background p-3 text-sm outline-none focus:ring-2 focus:ring-primary"
+            />
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={handleLogout}
+                disabled={!logoutConfirmed || loggingOut}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-destructive py-2.5 text-sm font-bold text-destructive-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+              >
+                <LogOut className="size-4" />
+                {loggingOut ? 'جاري تسجيل الخروج...' : 'تسجيل الخروج'}
+              </button>
+              <button
+                onClick={() => { setLogoutConfirmOpen(false); setLogoutPhrase('') }}
+                disabled={loggingOut}
+                className="flex-1 rounded-xl bg-muted py-2.5 text-sm font-semibold text-muted-foreground hover:bg-muted/80 disabled:opacity-50"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Main content ─────────────────────────────────────────────────── */}
       <main className={cn(

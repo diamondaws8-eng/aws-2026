@@ -2,17 +2,57 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { students, dailyRecords, studentPoints, subjects, teachers, user, classes, gradeLevels, gradeEntries } from '@/lib/db/schema'
+import { students, dailyRecords, subjects, teachers, user, classes, gradeLevels, gradeEntries, account } from '@/lib/db/schema'
 import { eq, and, sql, desc } from 'drizzle-orm'
+import { hashPassword } from 'better-auth/crypto'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { authClient } from '@/lib/auth-client'
+import { getStudentPointsTotal, getStudentTeacherPointsTotal, getManualPoints, derivePointEntries } from '@/lib/points'
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 export async function requireParent() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect('/parent/login')
   return session.user
+}
+
+// ─── First-login password setup ───────────────────────────────────────────────
+// Only usable while the account is still flagged, so it can never be used to
+// bypass the normal "enter your current password" flow later on.
+export async function setOwnParentPassword(newPassword: string, confirmPassword: string) {
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user) return { ok: false as const, error: 'انتهت الجلسة، سجّل الدخول من جديد' }
+
+  const [me] = await db
+    .select({ mustChange: user.mustChangePassword })
+    .from(user)
+    .where(eq(user.id, session.user.id))
+    .limit(1)
+  if (!me?.mustChange) return { ok: false as const, error: 'لا حاجة لتغيير كلمة المرور' }
+
+  if (newPassword !== confirmPassword) {
+    return { ok: false as const, error: 'كلمتا المرور غير متطابقتين' }
+  }
+  if (newPassword.length < 6) {
+    return { ok: false as const, error: 'كلمة المرور يجب أن تكون 6 أحرف أو أرقام على الأقل' }
+  }
+  if (newPassword === '12345678') {
+    return { ok: false as const, error: 'لا يمكن استخدام كلمة المرور الافتراضية — اختر كلمة خاصة بك' }
+  }
+
+  try {
+    const hashed = await hashPassword(newPassword)
+    await db.update(account).set({ password: hashed, updatedAt: new Date() })
+      .where(and(eq(account.userId, session.user.id), eq(account.providerId, 'credential')))
+    await db.update(user)
+      .set({ mustChangePassword: false, updatedAt: new Date() })
+      .where(eq(user.id, session.user.id))
+    return { ok: true as const }
+  } catch (error) {
+    console.error('Set Parent Password Error:', error)
+    return { ok: false as const, error: 'حدث خطأ أثناء حفظ كلمة المرور' }
+  }
 }
 
 // ─── Get all children for this parent ────────────────────────────────────────
@@ -54,12 +94,8 @@ export async function getStudentDashboard(studentId: string) {
     }
   }
 
-  // Total points
-  const [pointsRow] = await db
-    .select({ total: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)` })
-    .from(studentPoints)
-    .where(eq(studentPoints.studentId, studentId))
-  const totalPoints = Number(pointsRow?.total ?? 0)
+  // Total points — each day's record plus manual awards (see lib/points.ts)
+  const totalPoints = await getStudentPointsTotal(studentId)
 
   // Attendance summary from daily_records
   const attendanceRows = await db
@@ -121,17 +157,7 @@ export async function getStudentDashboard(studentId: string) {
       // Points per subject (from records where this teacher recorded)
       let subjectPoints = 0
       if (sub.teacherUserId) {
-        const [pRow] = await db
-          .select({ total: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)` })
-          .from(studentPoints)
-          .where(
-            and(
-              eq(studentPoints.studentId, studentId),
-              eq(studentPoints.classId, student.classId!),
-              eq(studentPoints.teacherUserId, sub.teacherUserId)
-            )
-          )
-        subjectPoints = Number(pRow?.total ?? 0)
+        subjectPoints = await getStudentTeacherPointsTotal(studentId, student.classId!, sub.teacherUserId)
       }
 
       // Attendance per teacher's records
@@ -274,17 +300,14 @@ export async function getSubjectDetails(studentId: string, subjectId: string) {
     )
     .orderBy(desc(dailyRecords.date))
 
-  // Get all points details for this student from this teacher
-  const points = await db
-    .select()
-    .from(studentPoints)
-    .where(
-      and(
-        eq(studentPoints.studentId, studentId),
-        eq(studentPoints.teacherUserId, subject.teacherUserId)
-      )
-    )
-    .orderBy(desc(studentPoints.createdAt))
+  // Rebuild the breakdown from the very records above — deriving it from the
+  // same rows the page renders means the two can never disagree, and it costs
+  // no extra query no matter how many days the student has.
+  const { getSchoolSettings } = await import('@/app/admin/(dashboard)/settings/actions-settings')
+  const settings = await getSchoolSettings(student.schoolId)
+  const derived = records.flatMap((r) => derivePointEntries(r, settings))
+  const manual = await getManualPoints(studentId, { teacherUserId: subject.teacherUserId })
+  const points = [...derived, ...manual].sort((a, b) => b.date.localeCompare(a.date))
 
   // Get grade entries for this student in this subject
   const grades = await db

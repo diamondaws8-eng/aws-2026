@@ -4,8 +4,17 @@ import { useState } from 'react'
 import { sendNotification, deleteNotification } from './actions-notifications'
 import { formatDateAr } from '@/lib/utils'
 import { EmptyState } from '@/components/empty-state'
+import { Bell, AlertTriangle, UserX, GraduationCap, Send, Trash2, Loader2 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
-export default function NotificationsClient({ schoolId, userId, classes, students, notifications }: any) {
+const TYPE_ICON: Record<string, LucideIcon> = {
+  warning: AlertTriangle,
+  absence: UserX,
+  grade: GraduationCap,
+  info: Bell,
+}
+
+export default function NotificationsClient({ schoolId, userId, classes, students, notifications, canSend = true }: any) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [targetType, setTargetType] = useState('all') // all, class, student
@@ -31,7 +40,11 @@ export default function NotificationsClient({ schoolId, userId, classes, student
         classId: targetType === 'class' ? targetId : null,
         studentId: targetType === 'student' ? targetId : null
       }
-      await sendNotification(payload)
+      const res = await sendNotification(payload)
+      if (res && res.ok === false) {
+        alert(res.error || 'حدث خطأ أثناء الإرسال')
+        return
+      }
       setTitle(''); setBody('');
       alert('تم إرسال التنبيه بنجاح')
     } catch (err) {
@@ -72,10 +85,17 @@ export default function NotificationsClient({ schoolId, userId, classes, student
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className={`grid grid-cols-1 gap-6 ${canSend ? 'lg:grid-cols-3' : ''}`}>
+      {canSend && (
       <div className="lg:col-span-1">
-        <div className="bg-card border border-border rounded-2xl p-6 sticky top-6">
-          <h2 className="text-lg font-bold mb-4">إرسال تنبيه جديد</h2>
+        <div className="relative overflow-hidden bg-card border border-border rounded-2xl p-6 sticky top-6">
+          <div className="absolute -top-14 -left-10 size-40 rounded-full bg-blue-400/10 blur-3xl pointer-events-none" />
+          <div className="relative flex items-center gap-3 mb-6">
+            <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-[0_6px_16px_-4px_rgba(37,99,235,0.45)]">
+              <Send className="size-5" />
+            </div>
+            <h2 className="text-lg font-bold">إرسال تنبيه جديد</h2>
+          </div>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-semibold mb-1">عنوان التنبيه</label>
@@ -144,28 +164,42 @@ export default function NotificationsClient({ schoolId, userId, classes, student
           </form>
         </div>
       </div>
+      )}
 
-      <div className="lg:col-span-2">
-        <div className="bg-card border border-border rounded-2xl p-6">
-          <h2 className="text-lg font-bold mb-4">التنبيهات المرسلة حديثاً</h2>
+      <div className={canSend ? 'lg:col-span-2' : ''}>
+        <div className="relative overflow-hidden bg-card border border-border rounded-2xl p-6">
+          <div className="absolute -top-14 -right-10 size-40 rounded-full bg-violet-400/10 blur-3xl pointer-events-none" />
+          <div className="relative flex items-center gap-3 mb-5">
+            <div className="flex size-11 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
+              <Bell className="size-5" />
+            </div>
+            <h2 className="text-lg font-bold">التنبيهات المرسلة حديثاً</h2>
+          </div>
           {notifications.length === 0 ? (
-            <EmptyState title="لا يوجد تنبيهات" description="لم يتم إرسال أي تنبيهات بعد" />
+            <EmptyState icon={Bell} title="لا يوجد تنبيهات" description="لم يتم إرسال أي تنبيهات بعد" />
           ) : (
-            <div className="space-y-3">
-              {notifications.map((notif: any) => (
-                <div key={notif.id} className={`p-4 rounded-xl border relative group ${getTypeStyle(notif.type)}`}>
+            <div className="relative space-y-3">
+              {notifications.map((notif: any) => {
+                const TypeIcon = TYPE_ICON[notif.type] ?? Bell
+                return (
+                <div key={notif.id} className={`p-4 rounded-xl border relative group transition-transform hover:-translate-y-0.5 ${getTypeStyle(notif.type)}`}>
                   <div className="flex justify-between items-start mb-2">
-                    <h3 className="font-bold text-lg">{notif.title}</h3>
+                    <h3 className="font-bold text-lg flex items-center gap-2">
+                      <TypeIcon className="size-4 shrink-0" />
+                      {notif.title}
+                    </h3>
                     <div className="flex items-center gap-2">
                       <span className="text-xs px-2 py-1 rounded-md bg-white/50 dark:bg-black/20 font-bold">{getTypeLabel(notif.type)}</span>
+                      {canSend && (
                       <button
                         onClick={() => handleDelete(notif.id)}
                         disabled={deletingId === notif.id}
                         className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/50 dark:hover:bg-red-900"
                         title="حذف التنبيه"
                       >
-                        {deletingId === notif.id ? '⏳' : '🗑️'}
+                        {deletingId === notif.id ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
                       </button>
+                      )}
                     </div>
                   </div>
                   <p className="text-sm mt-1">{notif.body}</p>
@@ -175,13 +209,14 @@ export default function NotificationsClient({ schoolId, userId, classes, student
                     </span>
                     <div className="flex gap-4">
                       {notif.expiresAt && (
-                        <span className="text-red-700 font-semibold dark:text-red-400">ينتهي: {formatDateAr(notif.expiresAt)}</span>
+                        <span className="text-red-700 font-semibold dark:text-red-400">ينتهي: {formatDateAr(new Date(notif.expiresAt).toISOString().split('T')[0])}</span>
                       )}
-                      <span>{formatDateAr(notif.createdAt)}</span>
+                      <span>{formatDateAr(new Date(notif.createdAt).toISOString().split('T')[0])}</span>
                     </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>

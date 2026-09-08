@@ -1,8 +1,13 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { addStudent, deleteStudent, importStudents } from './actions-students'
+import { addStudent, deleteStudent, importStudents, resetParentPassword } from './actions-students'
 import { EmptyState } from '@/components/empty-state'
+import {
+  Search, Upload, UserPlus, Download, FileSpreadsheet,
+  CheckCircle2, AlertTriangle, XCircle, Loader2, X, Users, Pencil, Trash2, IdCard, Phone,
+  RotateCcw, Copy, KeyRound,
+} from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type ImportRow = {
@@ -34,10 +39,13 @@ export default function StudentsClient({
   students,
   classes,
   schoolId,
+  canCreate = true,
 }: {
   students: any[]
   classes: any[]
   schoolId: string
+  /** false for read-only accounts (a deputy without edit rights). */
+  canCreate?: boolean
 }) {
   const [search, setSearch]           = useState('')
   const [classFilter, setClassFilter] = useState('all')
@@ -60,6 +68,36 @@ export default function StudentsClient({
   const [importClassId, setImportClassId] = useState('')
   const [importResult, setImportResult] = useState<{ created: number; failed: number; errors: string[] } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Parent password reset
+  const [resettingParentId, setResettingParentId] = useState<string | null>(null)
+  const [parentResetInfo, setParentResetInfo] = useState<{ studentName: string; parentPhone: string | null; tempPassword: string; mode?: 'created' | 'reset' } | null>(null)
+
+  const handleDeleteStudent = async (student: any) => {
+    if (!confirm(
+      `حذف الطالب "${student.fullName}" نهائياً؟\n\n` +
+      `سيتم حذف سجلات حضوره ودرجاته ونقاطه، وكذلك حساب ولي أمره إن لم يكن له أبناء آخرون في المدرسة.`
+    )) return
+    const res = await deleteStudent(student.id)
+    if (res && !res.ok) alert(res.error)
+  }
+
+  const handleResetParentPassword = async (student: any) => {
+    if (!confirm(`إعادة تعيين كلمة مرور ولي أمر "${student.fullName}"؟ ستُنشأ كلمة مرور مؤقتة جديدة وتتوقف كلمة المرور الحالية عن العمل.`)) return
+    setResettingParentId(student.id)
+    try {
+      const res = await resetParentPassword(student.id, schoolId)
+      if (res.ok && res.tempPassword) {
+        setParentResetInfo({ studentName: student.fullName, parentPhone: res.parentPhone ?? student.parentPhone, tempPassword: res.tempPassword })
+      } else {
+        alert(res.error || 'حدث خطأ أثناء إعادة تعيين كلمة المرور')
+      }
+    } catch {
+      alert('حدث خطأ أثناء إعادة تعيين كلمة المرور')
+    } finally {
+      setResettingParentId(null)
+    }
+  }
 
   const openAddModal = () => {
     setEditingStudent(null)
@@ -189,48 +227,66 @@ export default function StudentsClient({
   return (
     <div className="space-y-6">
 
-      {/* ── Toolbar ── */}
-      <div className="flex flex-col md:flex-row gap-4 justify-between">
-        <div className="flex gap-3 flex-1 flex-wrap">
-          <input
-            type="text"
-            placeholder="بحث بالاسم أو الهوية..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="p-3 rounded-xl border border-border bg-card flex-1 min-w-[180px] max-w-sm outline-none focus:ring-2 focus:ring-primary"
-          />
-          <select
-            value={classFilter}
-            onChange={e => setClassFilter(e.target.value)}
-            className="p-3 rounded-xl border border-border bg-card outline-none focus:ring-2 focus:ring-primary"
-          >
-            <option value="all">جميع الفصول</option>
-            {classes.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
+      {/* ── Header stat + Toolbar ── */}
+      <div className="relative overflow-hidden bg-card border border-border rounded-2xl p-5">
+        <div className="absolute -top-14 -right-10 size-40 rounded-full bg-blue-400/10 blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col md:flex-row gap-4 justify-between md:items-center">
+          <div className="flex items-center gap-3">
+            <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 text-white shadow-[0_6px_16px_-4px_rgba(37,99,235,0.45)]">
+              <Users className="size-5" />
+            </div>
+            <div>
+              <p className="text-lg font-bold">{filteredStudents.length} طالب</p>
+              <p className="text-xs text-muted-foreground">من إجمالي {students.length} طالب مسجّل</p>
+            </div>
+          </div>
 
-        <div className="flex gap-3">
-          <button
-            onClick={() => setIsImportOpen(true)}
-            className="px-5 py-3 bg-emerald-600 text-white font-semibold rounded-xl hover:opacity-90 flex items-center gap-2"
-          >
-            📥 استيراد Excel
-          </button>
-          <button
-            onClick={openAddModal}
-            className="px-5 py-3 bg-primary text-primary-foreground font-semibold rounded-xl hover:opacity-90"
-          >
-            + إضافة طالب
-          </button>
+          <div className="flex gap-3 flex-wrap">
+            <div className="relative min-w-[180px] max-w-sm flex-1">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="بحث بالاسم أو الهوية..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full p-3 pr-10 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            <select
+              value={classFilter}
+              onChange={e => setClassFilter(e.target.value)}
+              className="p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="all">جميع الفصول</option>
+              {classes.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {canCreate && (
+            <div className="flex gap-3">
+              <button
+                onClick={() => setIsImportOpen(true)}
+                className="px-5 py-3 bg-emerald-600 text-white font-semibold rounded-xl hover:opacity-90 flex items-center gap-2 transition-transform hover:-translate-y-0.5"
+              >
+                <Upload className="size-4" /> استيراد Excel
+              </button>
+              <button
+                onClick={openAddModal}
+                className="px-5 py-3 bg-primary text-primary-foreground font-semibold rounded-xl hover:opacity-90 flex items-center gap-2 transition-transform hover:-translate-y-0.5"
+              >
+                <UserPlus className="size-4" /> إضافة طالب
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* ── Students table ── */}
       <div className="bg-card border border-border rounded-2xl overflow-hidden">
         {filteredStudents.length === 0 ? (
-          <div className="p-8"><EmptyState title="لا يوجد طلاب" description="لم يتم العثور على طلاب مطابقين" /></div>
+          <div className="p-8"><EmptyState icon={Users} title="لا يوجد طلاب" description="لم يتم العثور على طلاب مطابقين" /></div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-right">
@@ -246,25 +302,65 @@ export default function StudentsClient({
               </thead>
               <tbody className="divide-y divide-border">
                 {filteredStudents.map((student, i) => (
-                  <tr key={student.id} className="hover:bg-muted/50">
-                    <td className="p-4">{i + 1}</td>
-                    <td className="p-4 font-semibold">{student.fullName}</td>
-                    <td className="p-4 text-muted-foreground">{student.nationalId || '-'}</td>
-                    <td className="p-4">{student.gradeName ? `${student.gradeName} - ${student.className}` : 'غير مسكن'}</td>
-                    <td className="p-4 text-muted-foreground">{student.parentPhone || '-'}</td>
+                  <tr key={student.id} className="hover:bg-muted/50 transition-colors">
+                    <td className="p-4 text-muted-foreground">{i + 1}</td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
+                          {student.fullName?.charAt(0) ?? '؟'}
+                        </div>
+                        <span className="font-semibold">{student.fullName}</span>
+                      </div>
+                    </td>
+                    <td className="p-4 text-muted-foreground">
+                      {student.nationalId ? (
+                        <span className="inline-flex items-center gap-1.5"><IdCard className="size-3.5" />{student.nationalId}</span>
+                      ) : '-'}
+                    </td>
+                    <td className="p-4">
+                      {student.gradeName ? (
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-100">
+                          {student.gradeName} — {student.className}
+                        </span>
+                      ) : (
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-muted text-muted-foreground">غير مسكن</span>
+                      )}
+                    </td>
+                    <td className="p-4 text-muted-foreground">
+                      {student.parentPhone ? (
+                        <span className="inline-flex items-center gap-1.5"><Phone className="size-3.5" />{student.parentPhone}</span>
+                      ) : '-'}
+                    </td>
                     <td className="p-4 text-center space-x-2 space-x-reverse">
-                      <button
-                        onClick={() => openEditModal(student)}
-                        className="text-blue-600 hover:bg-blue-50 px-3 py-1 rounded-lg text-sm font-semibold transition-colors"
-                      >
-                        تعديل
-                      </button>
-                      <button
-                        onClick={() => deleteStudent(student.id)}
-                        className="text-destructive hover:bg-destructive/10 px-3 py-1 rounded-lg text-sm font-semibold transition-colors"
-                      >
-                        حذف
-                      </button>
+                      {student.canEdit === false ? (
+                        <span className="text-xs text-muted-foreground">اطّلاع فقط</span>
+                      ) : (
+                        <>
+                          {student.parentUserId && (
+                            <button
+                              onClick={() => handleResetParentPassword(student)}
+                              disabled={resettingParentId === student.id}
+                              className="inline-flex items-center gap-1.5 text-amber-600 hover:bg-amber-50 px-3 py-1 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+                              title="إعادة تعيين كلمة مرور ولي الأمر"
+                            >
+                              {resettingParentId === student.id ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+                              كلمة المرور
+                            </button>
+                          )}
+                          <button
+                            onClick={() => openEditModal(student)}
+                            className="inline-flex items-center gap-1.5 text-blue-600 hover:bg-blue-50 px-3 py-1 rounded-lg text-sm font-semibold transition-colors"
+                          >
+                            <Pencil className="size-3.5" /> تعديل
+                          </button>
+                          <button
+                            onClick={() => handleDeleteStudent(student)}
+                            className="inline-flex items-center gap-1.5 text-destructive hover:bg-destructive/10 px-3 py-1 rounded-lg text-sm font-semibold transition-colors"
+                          >
+                            <Trash2 className="size-3.5" /> حذف
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -283,17 +379,22 @@ export default function StudentsClient({
 
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-border shrink-0">
-              <div>
-                <h2 className="text-xl font-bold">📥 استيراد الطلاب من Excel</h2>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  قم بتحميل القالب أولاً، أملأه وارفعه هنا
-                </p>
+              <div className="flex items-center gap-3">
+                <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-[0_6px_16px_-4px_rgba(5,150,105,0.45)]">
+                  <Upload className="size-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">استيراد الطلاب من Excel</h2>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    قم بتحميل القالب أولاً، أملأه وارفعه هنا
+                  </p>
+                </div>
               </div>
               <button
                 onClick={() => { setIsImportOpen(false); setImportRows([]); setImportResult(null); if (fileRef.current) fileRef.current.value = '' }}
-                className="w-9 h-9 flex items-center justify-center rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground font-bold text-lg"
+                className="w-9 h-9 flex items-center justify-center rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground transition-colors"
               >
-                ✕
+                <X className="size-4" />
               </button>
             </div>
 
@@ -301,26 +402,32 @@ export default function StudentsClient({
 
               {/* Step 1 — Download template */}
               <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-2xl p-4 flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-bold text-blue-900 dark:text-blue-200">الخطوة 1 — تنزيل القالب</p>
-                  <p className="text-sm text-blue-700 dark:text-blue-300 mt-0.5">
-                    احفظ القالب، أضف بيانات طلابك، ثم ارفعه هنا
-                  </p>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                    الأعمدة: <span className="font-mono">الاسم الكامل | رقم الهوية | جوال ولي الأمر | الجنس</span>
-                  </p>
+                <div className="flex items-start gap-3">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white text-xs font-bold mt-0.5">1</span>
+                  <div>
+                    <p className="font-bold text-blue-900 dark:text-blue-200">تنزيل القالب</p>
+                    <p className="text-sm text-blue-700 dark:text-blue-300 mt-0.5">
+                      احفظ القالب، أضف بيانات طلابك، ثم ارفعه هنا
+                    </p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                      الأعمدة: <span className="font-mono">الاسم الكامل | رقم الهوية | جوال ولي الأمر | الجنس</span>
+                    </p>
+                  </div>
                 </div>
                 <button
                   onClick={downloadTemplate}
-                  className="shrink-0 px-4 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:opacity-90 text-sm"
+                  className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:opacity-90 text-sm transition-transform hover:-translate-y-0.5"
                 >
-                  ⬇ تنزيل القالب
+                  <Download className="size-4" /> تنزيل القالب
                 </button>
               </div>
 
               {/* Step 2 — Select class */}
               <div>
-                <p className="font-bold mb-2">الخطوة 2 — اختر الفصل الذي ستستورد إليه الطلاب</p>
+                <p className="font-bold mb-2 flex items-center gap-2">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-foreground text-xs font-bold">2</span>
+                  اختر الفصل الذي ستستورد إليه الطلاب
+                </p>
                 <select
                   value={importClassId}
                   onChange={e => setImportClassId(e.target.value)}
@@ -332,17 +439,20 @@ export default function StudentsClient({
                   ))}
                 </select>
                 {importClassId && (
-                  <p className="text-xs text-emerald-600 mt-1.5 font-semibold">
-                    ✓ سيتم استيراد جميع الطلاب إلى: {classes.find(c => c.id === importClassId)?.name}
+                  <p className="text-xs text-emerald-600 mt-1.5 font-semibold inline-flex items-center gap-1">
+                    <CheckCircle2 className="size-3.5" /> سيتم استيراد جميع الطلاب إلى: {classes.find(c => c.id === importClassId)?.name}
                   </p>
                 )}
               </div>
 
               {/* Step 3 — Upload file */}
               <div>
-                <p className="font-bold mb-2">الخطوة 3 — رفع ملف Excel</p>
-                <label className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-2xl p-8 cursor-pointer hover:bg-muted/30 transition-colors">
-                  <div className="text-4xl mb-2">📂</div>
+                <p className="font-bold mb-2 flex items-center gap-2">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-foreground text-xs font-bold">3</span>
+                  رفع ملف Excel
+                </p>
+                <label className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-2xl p-8 cursor-pointer hover:bg-muted/30 hover:border-primary/40 transition-colors">
+                  <FileSpreadsheet className="size-9 mb-2 text-emerald-600" />
                   <span className="font-semibold text-sm">انقر لاختيار ملف Excel</span>
                   <span className="text-xs text-muted-foreground mt-1">.xlsx أو .xls</span>
                   <input
@@ -358,13 +468,20 @@ export default function StudentsClient({
               {/* Import result */}
               {importResult && (
                 <div className={`rounded-2xl p-4 border ${importResult.failed === 0 ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800' : 'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800'}`}>
-                  <p className="font-bold text-lg">
-                    {importResult.failed === 0 ? '✅' : '⚠️'} نتيجة الاستيراد
+                  <p className="font-bold text-lg flex items-center gap-2">
+                    {importResult.failed === 0
+                      ? <CheckCircle2 className="size-5 text-emerald-600" />
+                      : <AlertTriangle className="size-5 text-amber-600" />}
+                    نتيجة الاستيراد
                   </p>
                   <div className="flex gap-6 mt-2 text-sm">
-                    <span className="text-emerald-700 dark:text-emerald-300 font-semibold">✓ تم إضافة: {importResult.created} طالب</span>
+                    <span className="text-emerald-700 dark:text-emerald-300 font-semibold inline-flex items-center gap-1">
+                      <CheckCircle2 className="size-3.5" /> تم إضافة: {importResult.created} طالب
+                    </span>
                     {importResult.failed > 0 && (
-                      <span className="text-red-600 dark:text-red-400 font-semibold">✗ فشل: {importResult.failed}</span>
+                      <span className="text-red-600 dark:text-red-400 font-semibold inline-flex items-center gap-1">
+                        <XCircle className="size-3.5" /> فشل: {importResult.failed}
+                      </span>
                     )}
                   </div>
                   {importResult.errors.length > 0 && (
@@ -378,14 +495,31 @@ export default function StudentsClient({
                 </div>
               )}
 
+              {/* How new parents get in */}
+              {importResult && importResult.created > 0 && (
+                <div className="rounded-2xl p-4 border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800">
+                  <p className="font-bold flex items-center gap-2 text-blue-900 dark:text-blue-200">
+                    <KeyRound className="size-4 shrink-0" /> بيانات دخول أولياء الأمور
+                  </p>
+                  <p className="text-sm text-blue-800 dark:text-blue-300 mt-1">
+                    اسم الدخول هو <span className="font-bold">رقم جوال ولي الأمر</span>، وكلمة المرور المبدئية{' '}
+                    <span className="font-mono font-bold bg-white/70 dark:bg-black/20 px-1.5 py-0.5 rounded">12345678</span>.
+                    عند أول دخول سيطلب منه النظام اختيار كلمة مرور خاصة به.
+                  </p>
+                </div>
+              )}
+
               {/* Step 4 — Preview */}
               {importRows.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-3">
-                    <p className="font-bold">الخطوة 4 — معاينة البيانات ({importRows.length} صف)</p>
+                    <p className="font-bold flex items-center gap-2">
+                      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-foreground text-xs font-bold">4</span>
+                      معاينة البيانات ({importRows.length} صف)
+                    </p>
                     <div className="flex gap-3 text-sm">
-                      <span className="text-emerald-600 font-semibold">✓ صحيح: {validCount}</span>
-                      {invalidCount > 0 && <span className="text-red-600 font-semibold">✗ خطأ: {invalidCount}</span>}
+                      <span className="text-emerald-600 font-semibold inline-flex items-center gap-1"><CheckCircle2 className="size-3.5" /> صحيح: {validCount}</span>
+                      {invalidCount > 0 && <span className="text-red-600 font-semibold inline-flex items-center gap-1"><XCircle className="size-3.5" /> خطأ: {invalidCount}</span>}
                     </div>
                   </div>
 
@@ -409,11 +543,11 @@ export default function StudentsClient({
                               <td className="p-3 font-semibold">{row.fullName || <span className="text-muted-foreground italic">فارغ</span>}</td>
                               <td className="p-3 text-muted-foreground">{row.nationalId || '—'}</td>
                               <td className="p-3 text-muted-foreground">{row.parentPhone || '—'}</td>
-                              <td className="p-3">{row.gender === 'أنثى' || row.gender === 'female' ? '👩 أنثى' : '👦 ذكر'}</td>
+                              <td className="p-3">{row.gender === 'أنثى' || row.gender === 'female' ? 'أنثى' : 'ذكر'}</td>
                               <td className="p-3">
                                 {row.valid
-                                  ? <span className="text-emerald-600 font-bold">✓</span>
-                                  : <span className="text-red-600 text-xs font-semibold">{row.error}</span>
+                                  ? <CheckCircle2 className="size-4 text-emerald-600" />
+                                  : <span className="inline-flex items-center gap-1 text-red-600 text-xs font-semibold"><XCircle className="size-3.5" />{row.error}</span>
                                 }
                               </td>
                             </tr>
@@ -424,8 +558,8 @@ export default function StudentsClient({
                   </div>
 
                   {invalidCount > 0 && (
-                    <p className="text-xs text-amber-600 mt-2">
-                      ⚠️ الصفوف ذات الخطأ لن يتم استيرادها. سيتم استيراد {validCount} طالب فقط.
+                    <p className="text-xs text-amber-600 mt-2 inline-flex items-center gap-1">
+                      <AlertTriangle className="size-3.5" /> الصفوف ذات الخطأ لن يتم استيرادها. سيتم استيراد {validCount} طالب فقط.
                     </p>
                   )}
                 </div>
@@ -437,13 +571,16 @@ export default function StudentsClient({
               <button
                 onClick={handleImport}
                 disabled={importing || validCount === 0}
-                className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity"
+                className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity inline-flex items-center justify-center gap-2"
               >
                 {importing
-                  ? '⏳ جاري الاستيراد...'
-                  : validCount > 0
-                    ? `📥 استيراد ${validCount} طالب${importClassId ? ` إلى ${classes.find(c => c.id === importClassId)?.name}` : ''}`
-                    : '📥 استيراد الطلاب'
+                  ? <><Loader2 className="size-4 animate-spin" /> جاري الاستيراد...</>
+                  : <>
+                      <Upload className="size-4" />
+                      {validCount > 0
+                        ? `استيراد ${validCount} طالب${importClassId ? ` إلى ${classes.find(c => c.id === importClassId)?.name}` : ''}`
+                        : 'استيراد الطلاب'}
+                    </>
                 }
               </button>
               <button
@@ -463,7 +600,12 @@ export default function StudentsClient({
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-card p-6 rounded-3xl w-full max-w-lg shadow-xl">
-            <h2 className="text-xl font-bold mb-6">{editingStudent ? 'تعديل طالب' : 'إضافة طالب جديد'}</h2>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 text-white shadow-[0_6px_16px_-4px_rgba(37,99,235,0.45)]">
+                <UserPlus className="size-5" />
+              </div>
+              <h2 className="text-xl font-bold">{editingStudent ? 'تعديل طالب' : 'إضافة طالب جديد'}</h2>
+            </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm mb-1">الاسم الكامل</label>
@@ -504,6 +646,40 @@ export default function StudentsClient({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          PARENT PASSWORD RESET RESULT
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {parentResetInfo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-card p-6 rounded-3xl w-full max-w-md shadow-xl text-center space-y-4">
+            <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckCircle2 className="size-8" />
+            </div>
+            <h2 className="text-xl font-bold">
+              {parentResetInfo.mode === 'created' ? 'تم إنشاء حساب ولي الأمر' : 'تم إعادة تعيين كلمة المرور'}
+            </h2>
+            <p className="text-sm text-muted-foreground">ولي أمر الطالب: {parentResetInfo.studentName}</p>
+            <div className="bg-muted p-4 rounded-xl text-right space-y-2">
+              <p className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground text-sm">رقم الجوال (اسم الدخول)</span>
+                <span className="font-bold dir-ltr text-sm">{parentResetInfo.parentPhone || '-'}</span>
+              </p>
+              <p className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground text-sm">كلمة المرور</span>
+                <span className="font-bold font-mono text-sm inline-flex items-center gap-1"><Copy className="size-3.5 text-muted-foreground" />{parentResetInfo.tempPassword}</span>
+              </p>
+            </div>
+            <p className="text-sm text-amber-600 bg-amber-50 p-3 rounded-xl flex items-center gap-2">
+              <AlertTriangle className="size-4 shrink-0" />
+              يرجى نسخ هذه البيانات ومشاركتها مع ولي الأمر. لا يمكن استعادتها لاحقاً.
+            </p>
+            <button onClick={() => setParentResetInfo(null)} className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-xl mt-4">
+              إغلاق
+            </button>
           </div>
         </div>
       )}

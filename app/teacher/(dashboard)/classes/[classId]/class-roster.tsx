@@ -149,7 +149,7 @@ export default function ClassRoster({
   const [whatsappModal, setWhatsappModal] = useState<{ student: Student; type: 'positive' | 'negative' } | null>(null)
 
   // Grades Tab State
-  const [selectedSubject, setSelectedSubject] = useState<string>('')
+  const [selectedSubject, setSelectedSubject] = useState<string>(subjects[0]?.id || '')
   const [examName, setExamName] = useState<string>('')
   const [examType, setExamType] = useState<string>('quiz')
   const [maxScore, setMaxScore] = useState<number>(10)
@@ -223,7 +223,12 @@ export default function ClassRoster({
         participationStatus: participation[s.id] || 'active',
         teacherNote: notes[s.id] || undefined,
       }))
-      await saveDailyRecords(classInfo.id, classInfo.schoolId, selectedDate, records)
+      const saved = await saveDailyRecords(classInfo.id, classInfo.schoolId, selectedDate, records)
+      if (!saved.ok) {
+        setSavedMsg(`❌ ${saved.error}`)
+        setTimeout(() => setSavedMsg(''), 4000)
+        return
+      }
       setSavedMsg('✓ تم حفظ اليوم بنجاح')
       // Refresh points
       const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${selectedDate}`)
@@ -511,7 +516,7 @@ export default function ClassRoster({
                   )}
                 </div>
                 <div className="flex items-center gap-3">
-                  {savedMsg && <span className="text-sm font-semibold text-emerald-600">{savedMsg}</span>}
+                  {savedMsg && <span className={`text-sm font-semibold ${savedMsg.startsWith('❌') ? 'text-red-600' : 'text-emerald-600'}`}>{savedMsg}</span>}
                   <button
                     onClick={handleSaveDay}
                     disabled={saving}
@@ -541,6 +546,16 @@ export default function ClassRoster({
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground block mb-1">اسم الاختبار</label>
                   <input type="text" value={examName} onChange={e => setExamName(e.target.value)} placeholder="اختبار قصير ١" className="w-full p-2.5 rounded-xl border border-border bg-background text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground block mb-1">نوع الاختبار</label>
+                  <select value={examType} onChange={e => setExamType(e.target.value)} className="w-full p-2.5 rounded-xl border border-border bg-background text-sm">
+                    <option value="quiz">اختبار قصير</option>
+                    <option value="midterm">اختبار منتصف الفصل</option>
+                    <option value="final">اختبار نهائي</option>
+                    <option value="assignment">واجب / مشروع</option>
+                    <option value="oral">شفهي</option>
+                  </select>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground block mb-1">الدرجة القصوى</label>
@@ -584,14 +599,16 @@ export default function ClassRoster({
                       const entries = Object.entries(scores).filter(([, v]) => v !== '').map(([id, v]) => ({ studentId: id, score: +v }))
                       if (entries.length === 0) return
                       
-                      await saveGrades({
+                      const res = await saveGrades({
                         classId: classInfo.id,
                         schoolId: classInfo.schoolId,
                         subjectId: selectedSubject,
                         examName: examName,
+                        examType: examType,
                         maxScore: maxScore,
                         entries: entries
                       })
+                      if (!res.ok) { alert(res.error); return }
 
                       setGradesSaved(true); 
                       setTimeout(() => setGradesSaved(false), 3000)

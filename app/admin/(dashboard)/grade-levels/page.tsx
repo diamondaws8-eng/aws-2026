@@ -1,19 +1,14 @@
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
-import { schools, gradeLevels, classes, subjects, teachers } from '@/lib/db/schema'
+import { gradeLevels, classes, subjects, teachers } from '@/lib/db/schema'
 import { eq, asc } from 'drizzle-orm'
-import { headers } from 'next/headers'
-import { redirect } from 'next/navigation'
 import GradeLevelsClient from './grade-levels-client'
+import { requireAdminAccess, canEditGrade, canViewGrade } from '@/lib/admin-access'
 
 export const dynamic = 'force-dynamic'
 
 export default async function GradeLevelsPage() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) redirect('/admin/login')
-
-  const [school] = await db.select().from(schools).where(eq(schools.adminId, session.user.id)).limit(1)
-  if (!school) redirect('/admin/setup')
+  const access = await requireAdminAccess()
+  const school = access.school
 
   const grades = await db
     .select()
@@ -37,7 +32,9 @@ export default async function GradeLevelsPage() {
     .from(teachers)
     .where(eq(teachers.schoolId, school.id))
 
-  const gradesData = grades.map((g) => ({
+  const visibleGrades = grades.filter((g) => canViewGrade(access, g.id))
+
+  const gradesData = visibleGrades.map((g) => ({
     ...g,
     classes: allClasses
       .filter((c) => c.gradeLevelId === g.id)
@@ -51,6 +48,8 @@ export default async function GradeLevelsPage() {
           })),
       })),
   }))
+
+  const editableGradeIds = visibleGrades.filter((g) => canEditGrade(access, g.id)).map((g) => g.id)
 
   const teacherOptions = allTeachers.map((t) => ({
     userId: t.userId,
@@ -69,6 +68,8 @@ export default async function GradeLevelsPage() {
         grades={gradesData}
         schoolId={school.id}
         teacherOptions={teacherOptions}
+        editableGradeIds={editableGradeIds}
+        canCreateGrades={access.editAllGrades}
       />
     </div>
   )

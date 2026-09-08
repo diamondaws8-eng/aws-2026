@@ -1,17 +1,60 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { students, user, account } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import {
+  students, user, account, classes, session,
+  dailyRecords, studentPoints, attendance, gradeEntries, parentWhatsappMessages, notifications,
+} from '@/lib/db/schema'
+import { eq, and, inArray, ne } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/lib/auth'
 import { headers } from 'next/headers'
+import { hashPassword } from 'better-auth/crypto'
+import { getAdminAccess, canEditGrade, type AdminAccess } from '@/lib/admin-access'
+import { logAudit } from '@/lib/audit'
+
+/**
+ * Starter password handed to every new parent. It is deliberately the same for
+ * everyone so the school can announce it once (and it survives bulk Excel
+ * imports) — the account is only usable after the parent replaces it, which the
+ * parent portal forces on first login via user.mustChangePassword.
+ */
+// NOTE: not exported — a 'use server' file may only export async functions.
+const DEFAULT_PARENT_PASSWORD = '12345678'
+
+/** Unambiguous character set — no 0/O/1/l/I, so passwords can be read out loud. */
+function generateParentPassword() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+  return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
+/** Resolve the grade level a class belongs to (null when the student has no class). */
+async function gradeOfClass(classId: string | null | undefined): Promise<string | null> {
+  if (!classId) return null
+  const [cls] = await db.select({ gradeLevelId: classes.gradeLevelId }).from(classes).where(eq(classes.id, classId)).limit(1)
+  return cls?.gradeLevelId ?? null
+}
+
+/** The caller must be allowed to modify students in the given class's grade. */
+async function requireStudentEditor(classId: string | null | undefined): Promise<AdminAccess | null> {
+  const access = await getAdminAccess()
+  if (!access || !access.canEdit) return null
+  // A student without a class is school-wide data: only school-wide editors may touch it.
+  if (!classId) return access.editAllGrades ? access : null
+  const gradeLevelId = await gradeOfClass(classId)
+  return canEditGrade(access, gradeLevelId) ? access : null
+}
 
 
 
 // ── Add single student ────────────────────────────────────────────────────────
 export async function addStudent(input: any) {
   try {
+    const access = await requireStudentEditor(input.classId)
+    if (!access || access.school.id !== input.schoolId) {
+      return { ok: false, error: 'غير مصرح لك بإضافة طالب في هذه المرحلة' }
+    }
+
     let parentUserId = null
 
     if (input.parentPhone) {
@@ -22,10 +65,12 @@ export async function addStudent(input: any) {
 
       if (!existingUser) {
         try {
-          const result = await auth.api.signUpEmail({
-            body: { email: parentEmailAddr, password: '12345678', name: `ولي أمر ${input.fullName}` }
+          await auth.api.signUpEmail({
+            body: { email: parentEmailAddr, password: DEFAULT_PARENT_PASSWORD, name: `ولي أمر ${input.fullName}` }
           })
-          await db.update(user).set({ role: 'parent', updatedAt: new Date() }).where(eq(user.email, parentEmailAddr))
+          await db.update(user)
+            .set({ role: 'parent', mustChangePassword: true, updatedAt: new Date() })
+            .where(eq(user.email, parentEmailAddr))
         } catch (e) {
           console.error("signUpEmail Error:", e)
         }
@@ -54,14 +99,69 @@ export async function addStudent(input: any) {
 }
 
 // ── Delete student ────────────────────────────────────────────────────────────
+// Removes everything that belongs to the student, plus their parent's login if
+// no other student is linked to it — otherwise those rows linger forever.
 export async function deleteStudent(id: string) {
-  await db.delete(students).where(eq(students.id, id))
-  revalidatePath('/admin/students')
+  const [student] = await db.select().from(students).where(eq(students.id, id)).limit(1)
+  if (!student) return { ok: false as const, error: 'الطالب غير موجود' }
+
+  const access = await requireStudentEditor(student.classId)
+  if (!access || access.school.id !== student.schoolId) {
+    return { ok: false as const, error: 'غير مصرح لك بحذف هذا الطالب' }
+  }
+
+  try {
+    // Is the parent account shared with a sibling?
+    let parentToRemove: string | null = null
+    if (student.parentUserId) {
+      const siblings = await db
+        .select({ id: students.id })
+        .from(students)
+        .where(and(eq(students.parentUserId, student.parentUserId), ne(students.id, id)))
+      if (siblings.length === 0) parentToRemove = student.parentUserId
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.delete(dailyRecords).where(eq(dailyRecords.studentId, id))
+      await tx.delete(studentPoints).where(eq(studentPoints.studentId, id))
+      await tx.delete(attendance).where(eq(attendance.studentId, id))
+      await tx.delete(gradeEntries).where(eq(gradeEntries.studentId, id))
+      await tx.delete(parentWhatsappMessages).where(eq(parentWhatsappMessages.studentId, id))
+      await tx.delete(notifications).where(eq(notifications.studentId, id))
+      await tx.delete(students).where(eq(students.id, id))
+      if (parentToRemove) {
+        await tx.delete(account).where(eq(account.userId, parentToRemove))
+        await tx.delete(session).where(eq(session.userId, parentToRemove))
+        await tx.delete(user).where(eq(user.id, parentToRemove))
+      }
+    })
+
+    await logAudit(access, 'student.delete', student.fullName, {
+      removedParentAccount: !!parentToRemove,
+      parentPhone: student.parentPhone,
+    })
+
+    revalidatePath('/admin/students')
+    return { ok: true as const, removedParentAccount: !!parentToRemove }
+  } catch (error) {
+    console.error('Delete Student Error:', error)
+    return { ok: false as const, error: 'حدث خطأ أثناء حذف الطالب' }
+  }
 }
 
 // ── Edit student ──────────────────────────────────────────────────────────────
 export async function editStudent(id: string, input: any) {
   try {
+    const [existing] = await db.select().from(students).where(eq(students.id, id)).limit(1)
+    if (!existing) return { ok: false, error: 'الطالب غير موجود' }
+
+    // Must be allowed to edit both where the student is now and where they're moving to.
+    const fromAccess = await requireStudentEditor(existing.classId)
+    const toAccess = await requireStudentEditor(input.classId)
+    if (!fromAccess || !toAccess || fromAccess.school.id !== existing.schoolId) {
+      return { ok: false, error: 'غير مصرح لك بتعديل هذا الطالب' }
+    }
+
     let parentUserId = null
 
     if (input.parentPhone) {
@@ -73,9 +173,11 @@ export async function editStudent(id: string, input: any) {
       if (!existingUser) {
         try {
           await auth.api.signUpEmail({
-            body: { email: parentEmailAddr, password: '12345678', name: `ولي أمر ${input.fullName}` }
+            body: { email: parentEmailAddr, password: DEFAULT_PARENT_PASSWORD, name: `ولي أمر ${input.fullName}` }
           })
-          await db.update(user).set({ role: 'parent', updatedAt: new Date() }).where(eq(user.email, parentEmailAddr))
+          await db.update(user)
+            .set({ role: 'parent', mustChangePassword: true, updatedAt: new Date() })
+            .where(eq(user.email, parentEmailAddr))
         } catch (e) {
           console.error("signUpEmail Error:", e)
         }
@@ -117,7 +219,18 @@ export async function importStudents(
   let created = 0
   let failed  = 0
   const errors: string[] = []
-  
+
+  const access = await getAdminAccess()
+  if (!access || !access.canEdit || access.school.id !== schoolId) {
+    return { created: 0, failed: rows.length, errors: ['غير مصرح لك باستيراد الطلاب'] }
+  }
+  // Everything in one import lands in a single class, so check it once.
+  const importClassId = rows.find(r => r.classId)?.classId ?? null
+  const importer = await requireStudentEditor(importClassId)
+  if (!importer) {
+    return { created: 0, failed: rows.length, errors: ['غير مصرح لك بالإضافة في هذه المرحلة'] }
+  }
+
   // Cache headers to avoid calling await headers() in every loop iteration
   const reqHeaders = await headers()
 
@@ -144,12 +257,12 @@ export async function importStudents(
 
         if (!existingUser) {
           try {
-            const result = await auth.api.signUpEmail({
-              body: { email: parentEmailAddr, password: '12345678', name: `ولي أمر ${row.fullName.trim()}` }
+            await auth.api.signUpEmail({
+              body: { email: parentEmailAddr, password: DEFAULT_PARENT_PASSWORD, name: `ولي أمر ${row.fullName.trim()}` }
             })
             await db
               .update(user)
-              .set({ role: 'parent', updatedAt: new Date() })
+              .set({ role: 'parent', mustChangePassword: true, updatedAt: new Date() })
               .where(eq(user.email, parentEmailAddr))
           } catch (e) {
             console.error("Excel import signUpEmail Error:", e)
@@ -178,4 +291,75 @@ export async function importStudents(
 
   revalidatePath('/admin/students')
   return { created, failed, errors }
+}
+
+// ── Require every parent to pick a new password ───────────────────────────────
+// Owner-only. This does NOT change anyone's password, so nobody is locked out:
+// parents still sign in exactly as before, and are then asked to choose their
+// own password before they can see anything.
+export async function requireAllParentsToChangePassword(schoolId: string) {
+  const access = await getAdminAccess()
+  if (!access || access.role !== 'owner' || access.school.id !== schoolId) {
+    return { ok: false as const, error: 'هذا الإجراء متاح للمالك فقط' }
+  }
+
+  try {
+    const rows = await db
+      .select({ parentUserId: students.parentUserId })
+      .from(students)
+      .where(eq(students.schoolId, schoolId))
+
+    const parentIds = Array.from(new Set(rows.map((r) => r.parentUserId).filter((id): id is string => !!id)))
+    if (parentIds.length === 0) {
+      return { ok: false as const, error: 'لا توجد حسابات أولياء أمور' }
+    }
+
+    await db.update(user)
+      .set({ mustChangePassword: true, updatedAt: new Date() })
+      .where(inArray(user.id, parentIds))
+
+    await logAudit(access, 'parents.requirePasswordChange', null, { count: parentIds.length })
+
+    return { ok: true as const, count: parentIds.length }
+  } catch (error) {
+    console.error('Require Parent Password Change Error:', error)
+    return { ok: false as const, error: 'حدث خطأ أثناء تنفيذ الإجراء' }
+  }
+}
+
+// ── Reset a parent's password (e.g. they forgot it) ───────────────────────────
+// Generates a fresh temporary password, hashes it the same way better-auth does,
+// and overwrites their credential account directly — no need to know the old password.
+export async function resetParentPassword(studentId: string, schoolId: string) {
+  try {
+    const [student] = await db.select().from(students).where(eq(students.id, studentId)).limit(1)
+    if (!student || student.schoolId !== schoolId) {
+      return { ok: false, error: 'غير مصرح بالوصول لهذا الطالب' }
+    }
+    const access = await requireStudentEditor(student.classId)
+    if (!access || access.school.id !== schoolId) {
+      return { ok: false, error: 'غير مصرح لك بهذا الإجراء' }
+    }
+    if (!student.parentUserId) {
+      return { ok: false, error: 'لا يوجد حساب ولي أمر مرتبط بهذا الطالب' }
+    }
+
+    const tempPassword = generateParentPassword()
+    const hashed = await hashPassword(tempPassword)
+
+    await db.update(account).set({ password: hashed, updatedAt: new Date() })
+      .where(and(eq(account.userId, student.parentUserId), eq(account.providerId, 'credential')))
+
+    // The temporary password is only a way back in — the parent must replace it.
+    await db.update(user)
+      .set({ mustChangePassword: true, updatedAt: new Date() })
+      .where(eq(user.id, student.parentUserId))
+
+    await logAudit(access, 'student.parentPasswordReset', student.fullName, { parentPhone: student.parentPhone })
+
+    return { ok: true, tempPassword, parentPhone: student.parentPhone }
+  } catch (err: any) {
+    console.error('Reset Parent Password Error:', err)
+    return { ok: false, error: err.message || 'حدث خطأ أثناء إعادة تعيين كلمة المرور' }
+  }
 }

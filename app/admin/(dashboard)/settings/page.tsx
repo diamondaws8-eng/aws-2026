@@ -1,30 +1,37 @@
-import { auth } from '@/lib/auth'
-import { db } from '@/lib/db'
-import { schools } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
-import { headers } from 'next/headers'
-import { redirect } from 'next/navigation'
 import { getSchoolSettings } from './actions-settings'
 import SettingsClient from './settings-client'
+import { requireAdminAccess } from '@/lib/admin-access'
+import { Settings as SettingsIcon } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
 export default async function AdminSettingsPage() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) redirect('/admin/login')
-
-  const [school] = await db.select().from(schools).where(eq(schools.adminId, session.user.id)).limit(1)
-  if (!school) redirect('/admin/setup')
-
-  const settings = await getSchoolSettings(school.id)
+  const access = await requireAdminAccess()
+  const settings = await getSchoolSettings(access.school.id)
 
   return (
     <div className="px-6 py-8 max-w-3xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold">⚙️ الإعدادات</h1>
-        <p className="text-muted-foreground text-sm mt-1">إدارة إعدادات المدرسة وكلمة المرور</p>
+      <div className="flex items-center gap-3">
+        <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <SettingsIcon className="size-5" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold">الإعدادات</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">{access.roleLabel} — {access.school.name}</p>
+        </div>
       </div>
-      <SettingsClient schoolId={school.id} initialSettings={settings} adminEmail={session.user.email} />
+
+      <SettingsClient
+        schoolId={access.school.id}
+        initialSettings={settings}
+        adminEmail={access.email}
+        adminName={access.name}
+        roleLabel={access.roleLabel}
+        canManageSchoolSettings={access.canManageSchoolSettings}
+        canBackup={access.canBackup}
+        backupAllGrades={access.backupAllGrades}
+        canRestore={access.canRestore}
+      />
     </div>
   )
 }

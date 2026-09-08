@@ -7,9 +7,35 @@ export function cn(...inputs: ClassValue[]) {
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
-/** Returns today as YYYY-MM-DD */
+/** The school's timezone — all "which day is it" decisions use this, not UTC. */
+export const SCHOOL_TIME_ZONE = 'Asia/Riyadh'
+
+/**
+ * Formats a moment as YYYY-MM-DD in the school's timezone.
+ * Using toISOString() here would be wrong: it reports UTC, so between midnight
+ * and 3am local time it still returns the previous day.
+ */
+export function schoolDate(date: Date = new Date()): string {
+  // 'en-CA' renders dates as YYYY-MM-DD
+  return new Intl.DateTimeFormat('en-CA', { timeZone: SCHOOL_TIME_ZONE }).format(date)
+}
+
+/** Returns today as YYYY-MM-DD in the school's timezone */
 export function today(): string {
-  return new Date().toISOString().split('T')[0]
+  return schoolDate()
+}
+
+/**
+ * True only for a real calendar day written as YYYY-MM-DD.
+ * Dates reaching a server action come from the browser, and the `date` columns
+ * are plain text — without this, '2026-02-31' or any string at all would be
+ * stored and would then never match a query again.
+ */
+export function isValidDateString(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const parsed = new Date(`${value}T00:00:00Z`)
+  // Rolls 2026-02-31 over to March, so the round-trip no longer matches.
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
 }
 
 /** Format YYYY-MM-DD → e.g. "الإثنين، ١ سبتمبر ٢٠٢٦" */
