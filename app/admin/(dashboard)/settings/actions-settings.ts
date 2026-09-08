@@ -283,6 +283,10 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
     const counts = {
       gradeLevels: 0, classes: 0, subjects: 0, teachers: 0, students: 0,
       attendance: 0, gradeEntries: 0, notifications: 0, dailyRecords: 0, lessonRecords: 0, studentPoints: 0,
+      /** Non-manual point rows in an old file, dropped because they are derived now. */
+      studentPointsSkipped: 0,
+      /** Rows whose totals had to be rebuilt from the statuses after the restore. */
+      pointsRecomputed: 0,
     }
 
     await db.transaction(async (tx) => {
@@ -379,11 +383,26 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
         }
       }
 
+      // Only hand-given awards live here now. A file taken before points became
+      // derived also carries attendance/behavior/homework rows; restoring those
+      // would add them a second time on top of the totals rebuilt below, which
+      // silently doubles every student's score.
       if (Array.isArray(d.studentPoints) && d.studentPoints.length) {
-        await tx.insert(studentPoints).values(d.studentPoints.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
-        counts.studentPoints = d.studentPoints.length
+        const manualOnly = d.studentPoints.filter((r: any) => r.type === 'manual')
+        if (manualOnly.length) {
+          await tx.insert(studentPoints).values(manualOnly.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        }
+        counts.studentPoints = manualOnly.length
+        counts.studentPointsSkipped = d.studentPoints.length - manualOnly.length
       }
     })
+
+    // The restored rows carry whatever totals the file was written with — an
+    // old file even keeps the attendance and the assessment in one number.
+    // Recomputing from the statuses is the only way the two tables agree.
+    const { resyncSchoolPoints } = await import('@/lib/points')
+    const settingsNow = await getSchoolSettings(schoolId)
+    counts.pointsRecomputed = await resyncSchoolPoints(schoolId, settingsNow)
 
     // Informational: how many restored teacher accounts no longer have a matching login
     let missingLogins = 0

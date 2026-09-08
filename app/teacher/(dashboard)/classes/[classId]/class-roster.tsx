@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage } from '../../actions'
 import type { DailyStudentRecord, AbsenceLock, BlockedAbsence } from '../../actions'
 
@@ -125,15 +126,33 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().split('T')[0]
 }
 
+/**
+ * Numbers stored as 0501234567, 501234567, 966501234567 or +966 50 123 4567
+ * all mean the same line. Prefixing 966 blindly turned the last two into
+ * 966966… and the message went nowhere.
+ */
+function toSaudiMsisdn(raw: string | null | undefined): string {
+  const digits = (raw ?? '').replace(/\D/g, '')
+  if (!digits) return ''
+  if (digits.startsWith('966')) return digits
+  if (digits.startsWith('0')) return `966${digits.slice(1)}`
+  return `966${digits}`
+}
+
 function formatDateArabic(dateStr: string): string {
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  const d = new Date(`${dateStr}T00:00:00`)
+  // 'ar-SA' alone renders the Hijri calendar, which never matches the stored
+  // Gregorian date the teacher is editing.
+  return d.toLocaleDateString('ar-SA-u-ca-gregory', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  })
 }
 
 // ── MAIN COMPONENT ─────────────────────────────────────────────────────────────
 export default function ClassRoster({
   classInfo, students, teacherName, schoolName, subjects, initialDate, initialRecords, pointsSummary, savedGrades, absenceLocks, schoolSettings, teacherTemplates
 }: Props) {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<'daily' | 'grades' | 'points'>('daily')
   const [selectedDate, setSelectedDate] = useState(initialDate)
 
@@ -156,6 +175,7 @@ export default function ClassRoster({
   const [manualPoints, setManualPoints] = useState<number>(0)
   const [manualReason, setManualReason] = useState('')
   const [addingPoints, setAddingPoints] = useState(false)
+  const [manualError, setManualError] = useState('')
 
   // WhatsApp modal
   const [whatsappModal, setWhatsappModal] = useState<{ student: Student; type: 'positive' | 'negative' } | null>(null)
@@ -167,6 +187,15 @@ export default function ClassRoster({
   )
   const [lockCard, setLockCard] = useState<{ student: Student; lock: AbsenceLock } | null>(null)
   const [blockedNotice, setBlockedNotice] = useState<BlockedAbsence[]>([])
+
+  /**
+   * Every row opens on حاضر/جيد/أنجز, so one press of حفظ can award a full day
+   * to thirty students the teacher never looked at. The defaults stay — they
+   * are what makes the screen fast — but a row nobody touched and that has no
+   * record yet is marked, and the count sits next to the save button.
+   */
+  const [reviewed, setReviewed] = useState<Set<string>>(new Set())
+  const touch = (id: string) => setReviewed(r => (r.has(id) ? r : new Set(r).add(id)))
 
   // Grades Tab State
   const [selectedSubject, setSelectedSubject] = useState<string>(subjects[0]?.id || '')
@@ -197,6 +226,8 @@ export default function ClassRoster({
       nt[r.studentId] = r.teacherNote || ''
     })
     setAttendance(att); setBehavior(beh); setHomework(hw); setMaterials(mat); setParticipation(part); setNotes(nt)
+    // A student the register already holds has been seen before.
+    setReviewed(new Set(recs.map(r => r.studentId)))
   }, [students])
 
   useEffect(() => {
@@ -286,10 +317,45 @@ export default function ClassRoster({
       await addManualPoints(studentId, classInfo.id, classInfo.schoolId, manualPoints, manualReason)
       setPoints(p => ({ ...p, [studentId]: (p[studentId] || 0) + manualPoints }))
       setManualStudent(null); setManualPoints(0); setManualReason('')
+      setManualError('')
+    } catch {
+      // The server refuses an award over ±100 or a student outside the class.
+      // Without this the modal just sat there as if nothing had happened.
+      setManualError('تعذّر حفظ النقاط — تأكد أن العدد بين -100 و +100 وأن الطالب في هذا الفصل')
     } finally {
       setAddingPoints(false)
     }
   }
+
+  // Same keys lib/points.ts scores with, so the table can never drift from
+  // what the teacher's clicks are actually worth.
+  const f = schoolSettings?.features || {}
+  const pv = schoolSettings?.points || {}
+  const pointsLegend: { label: string; pts: number }[] = [
+    ...(f.attendance !== false ? [
+      { label: 'حضور', pts: pv.attendance_present ?? 1 },
+      { label: 'تأخر', pts: pv.attendance_late ?? 0 },
+      { label: 'غياب', pts: pv.attendance_absent ?? -1 },
+      { label: 'غياب بعذر', pts: 0 },
+    ] : []),
+    ...(f.behavior !== false ? [
+      { label: 'سلوك ممتاز', pts: pv.behavior_excellent ?? 2 },
+      { label: 'سلوك جيد', pts: pv.behavior_good ?? 1 },
+      { label: 'ملاحظة سلوكية', pts: pv.behavior_bad ?? -2 },
+    ] : []),
+    ...(f.homework !== false ? [
+      { label: 'إنجاز الواجب', pts: pv.homework_done ?? 1 },
+      { label: 'لم ينجز الواجب', pts: pv.homework_notdone ?? -1 },
+    ] : []),
+    ...(f.materials !== false ? [
+      { label: 'إحضار الأدوات', pts: pv.materials_brought ?? 1 },
+      { label: 'لم يحضر الأدوات', pts: pv.materials_missing ?? -1 },
+    ] : []),
+    ...(f.participation !== false ? [
+      { label: 'مشاركة متفاعلة', pts: pv.participation_active ?? 2 },
+      { label: 'غير مشارك', pts: pv.participation_inactive ?? 0 },
+    ] : []),
+  ]
 
   const isToday = selectedDate === initialDate
   const isFuture = selectedDate > initialDate
@@ -310,7 +376,7 @@ export default function ClassRoster({
               onClick={() => navigateDate(addDays(selectedDate, +1))}
               disabled={isToday || loadingDate}
               className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-muted disabled:opacity-30 font-bold text-lg transition-colors"
-              title="اليوم السابق"
+              title="اليوم التالي"
             >›</button>
 
             <div className="text-center px-2 min-w-[160px]">
@@ -333,7 +399,7 @@ export default function ClassRoster({
               onClick={() => navigateDate(addDays(selectedDate, -1))}
               disabled={loadingDate}
               className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-muted font-bold text-lg transition-colors"
-              title="اليوم التالي"
+              title="اليوم السابق"
             >‹</button>
 
             <input
@@ -436,12 +502,21 @@ export default function ClassRoster({
                       const phone = student.parentPhone?.replace(/\D/g, '') || ''
 
                       return (
-                        <tr key={student.id} className={`hover:bg-muted/20 transition-colors ${lock || att === 'absent' ? 'bg-red-50/30' : att === 'late' ? 'bg-amber-50/30' : ''}`}>
+                        <tr key={student.id} className={`hover:bg-muted/20 transition-colors ${
+                          lock || att === 'absent' ? 'bg-red-50/30'
+                          : att === 'late' ? 'bg-amber-50/30'
+                          : !reviewed.has(student.id) ? 'bg-amber-50/20' : ''
+                        }`}>
                           <td className="px-3 py-3 text-center text-xs text-muted-foreground">{idx + 1}</td>
                           <td className="px-3 py-3 font-semibold">
-                            <Link href={`/teacher/classes/${classInfo.id}/students/${student.id}`} className="hover:text-primary hover:underline">
-                              {student.fullName}
-                            </Link>
+                            <span className="flex items-center gap-1.5">
+                              {!reviewed.has(student.id) && (
+                                <span className="size-1.5 shrink-0 rounded-full bg-amber-400" title="لم تُراجع بعد" />
+                              )}
+                              <Link href={`/teacher/classes/${classInfo.id}/students/${student.id}`} className="hover:text-primary hover:underline">
+                                {student.fullName}
+                              </Link>
+                            </span>
                           </td>
 
                           {/* Attendance */}
@@ -463,7 +538,7 @@ export default function ClassRoster({
                                   <div className="flex gap-1 justify-center">
                                     {/* Pressing the group the student is already in keeps the detail. */}
                                     <button
-                                      onClick={() => setAttendance(a => ({ ...a, [student.id]: isInSchool(att) ? att : 'present' }))}
+                                      onClick={() => { touch(student.id); setAttendance(a => ({ ...a, [student.id]: isInSchool(att) ? att : 'present' })) }}
                                       className={`px-4 py-1 rounded-lg text-xs font-semibold border transition-all ${
                                         isInSchool(att)
                                           ? 'bg-emerald-100 text-emerald-700 border-emerald-400'
@@ -471,7 +546,7 @@ export default function ClassRoster({
                                       }`}
                                     >حاضر</button>
                                     <button
-                                      onClick={() => setAttendance(a => ({ ...a, [student.id]: isInSchool(att) ? 'absent' : att }))}
+                                      onClick={() => { touch(student.id); setAttendance(a => ({ ...a, [student.id]: isInSchool(att) ? 'absent' : att })) }}
                                       className={`px-4 py-1 rounded-lg text-xs font-semibold border transition-all ${
                                         !isInSchool(att)
                                           ? 'bg-red-100 text-red-700 border-red-400'
@@ -480,12 +555,12 @@ export default function ClassRoster({
                                     >غائب</button>
                                   </div>
                                   <button
-                                    onClick={() => setAttendance(a => ({
+                                    onClick={() => { touch(student.id); setAttendance(a => ({
                                       ...a,
                                       [student.id]: isInSchool(att)
                                         ? (att === 'late' ? 'present' : 'late')
                                         : (att === 'excused' ? 'absent' : 'excused'),
-                                    }))}
+                                    })) }}
                                     className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border transition-all ${
                                       att === 'late'
                                         ? 'bg-amber-100 text-amber-700 border-amber-400'
@@ -511,7 +586,7 @@ export default function ClassRoster({
                                   {BEH_BTNS.map(btn => (
                                     <button
                                       key={btn.key}
-                                      onClick={() => setBehavior(b => ({ ...b, [student.id]: btn.key }))}
+                                      onClick={() => { touch(student.id); setBehavior(b => ({ ...b, [student.id]: btn.key })) }}
                                       title={btn.label}
                                       className={`w-9 h-9 rounded-xl text-lg transition-all border flex-shrink-0 ${
                                         beh === btn.key ? 'bg-primary/10 border-primary scale-110' : 'bg-card border-border hover:scale-105'
@@ -524,7 +599,7 @@ export default function ClassRoster({
                                     type="text"
                                     placeholder="ملاحظة لولي الأمر..."
                                     value={notes[student.id] || ''}
-                                    onChange={e => setNotes(n => ({ ...n, [student.id]: e.target.value }))}
+                                    onChange={e => { touch(student.id); setNotes(n => ({ ...n, [student.id]: e.target.value })) }}
                                     className="w-full min-w-[120px] text-xs p-1.5 rounded-md border border-amber-300 bg-amber-50/50 focus:outline-none focus:ring-1 focus:ring-amber-500 placeholder:text-muted-foreground"
                                   />
                                 )}
@@ -539,7 +614,7 @@ export default function ClassRoster({
                                 {HW_BTNS.map(btn => (
                                   <button
                                     key={btn.key}
-                                    onClick={() => setHomework(h => ({ ...h, [student.id]: btn.key }))}
+                                    onClick={() => { touch(student.id); setHomework(h => ({ ...h, [student.id]: btn.key })) }}
                                     className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-all ${
                                       hw === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
@@ -556,7 +631,7 @@ export default function ClassRoster({
                                 {MAT_BTNS.map(btn => (
                                   <button
                                     key={btn.key}
-                                    onClick={() => setMaterials(m => ({ ...m, [student.id]: btn.key }))}
+                                    onClick={() => { touch(student.id); setMaterials(m => ({ ...m, [student.id]: btn.key })) }}
                                     className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-all ${
                                       mat === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
@@ -573,7 +648,7 @@ export default function ClassRoster({
                                 {PART_BTNS.map(btn => (
                                   <button
                                     key={btn.key}
-                                    onClick={() => setParticipation(p => ({ ...p, [student.id]: btn.key }))}
+                                    onClick={() => { touch(student.id); setParticipation(p => ({ ...p, [student.id]: btn.key })) }}
                                     className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-all ${
                                       part === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
@@ -623,9 +698,14 @@ export default function ClassRoster({
 
               {/* Save button */}
               <div className="p-4 border-t border-border bg-card/80 backdrop-blur-sm sticky bottom-0 flex items-center justify-between">
-                <div className="text-sm text-muted-foreground">
+                <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-3">
                   {selectedDate !== initialDate && (
                     <span className="text-amber-600 font-semibold">⚠ تعديل يوم سابق: {selectedDate}</span>
+                  )}
+                  {students.length > reviewed.size && (
+                    <span className="text-amber-600 font-semibold">
+                      لم تُراجَع {students.length - reviewed.size} من {students.length} — ستُحفظ بالقيم الافتراضية
+                    </span>
                   )}
                 </div>
                 <div className="flex items-center gap-3">
@@ -723,9 +803,12 @@ export default function ClassRoster({
                       })
                       if (!res.ok) { alert(res.error); return }
 
-                      setGradesSaved(true); 
+                      setGradesSaved(true)
                       setTimeout(() => setGradesSaved(false), 3000)
-                      window.location.reload() // Reload to fetch fresh grades
+                      setScores({})
+                      // A full reload discarded the daily tab's unsaved work;
+                      // refreshing the server data keeps the page as it is.
+                      router.refresh()
                     } catch {
                       alert('حدث خطأ أثناء الحفظ')
                     } finally { setSavingGrades(false) }
@@ -828,13 +911,16 @@ export default function ClassRoster({
                               className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold"
                             >حفظ</button>
                             <button
-                              onClick={() => setManualStudent(null)}
+                              onClick={() => { setManualStudent(null); setManualError('') }}
                               className="px-2 py-1.5 bg-muted rounded-lg text-xs"
                             >إلغاء</button>
+                            {manualError && (
+                              <span className="text-xs font-semibold text-red-600">{manualError}</span>
+                            )}
                           </div>
                         ) : (
                           <button
-                            onClick={() => setManualStudent(student.id)}
+                            onClick={() => { setManualStudent(student.id); setManualError('') }}
                             className="px-3 py-1.5 bg-muted hover:bg-muted/70 rounded-lg text-xs font-semibold transition-colors"
                           >✏️ تعديل</button>
                         )}
@@ -845,23 +931,20 @@ export default function ClassRoster({
             </tbody>
           </table>
 
-          {/* Points legend */}
+          {/* Points legend — read from the school's settings, never hand-typed:
+              the old fixed list showed numbers the system had stopped using. */}
           <div className="mt-6 p-4 bg-muted/30 border border-border rounded-2xl">
-            <h3 className="font-bold text-sm mb-3">جدول النقاط التلقائية</h3>
+            <h3 className="font-bold text-sm mb-1">جدول النقاط التلقائية</h3>
+            <p className="text-xs text-muted-foreground mb-3">حسب إعدادات مدرستك الحالية</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              {[
-                { label: 'حضور منتظم', pts: '+1', color: 'text-emerald-600' },
-                { label: 'سلوك ممتاز', pts: '+2', color: 'text-emerald-600' },
-                { label: 'إحضار الواجب', pts: '+1', color: 'text-emerald-600' },
-                { label: 'تأخر', pts: '-1', color: 'text-amber-600' },
-                { label: 'غياب بدون عذر', pts: '-2', color: 'text-red-600' },
-                { label: 'مشكلة سلوكية', pts: '-3', color: 'text-red-600' },
-                { label: 'عدم إحضار الواجب', pts: '-1', color: 'text-red-600' },
-                { label: 'غياب بعذر', pts: '0', color: 'text-muted-foreground' },
-              ].map(item => (
+              {pointsLegend.length === 0 ? (
+                <p className="text-muted-foreground col-span-full">كل بنود النقاط معطّلة من الإعدادات</p>
+              ) : pointsLegend.map(item => (
                 <div key={item.label} className="flex justify-between bg-card p-2 rounded-lg border border-border">
                   <span>{item.label}</span>
-                  <span className={`font-bold ${item.color}`}>{item.pts}</span>
+                  <span className={`font-bold ${item.pts > 0 ? 'text-emerald-600' : item.pts < 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
+                    {item.pts > 0 ? '+' : ''}{item.pts}
+                  </span>
                 </div>
               ))}
             </div>
@@ -934,13 +1017,13 @@ export default function ClassRoster({
                     parsed += `\n\nملاحظة المعلم: ${notes[whatsappModal.student.id]}`
                   }
 
-                  const phone = whatsappModal.student.parentPhone?.replace(/\D/g, '').replace(/^0/, '') || ''
+                  const phone = toSaudiMsisdn(whatsappModal.student.parentPhone)
 
                   return (
                     <button
                       key={i}
                       onClick={() => {
-                        window.open(`https://wa.me/966${phone}?text=${encodeURIComponent(parsed)}`, '_blank')
+                        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(parsed)}`, '_blank')
                         setWhatsappModal(null)
                         void logParentWhatsappMessage({
                           schoolId: classInfo.schoolId,
