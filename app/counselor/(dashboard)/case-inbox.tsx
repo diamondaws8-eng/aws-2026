@@ -1,14 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   resolveCasePrivately,
   dismissCase,
   informParent,
   escalateCase,
   getEscalationTargets,
+  getCaseContext,
+  getParentContact,
 } from './actions'
-import { AlertTriangle, Clock, MessageSquare, ShieldCheck, ArrowUpCircle, XCircle, Loader2 } from 'lucide-react'
+import { AlertTriangle, Clock, MessageSquare, ShieldCheck, ArrowUpCircle, XCircle, Loader2, Phone, History } from 'lucide-react'
+import { CASE_STATUS, type CaseStatus } from '@/lib/case-status'
 
 export type InboxCase = {
   id: string
@@ -24,6 +27,15 @@ export type InboxCase = {
   isStale: boolean
   repeatCount: number
   repeatTeachers: number
+}
+
+/** Any spelling of a Saudi mobile reduced to the form wa.me expects. */
+function toMsisdn(raw: string | null | undefined): string {
+  const d = (raw ?? '').replace(/\D/g, '')
+  if (!d) return ''
+  if (d.startsWith('966')) return d
+  if (d.startsWith('0')) return `966${d.slice(1)}`
+  return `966${d}`
 }
 
 type Decision = 'private' | 'parent' | 'escalate' | 'dismiss'
@@ -98,6 +110,17 @@ function CaseDecision({ c, onClose }: { c: InboxCase; onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
+  // What was already tried is what changes the decision — far more than any
+  // other fact about the pupil.
+  const [ctx, setCtx] = useState<Awaited<ReturnType<typeof getCaseContext>> | null>(null)
+  const [contact, setContact] = useState<{ fullName: string; parentPhone: string | null } | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    getCaseContext(c.id).then((r) => { if (alive) setCtx(r) }).catch(() => {})
+    return () => { alive = false }
+  }, [c.id])
+
   const pick = async (d: Decision) => {
     setDecision(d)
     setError('')
@@ -107,6 +130,16 @@ function CaseDecision({ c, onClose }: { c: InboxCase; onClose: () => void }) {
         setTargets(await getEscalationTargets(c.id))
       } catch {
         setError('تعذّر جلب قائمة المسؤولين')
+      } finally {
+        setBusy(false)
+      }
+    }
+    // Deliberately not loaded with the case: a number on screen from the first
+    // moment makes ringing home the reflex, which is what this flow slows down.
+    if (d === 'parent' && !contact) {
+      setBusy(true)
+      try {
+        setContact(await getParentContact(c.id))
       } finally {
         setBusy(false)
       }
@@ -168,6 +201,73 @@ function CaseDecision({ c, onClose }: { c: InboxCase; onClose: () => void }) {
             </div>
           )}
 
+          {ctx && (ctx.history.length > 0 || ctx.attendanceDays > 0) && (
+            <div className="rounded-2xl border border-border p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <History className="size-4 text-muted-foreground" />
+                <h4 className="text-sm font-bold">خلفية الحالة</h4>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                <div className="rounded-xl bg-muted/40 p-2">
+                  <p className="text-[11px] text-muted-foreground">غياب (30 يوماً)</p>
+                  <p className="text-lg font-bold">{ctx.attendance.absent}</p>
+                </div>
+                <div className="rounded-xl bg-muted/40 p-2">
+                  <p className="text-[11px] text-muted-foreground">تأخّر</p>
+                  <p className="text-lg font-bold">{ctx.attendance.late}</p>
+                </div>
+                <div className="rounded-xl bg-muted/40 p-2">
+                  <p className="text-[11px] text-muted-foreground">النقاط</p>
+                  <p className={`text-lg font-bold ${ctx.points < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{ctx.points}</p>
+                </div>
+                <div className="rounded-xl bg-muted/40 p-2">
+                  <p className="text-[11px] text-muted-foreground">أُبلغ أهله من قبل</p>
+                  <p className="text-lg font-bold">{ctx.timesParentTold}</p>
+                </div>
+              </div>
+
+              {ctx.marks.length > 0 && (
+                <div className="text-xs text-muted-foreground">
+                  آخر الدرجات:{' '}
+                  {ctx.marks.map((m, i) => (
+                    <span key={i}>
+                      {i > 0 ? ' · ' : ''}
+                      {m.subjectName ?? 'مادة'} {m.score}/{m.maxScore}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {ctx.history.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-muted-foreground mb-2">
+                    ما جُرِّب سابقاً — {ctx.history.length} حالة
+                  </p>
+                  <div className="space-y-2 max-h-52 overflow-auto pr-1">
+                    {ctx.history.map((h) => (
+                      <div key={h.id} className="rounded-xl border border-border bg-card p-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                            {CASE_STATUS[h.status as CaseStatus] ?? h.status}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">{h.date} · {h.teacherName}</span>
+                        </div>
+                        <p className="text-xs mt-1.5 text-foreground/80">{h.teacherNote}</p>
+                        {h.counselorNote && (
+                          <p className="text-xs mt-1 text-emerald-700">ما فعلتَه: {h.counselorNote}</p>
+                        )}
+                        {h.adminNote && (
+                          <p className="text-xs mt-1 text-indigo-700">الإدارة: {h.adminNote}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div>
             <p className="text-sm font-bold mb-2">قرارك</p>
             <div className="grid grid-cols-2 gap-2">
@@ -212,6 +312,20 @@ function CaseDecision({ c, onClose }: { c: InboxCase; onClose: () => void }) {
 
           {decision === 'parent' && (
             <div>
+              {contact?.parentPhone ? (
+                <a
+                  href={`https://wa.me/${toMsisdn(contact.parentPhone)}?text=${encodeURIComponent(message)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2"
+                >
+                  <Phone className="size-4" /> فتح واتساب — {contact.parentPhone}
+                </a>
+              ) : contact ? (
+                <p className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                  لا يوجد رقم جوال مسجَّل لولي أمر هذا الطالب.
+                </p>
+              ) : null}
               <label className="block text-sm font-bold mb-1.5">نص الرسالة لولي الأمر</label>
               <p className="text-xs text-muted-foreground mb-2">
                 اكتبها بصياغتك. هذه هي الفائدة من مرور الحالة عليك.

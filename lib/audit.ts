@@ -32,6 +32,8 @@ export type AuditAction =
   | 'case.escalated'
   | 'case.dismissed'
   | 'case.noteRead'
+  | 'case.adminHandled'
+  | 'case.returned'
 
 export const AUDIT_LABELS: Record<AuditAction, string> = {
   'student.delete': 'حذف طالب',
@@ -60,6 +62,8 @@ export const AUDIT_LABELS: Record<AuditAction, string> = {
   'case.escalated': 'تصعيد حالة سلوكية',
   'case.dismissed': 'إغلاق حالة سلوكية',
   'case.noteRead': 'اطّلاع على ملاحظات الموجه السرية',
+  'case.adminHandled': 'الإدارة عالجت حالة سلوكية',
+  'case.returned': 'إعادة حالة إلى الموجه',
 }
 
 /**

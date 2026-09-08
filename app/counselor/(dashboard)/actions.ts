@@ -50,6 +50,7 @@ export async function getEscalationTargets(caseId: string) {
       role: schoolStaff.role,
       allGrades: schoolStaff.allGrades,
       gradeLevelIds: schoolStaff.gradeLevelIds,
+      canEdit: schoolStaff.canEdit,
     })
     .from(schoolStaff)
     .where(and(
@@ -57,9 +58,12 @@ export async function getEscalationTargets(caseId: string) {
       inArray(schoolStaff.role, ['deputy', 'principal', 'quality_manager']),
     ))
 
-  // Only somebody whose own scope covers this pupil's stage can act on the case.
+  // Only somebody whose own scope covers this pupil's stage can act on the case
+  // — and a deputy set to read-only cannot act at all, so naming them would
+  // leave the case stuck with a person who has no way to close it.
   return staff
     .filter((s) => {
+      if (s.role === 'deputy' && !s.canEdit) return false
       if (s.allGrades) return true
       if (!cls?.gradeLevelId) return false
       try {
@@ -208,4 +212,108 @@ export async function getStudentCaseHistory(studentId: string) {
     .from(behaviorCases)
     .where(eq(behaviorCases.studentId, studentId))
     .orderBy(behaviorCases.createdAt)
+}
+
+/**
+ * Everything needed to judge THIS case, and nothing more.
+ *
+ * What changes a decision is not the pupil's file in full — it is what has
+ * already been tried. Three cases closed as "settled with the pupil" and a
+ * fourth arriving says plainly that settling it privately is not working.
+ * Attendance and points are here because behaviour usually tracks them; the
+ * parent's number is not, because seeing it on every case makes ringing home
+ * the reflex, which is the very thing this flow exists to slow down.
+ */
+export async function getCaseContext(caseId: string) {
+  const { access, row } = await requireOwnCase(caseId)
+
+  const { dailyRecords, lessonRecords, gradeEntries, subjects: subj, teachers: tch } = await import('@/lib/db/schema')
+  const { sql, desc, gte } = await import('drizzle-orm')
+  const { getStudentPointsTotal } = await import('@/lib/points')
+
+  const since = new Date()
+  since.setDate(since.getDate() - 30)
+  const sinceStr = since.toISOString().slice(0, 10)
+
+  const [student] = await db
+    .select({ id: students.id, fullName: students.fullName, classId: students.classId })
+    .from(students)
+    .where(eq(students.id, row.studentId))
+    .limit(1)
+
+  const [history, attendance, points, marks] = await Promise.all([
+    // Earlier cases and how each one ended — the heart of the decision.
+    db.select({
+        id: behaviorCases.id,
+        date: behaviorCases.date,
+        status: behaviorCases.status,
+        teacherNote: behaviorCases.teacherNote,
+        counselorNote: behaviorCases.counselorNote,
+        adminNote: behaviorCases.adminNote,
+        teacherName: tch.fullName,
+        parentMessageSent: behaviorCases.parentMessageSent,
+      })
+      .from(behaviorCases)
+      .leftJoin(tch, eq(tch.userId, behaviorCases.raisedByUserId))
+      .where(and(
+        eq(behaviorCases.studentId, row.studentId),
+        sql`${behaviorCases.id} <> ${caseId}`,
+      ))
+      .orderBy(desc(behaviorCases.createdAt))
+      .limit(20),
+
+    db.select({
+        present: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.attendanceStatus} = 'present')`.mapWith(Number),
+        late: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.attendanceStatus} = 'late')`.mapWith(Number),
+        absent: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.attendanceStatus} = 'absent')`.mapWith(Number),
+        excused: sql<number>`COUNT(*) FILTER (WHERE ${dailyRecords.attendanceStatus} = 'excused')`.mapWith(Number),
+      })
+      .from(dailyRecords)
+      .where(and(eq(dailyRecords.studentId, row.studentId), gte(dailyRecords.date, sinceStr))),
+
+    getStudentPointsTotal(row.studentId),
+
+    // Behaviour often tracks falling behind, so the last few marks are useful.
+    db.select({
+        examName: gradeEntries.examName,
+        score: gradeEntries.score,
+        maxScore: gradeEntries.maxScore,
+        subjectName: subj.name,
+      })
+      .from(gradeEntries)
+      .leftJoin(subj, eq(subj.id, gradeEntries.subjectId))
+      .where(eq(gradeEntries.studentId, row.studentId))
+      .orderBy(desc(gradeEntries.createdAt))
+      .limit(5),
+  ])
+
+  const att = attendance[0] ?? { present: 0, late: 0, absent: 0, excused: 0 }
+  const timesParentTold = history.filter((h) => h.parentMessageSent).length
+
+  return {
+    studentName: student?.fullName ?? '',
+    history: history.map((h) => ({
+      ...h,
+      teacherName: h.teacherName ?? 'معلم محذوف',
+    })),
+    attendance: att,
+    attendanceDays: att.present + att.late + att.absent + att.excused,
+    points,
+    marks,
+    timesParentTold,
+  }
+}
+
+/**
+ * The parent's number, handed over only at the moment the counsellor chooses to
+ * write to them. Kept out of the case view on purpose — see getCaseContext.
+ */
+export async function getParentContact(caseId: string) {
+  const { row } = await requireOwnCase(caseId)
+  const [s] = await db
+    .select({ fullName: students.fullName, parentPhone: students.parentPhone })
+    .from(students)
+    .where(eq(students.id, row.studentId))
+    .limit(1)
+  return s ?? null
 }

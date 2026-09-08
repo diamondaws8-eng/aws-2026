@@ -9,6 +9,7 @@ import {
 import { StatCard } from '@/components/stat-card'
 import { EmptyState } from '@/components/empty-state'
 import { ClipboardList, Clock, AlertTriangle, UserCog, ShieldCheck } from 'lucide-react'
+import { EscalatedCases } from './escalated-cases'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,7 +64,7 @@ export default async function AdminCasesPage() {
           icon={AlertTriangle}
           accent={stale.length ? 'red' : 'default'}
         />
-        <StatCard label="مُحالة للإدارة" value={counts.escalated ?? 0} icon={ShieldCheck} accent="violet" />
+        <StatCard label="بانتظار قرارك" value={counts.escalated ?? 0} icon={ShieldCheck} accent="violet" />
       </div>
 
       <div className="rounded-2xl border border-border bg-card p-5">
@@ -80,28 +81,19 @@ export default async function AdminCasesPage() {
 
       <div className="rounded-2xl border border-border bg-card p-5">
         <h2 className="font-bold">الحالات المحالة إلى الإدارة</h2>
-        <p className="text-sm text-muted-foreground mb-3">أحالها الموجه إلى شخص بعينه</p>
-        {escalated.length === 0 ? (
-          <p className="text-sm text-muted-foreground">لا توجد حالات محالة</p>
-        ) : (
-          <div className="space-y-2">
-            {escalated.map((c) => (
-              <div key={c.id} className="rounded-xl border border-border p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-bold text-sm">{c.studentName}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {c.gradeName ? `${c.gradeName} — ` : ''}{c.className ? `فصل ${c.className}` : ''} · {c.date}
-                  </span>
-                </div>
-                <p className="text-sm mt-1.5 text-foreground/90">{c.teacherNote}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  رفعها {c.teacherName}
-                  {c.escalatedToName ? ` · أُحيلت إلى ${c.escalatedToName}` : ''}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
+        <p className="text-sm text-muted-foreground mb-3">
+          أحالها الموجه إلى شخص بعينه — والقرار الآن عندك
+        </p>
+        <EscalatedCases cases={escalated.map((c) => ({
+          id: c.id,
+          studentName: c.studentName,
+          className: c.className,
+          gradeName: c.gradeName,
+          teacherName: c.teacherName,
+          teacherNote: c.teacherNote,
+          date: c.date,
+          escalatedToName: c.escalatedToName,
+        }))} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

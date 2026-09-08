@@ -10,6 +10,7 @@ const STATUS_STYLE: Record<CaseStatus, string> = {
   resolved_privately: 'bg-emerald-50 text-emerald-700 border-emerald-100',
   parent_informed: 'bg-blue-50 text-blue-700 border-blue-100',
   escalated: 'bg-violet-50 text-violet-700 border-violet-100',
+  admin_handled: 'bg-indigo-50 text-indigo-700 border-indigo-100',
   dismissed: 'bg-slate-50 text-slate-700 border-slate-200',
 }
 
@@ -20,7 +21,7 @@ export default async function CounselorArchivePage() {
   const cases = await listCases({
     schoolId: access.schoolId,
     classIds,
-    statuses: ['resolved_privately', 'parent_informed', 'escalated', 'dismissed'],
+    statuses: ['resolved_privately', 'parent_informed', 'escalated', 'admin_handled', 'dismissed'],
     limit: 200,
   })
 

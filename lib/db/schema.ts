@@ -117,6 +117,12 @@ export const behaviorCases = pgTable('behavior_cases', {
   ownerUserId: text('owner_user_id'),
   /** Counselling notes. Never shown to the teacher, the parent, or the deputy. */
   counselorNote: text('counselor_note'),
+  /**
+   * What the administration did once the case was handed to them. The
+   * counsellor sees it — they handed the case over and need to know how it
+   * ended — but the teacher and the family do not.
+   */
+  adminNote: text('admin_note'),
   decidedByUserId: text('decided_by_user_id'),
   decidedAt: timestamp('decided_at', { withTimezone: true }),
   /** A stage can have several deputies, so the counsellor names the one. */

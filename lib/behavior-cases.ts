@@ -10,20 +10,13 @@ const escalatedStaff = alias(schoolStaff, 'escalated_staff')
  * A behaviour case moves through one owner at a time. The teacher who raises it
  * never owns it; the counsellor does, until they hand it to a named deputy.
  * Two people reviewing the same case would mean nobody owns it.
+ *
+ * The labels live in lib/case-status.ts so the client can import them without
+ * dragging the database driver into the browser bundle.
  */
-export const CASE_STATUS = {
-  open: 'قيد المراجعة',
-  resolved_privately: 'عولجت مع الطالب',
-  parent_informed: 'أُبلغ ولي الأمر',
-  escalated: 'مصعّدة للوكيل',
-  dismissed: 'أُغلقت — لا يوجد ما يستدعي',
-} as const
-
-export type CaseStatus = keyof typeof CASE_STATUS
-export const isCaseStatus = (v: string): v is CaseStatus => v in CASE_STATUS
-
-/** A case nobody has opened after this long is surfaced to the deputy. */
-export const STALE_AFTER_DAYS = 2
+export { CASE_STATUS, isCaseStatus, STALE_AFTER_DAYS } from '@/lib/case-status'
+export type { CaseStatus } from '@/lib/case-status'
+import { isCaseStatus, type CaseStatus } from '@/lib/case-status'
 
 export type CaseRow = {
   id: string
