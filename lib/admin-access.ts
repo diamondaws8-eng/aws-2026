@@ -20,8 +20,13 @@ export const ROLE_LABELS: Record<AdminRole, string> = {
   deputy: 'وكيل',
 }
 
+/** Roles kept in school_staff that do not grant the admin portal. */
+export const NON_ADMIN_STAFF_LABELS: Record<string, string> = {
+  counselor: 'موجه طلابي',
+}
+
 /** Roles that can be created from the staff page (the owner is not one of them). */
-export const STAFF_ROLES = ['quality_manager', 'principal', 'deputy'] as const
+export const STAFF_ROLES = ['quality_manager', 'principal', 'deputy', 'counselor'] as const
 export type StaffRole = (typeof STAFF_ROLES)[number]
 
 export type School = typeof schools.$inferSelect
@@ -97,9 +102,13 @@ export const getAdminAccess = cache(async (): Promise<AdminAccess | null> => {
     }
   }
 
-  // 2) Staff — quality manager or deputy
+  // 2) Staff — quality manager, principal or deputy
   const [staff] = await db.select().from(schoolStaff).where(eq(schoolStaff.userId, session.user.id)).limit(1)
   if (!staff) return null
+
+  // The counsellor sits in the same staff table but is not an administrator:
+  // they work from /counselor and hold none of the powers below.
+  if (staff.role === 'counselor') return null
 
   const [school] = await db.select().from(schools).where(eq(schools.id, staff.schoolId)).limit(1)
   if (!school) return null
@@ -145,6 +154,16 @@ export async function requireAdminAccess(): Promise<AdminAccess> {
   // Not attached to any school — decide where to send them.
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect('/admin/login')
+
+  // A counsellor who lands here has a portal of their own; sending them to the
+  // first-time setup screen instead would be nonsense.
+  const [staff] = await db
+    .select({ role: schoolStaff.role })
+    .from(schoolStaff)
+    .where(eq(schoolStaff.userId, session.user.id))
+    .limit(1)
+  if (staff?.role === 'counselor') redirect('/counselor')
+
   redirect('/admin/setup')
 }
 

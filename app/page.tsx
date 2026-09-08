@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { ArrowLeft, GraduationCap, School, UsersRound, Sparkles } from 'lucide-react'
+import { ArrowLeft, GraduationCap, School, UsersRound, Sparkles, HeartHandshake } from 'lucide-react'
 import { BrandLogo } from '@/components/brand-logo'
 
 const portals = [
@@ -22,6 +22,16 @@ const portals = [
     bg: 'bg-emerald-50 dark:bg-emerald-950/30',
     border: 'border-emerald-100 dark:border-emerald-900 hover:border-emerald-300',
     badge: 'للمعلمين',
+  },
+  {
+    href: '/counselor/login',
+    title: 'بوابة الموجه الطلابي',
+    subtitle: 'الحالات السلوكية: تُقرأ هنا قبل أن تصل إلى أي بيت',
+    icon: HeartHandshake,
+    gradient: 'from-teal-500 to-teal-700',
+    bg: 'bg-teal-50 dark:bg-teal-950/30',
+    border: 'border-teal-100 dark:border-teal-900 hover:border-teal-300',
+    badge: 'للموجهين',
   },
   {
     href: '/parent/login',

@@ -5,7 +5,7 @@ import { addStaff, editStaff, deleteStaff, resetStaffPassword } from './actions-
 import { EmptyState } from '@/components/empty-state'
 import {
   ShieldCheck, UserCog, UserPlus, Pencil, Trash2, RotateCcw, Loader2, Crown,
-  CheckCircle2, AlertTriangle, Copy, Layers, Eye, PencilLine, X, School, Database,
+  CheckCircle2, AlertTriangle, Copy, Layers, Eye, PencilLine, X, School, Database, HeartHandshake,
 } from 'lucide-react'
 
 type StaffRow = {
@@ -38,12 +38,18 @@ const ROLE_META: Record<string, { label: string; badge: string; icon: typeof Shi
     badge: 'bg-blue-50 text-blue-700 border-blue-100',
     icon: UserCog,
   },
+  counselor: {
+    label: 'موجه طلابي',
+    badge: 'bg-teal-50 text-teal-700 border-teal-100',
+    icon: HeartHandshake,
+  },
 }
 
 const ROLE_HINTS: Record<string, string> = {
   quality_manager: 'مدير الجودة يرى كل بيانات المدرسة ويملك صلاحيات المالك (عدا حذف المالك والاستعادة)، ويستطيع أخذ نسخة احتياطية كاملة.',
   principal: 'مدير المدرسة يتحكم بالكامل في المراحل المسندة إليه، ويستطيع أخذ نسخة احتياطية لمراحله فقط.',
   deputy: 'الوكيل يرى ويتابع المراحل المسندة إليه فقط.',
+  counselor: 'الموجه الطلابي يعمل من بوابة خاصة به. تصله الحالات السلوكية التي يرفعها المعلمون قبل أن تصل لأي ولي أمر، ويقرر: يعالجها مع الطالب، أو يبلّغ ولي الأمر بصياغته، أو يحيلها لمسؤول يختاره بالاسم. لا يملك أي صلاحية على الطلاب أو المعلمين أو الإعدادات، وملاحظاته سرّية.',
 }
 
 export default function StaffClient({
@@ -71,7 +77,7 @@ export default function StaffClient({
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
-  const [role, setRole] = useState<'quality_manager' | 'principal' | 'deputy'>('deputy')
+  const [role, setRole] = useState<'quality_manager' | 'principal' | 'deputy' | 'counselor'>('deputy')
   const [allGrades, setAllGrades] = useState(false)
   const [gradeIds, setGradeIds] = useState<string[]>([])
   const [canEdit, setCanEdit] = useState(true)
@@ -88,7 +94,12 @@ export default function StaffClient({
   const openEdit = (row: StaffRow) => {
     setEditing(row)
     setFullName(row.fullName); setEmail(row.email ?? ''); setPhone(row.phone ?? '')
-    setRole(row.role === 'quality_manager' ? 'quality_manager' : row.role === 'principal' ? 'principal' : 'deputy')
+    setRole(
+      row.role === 'quality_manager' ? 'quality_manager'
+      : row.role === 'principal' ? 'principal'
+      : row.role === 'counselor' ? 'counselor'
+      : 'deputy'
+    )
     setAllGrades(row.allGrades); setGradeIds(row.gradeIds); setCanEdit(row.canEdit)
     setFormError('')
     setIsModalOpen(true)
@@ -331,8 +342,8 @@ export default function StaffClient({
 
               <div>
                 <label className="block text-sm font-semibold mb-1.5">الدور</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['quality_manager', 'principal', 'deputy'] as const).map(r => {
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(['quality_manager', 'principal', 'deputy', 'counselor'] as const).map(r => {
                     const meta = ROLE_META[r]
                     const Icon = meta.icon
                     const active = role === r
@@ -355,7 +366,9 @@ export default function StaffClient({
               <div className="rounded-2xl border border-border p-4 space-y-3">
                 <label className="flex items-center justify-between gap-3 cursor-pointer">
                   <span className="text-sm font-semibold">
-                    {role === 'deputy' ? 'الوصول لكل المراحل' : 'التحكم في كل المراحل'}
+                    {role === 'deputy' ? 'الوصول لكل المراحل'
+                      : role === 'counselor' ? 'استقبال حالات كل المراحل'
+                      : 'التحكم في كل المراحل'}
                   </span>
                   <input
                     type="checkbox" checked={allGrades}

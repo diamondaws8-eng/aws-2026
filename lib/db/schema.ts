@@ -81,7 +81,7 @@ export const schoolStaff = pgTable('school_staff', {
   userId: text('user_id').notNull().unique(), // FK → user.id
   fullName: text('full_name').notNull(),
   phone: text('phone'),
-  role: text('role').notNull(),               // 'quality_manager' | 'deputy'
+  role: text('role').notNull(),               // 'quality_manager' | 'principal' | 'deputy' | 'counselor'
   allGrades: boolean('all_grades').notNull().default(false),
   gradeLevelIds: text('grade_level_ids').default('[]'), // JSON array of gradeLevels.id
   canEdit: boolean('can_edit').notNull().default(true),
@@ -90,6 +90,46 @@ export const schoolStaff = pgTable('school_staff', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   index('school_staff_school_idx').on(t.schoolId),
+])
+
+// ─── Behaviour cases (الحالات السلوكية) ──────────────────────────────────────
+/**
+ * A teacher no longer messages a parent about a problem directly. They raise a
+ * case, and the student counsellor decides what happens to it: settle it with
+ * the pupil, tell the family, pass it to a named deputy, or close it as no
+ * issue. The point is that nothing reaches a home without a trained adult
+ * having read it first.
+ */
+export const behaviorCases = pgTable('behavior_cases', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  schoolId: uuid('school_id').notNull(),
+  studentId: uuid('student_id').notNull(),
+  classId: uuid('class_id').notNull(),
+  /** The lesson it arose in, when the teacher has an assigned subject. */
+  subjectId: uuid('subject_id'),
+  raisedByUserId: text('raised_by_user_id').notNull(),
+  /** Required: a case with no account of what happened cannot be judged. */
+  teacherNote: text('teacher_note').notNull(),
+  date: text('date').notNull(),                 // YYYY-MM-DD, school timezone
+  /** open | resolved_privately | parent_informed | escalated | dismissed */
+  status: text('status').notNull().default('open'),
+  /** Whoever must act next — the counsellor, then the named deputy. */
+  ownerUserId: text('owner_user_id'),
+  /** Counselling notes. Never shown to the teacher, the parent, or the deputy. */
+  counselorNote: text('counselor_note'),
+  decidedByUserId: text('decided_by_user_id'),
+  decidedAt: timestamp('decided_at', { withTimezone: true }),
+  /** A stage can have several deputies, so the counsellor names the one. */
+  escalatedToUserId: text('escalated_to_user_id'),
+  escalatedAt: timestamp('escalated_at', { withTimezone: true }),
+  parentMessageSent: boolean('parent_message_sent').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('behavior_cases_school_status_idx').on(t.schoolId, t.status),
+  index('behavior_cases_student_idx').on(t.studentId),
+  index('behavior_cases_owner_idx').on(t.ownerUserId),
+  index('behavior_cases_class_date_idx').on(t.classId, t.date),
 ])
 
 // ─── Audit Log (سجل التدقيق) ─────────────────────────────────────────────────

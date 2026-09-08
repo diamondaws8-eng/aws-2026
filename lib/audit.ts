@@ -26,6 +26,12 @@ export type AuditAction =
   | 'teacher.dailyRecords.backdated'
   | 'teacher.points.manual'
   | 'teacher.grades.save'
+  | 'case.raised'
+  | 'case.resolvedPrivately'
+  | 'case.parentInformed'
+  | 'case.escalated'
+  | 'case.dismissed'
+  | 'case.noteRead'
 
 export const AUDIT_LABELS: Record<AuditAction, string> = {
   'student.delete': 'حذف طالب',
@@ -48,6 +54,12 @@ export const AUDIT_LABELS: Record<AuditAction, string> = {
   'teacher.dailyRecords.backdated': 'تعديل سجل يوم سابق',
   'teacher.points.manual': 'منح نقاط يدوية',
   'teacher.grades.save': 'حفظ درجات اختبار',
+  'case.raised': 'رفع حالة سلوكية',
+  'case.resolvedPrivately': 'حُلّت مع الطالب دون إبلاغ ولي الأمر',
+  'case.parentInformed': 'إبلاغ ولي الأمر بحالة سلوكية',
+  'case.escalated': 'تصعيد حالة سلوكية',
+  'case.dismissed': 'إغلاق حالة سلوكية',
+  'case.noteRead': 'اطّلاع على ملاحظات الموجه السرية',
 }
 
 /**
@@ -85,6 +97,26 @@ export async function logAudit(
 ) {
   return writeAudit(
     { schoolId: access.school.id, userId: access.userId, name: access.name, role: access.role },
+    action,
+    entityName,
+    details,
+  )
+}
+
+/**
+ * Same trail, written from the counsellor portal. A counsellor is neither an
+ * administrator nor a teacher, and the decisions recorded here — above all
+ * "settled without telling the family" — are exactly the ones a school may be
+ * asked to account for later.
+ */
+export async function logCounselorAudit(
+  access: { schoolId: string; userId: string; name: string },
+  action: AuditAction,
+  entityName?: string | null,
+  details?: Record<string, unknown>,
+) {
+  return writeAudit(
+    { schoolId: access.schoolId, userId: access.userId, name: access.name, role: 'counselor' },
     action,
     entityName,
     details,

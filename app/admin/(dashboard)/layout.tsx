@@ -25,6 +25,7 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
     { href: '/admin/grade-levels', label: 'المراحل والفصول', icon: 'Layers' },
     { href: '/admin/students', label: 'الطلاب', icon: 'Users' },
     { href: '/admin/teachers', label: 'المعلمون', icon: 'UserCog' },
+    { href: '/admin/cases', label: 'الحالات السلوكية', icon: 'ShieldAlert' },
     { href: '/admin/notifications', label: 'التنبيهات', icon: 'Bell' },
     ...(access.canManageStaff
       ? [

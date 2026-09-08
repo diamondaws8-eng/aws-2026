@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage } from '../../actions'
+import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage, raiseBehaviorCase } from '../../actions'
 import type { DailyStudentRecord, AbsenceLock, BlockedAbsence } from '../../actions'
 
 type Student = { id: string; fullName: string; parentPhone?: string | null }
@@ -185,6 +185,31 @@ export default function ClassRoster({
   const [locks, setLocks] = useState<Record<string, AbsenceLock>>(() =>
     Object.fromEntries((absenceLocks ?? []).map(l => [l.studentId, l]))
   )
+  // Raising a case replaces messaging a family directly: a note written in a
+  // bad moment cannot be taken back once it reaches a home.
+  const [caseModal, setCaseModal] = useState<Student | null>(null)
+  const [caseNote, setCaseNote] = useState('')
+  const [caseBusy, setCaseBusy] = useState(false)
+  const [caseError, setCaseError] = useState('')
+  const [caseSent, setCaseSent] = useState<Set<string>>(new Set())
+
+  const submitCase = async () => {
+    if (!caseModal) return
+    setCaseBusy(true)
+    setCaseError('')
+    try {
+      const res = await raiseBehaviorCase({ studentId: caseModal.id, classId: classInfo.id, note: caseNote })
+      if (!res.ok) { setCaseError(res.error); return }
+      setCaseSent(prev => new Set(prev).add(caseModal.id))
+      setCaseModal(null)
+      setCaseNote('')
+    } catch {
+      setCaseError('تعذّر رفع الحالة')
+    } finally {
+      setCaseBusy(false)
+    }
+  }
+
   const [lockCard, setLockCard] = useState<{ student: Student; lock: AbsenceLock } | null>(null)
   const [blockedNotice, setBlockedNotice] = useState<BlockedAbsence[]>([])
 
@@ -675,8 +700,8 @@ export default function ClassRoster({
                             {phone ? (
                               <div className="flex gap-1 justify-center">
                                 <button
-                                  onClick={() => setWhatsappModal({ student, type: 'negative' })}
-                                  title="رسالة تنبيه / سلبية"
+                                  onClick={() => setCaseModal(student)}
+                                  title="رفع حالة للموجه الطلابي"
                                   className="w-9 h-9 flex items-center justify-center rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition-colors text-base"
                                 >⚠</button>
                                 <button
@@ -951,6 +976,46 @@ export default function ClassRoster({
           </div>
         </div>
       )}
+      {/* ── Raise a behaviour case ── */}
+      {caseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-background rounded-3xl border border-border shadow-xl w-full max-w-lg">
+            <div className="p-4 border-b border-border flex items-center justify-between bg-red-50 dark:bg-red-950/20">
+              <h3 className="font-bold text-lg text-red-700 dark:text-red-400">⚠ رفع حالة للموجه الطلابي</h3>
+              <button onClick={() => { setCaseModal(null); setCaseError('') }} className="size-8 rounded-full hover:bg-black/10 text-xl leading-none">×</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm">
+                الطالب: <span className="font-bold">{caseModal.fullName}</span>
+              </p>
+              <div className="rounded-xl bg-muted/50 border border-border p-3 text-xs leading-6 text-muted-foreground">
+                لن تصل هذه الملاحظة إلى ولي الأمر مباشرة. يقرؤها الموجه الطلابي أولاً، ثم يقرر:
+                يعالجها مع الطالب، أو يبلّغ ولي الأمر بصياغته، أو يحيلها للوكيل. وسترى أنت نتيجة القرار.
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1.5">ما الذي حدث؟</label>
+                <textarea
+                  value={caseNote}
+                  onChange={(e) => setCaseNote(e.target.value)}
+                  rows={5}
+                  placeholder="اكتب الواقعة بوضوح: ما حدث، ومتى، وما فعلتَه حيالها..."
+                  className="w-full p-3 rounded-xl border border-border bg-background text-sm leading-7"
+                />
+              </div>
+              {caseError && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-xl">{caseError}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={submitCase}
+                  disabled={caseBusy || caseNote.trim().length < 5}
+                  className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold disabled:opacity-50"
+                >{caseBusy ? 'جاري الرفع...' : 'رفع الحالة'}</button>
+                <button onClick={() => { setCaseModal(null); setCaseError('') }} className="px-5 rounded-xl bg-muted font-semibold">إلغاء</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Absence lock card ── */}
       {lockCard && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">

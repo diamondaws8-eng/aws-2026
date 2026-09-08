@@ -2,7 +2,7 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { dailyRecords, lessonRecords, studentPoints, gradeEntries, subjects, parentWhatsappMessages, students, classes, teachers } from '@/lib/db/schema'
+import { dailyRecords, lessonRecords, studentPoints, gradeEntries, subjects, parentWhatsappMessages, students, classes, teachers, behaviorCases } from '@/lib/db/schema'
 import { eq, and, desc, sql, inArray, isNotNull } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
@@ -531,4 +531,83 @@ export async function logParentWhatsappMessage(input: {
 
   revalidatePath('/admin')
   return { ok: true }
+}
+
+// ── Behaviour cases ──────────────────────────────────────────────────────────
+/**
+ * A teacher no longer opens WhatsApp to a family about a problem. They raise a
+ * case, and the student counsellor reads it before anything reaches a home —
+ * because a note written in a bad moment cannot be taken back, and in some
+ * houses it lands on the child. Praise still goes straight to the parent:
+ * there is no reason to put a gate in front of thanks.
+ */
+export async function raiseBehaviorCase(input: {
+  studentId: string
+  classId: string
+  note: string
+}): Promise<ActionResult> {
+  const access = await requireTeacherForClass(input.classId)
+  const { userId, schoolId } = access
+
+  const note = String(input.note ?? '').trim().slice(0, 2000)
+  if (note.length < 5) {
+    return { ok: false, error: 'اكتب ما حدث — الموجه لا يستطيع الحكم على حالة بلا وصف' }
+  }
+
+  const [student] = await db
+    .select({ id: students.id, fullName: students.fullName })
+    .from(students)
+    .where(and(eq(students.id, input.studentId), eq(students.classId, input.classId)))
+    .limit(1)
+  if (!student) return { ok: false, error: 'الطالب ليس في هذا الفصل' }
+
+  const [ownSubject] = await db
+    .select({ id: subjects.id })
+    .from(subjects)
+    .where(and(eq(subjects.classId, input.classId), eq(subjects.teacherUserId, userId)))
+    .limit(1)
+
+  await db.insert(behaviorCases).values({
+    schoolId,
+    studentId: input.studentId,
+    classId: input.classId,
+    subjectId: ownSubject?.id ?? null,
+    raisedByUserId: userId,
+    teacherNote: note,
+    date: schoolToday(),
+    status: 'open',
+    // Unowned until a counsellor opens it; the deputy overview surfaces
+    // anything left sitting here.
+    ownerUserId: null,
+  })
+
+  await logTeacherAudit(access, 'case.raised', student.fullName, { classId: input.classId })
+
+  revalidatePath(`/teacher/classes/${input.classId}`)
+  return { ok: true }
+}
+
+/**
+ * The status of the cases this teacher raised for a class — never the
+ * counsellor's notes. A teacher who hears nothing back assumes they were
+ * ignored and goes around the system.
+ */
+export async function getMyCaseStatuses(classId: string, date: string) {
+  const { userId } = await requireTeacherForClass(classId)
+  if (!isValidDateString(date)) return []
+
+  const rows = await db
+    .select({
+      studentId: behaviorCases.studentId,
+      status: behaviorCases.status,
+      date: behaviorCases.date,
+    })
+    .from(behaviorCases)
+    .where(and(
+      eq(behaviorCases.classId, classId),
+      eq(behaviorCases.raisedByUserId, userId),
+    ))
+    .orderBy(desc(behaviorCases.createdAt))
+
+  return rows
 }

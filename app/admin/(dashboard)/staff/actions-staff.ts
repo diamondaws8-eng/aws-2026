@@ -18,18 +18,22 @@ export type StaffInput = {
   fullName: string
   email: string
   phone?: string
-  role: 'quality_manager' | 'principal' | 'deputy'
+  role: 'quality_manager' | 'principal' | 'deputy' | 'counselor'
   allGrades: boolean
   gradeLevelIds: string[]
   canEdit: boolean
 }
 
-/** Only a deputy can be made read-only; managers always hold edit rights. */
+/**
+ * Only a deputy can be made read-only; managers always hold edit rights. The
+ * counsellor's authority is of a different kind entirely — it lives in
+ * lib/counselor-access.ts — so this flag means nothing for them.
+ */
 function resolveCanEdit(role: StaffInput['role'], canEdit: boolean) {
   return role === 'deputy' ? canEdit : true
 }
 
-const ALLOWED_ROLES = ['quality_manager', 'principal', 'deputy'] as const
+const ALLOWED_ROLES = ['quality_manager', 'principal', 'deputy', 'counselor'] as const
 const isAllowedRole = (role: string): role is StaffInput['role'] =>
   (ALLOWED_ROLES as readonly string[]).includes(role)
 

@@ -23,6 +23,8 @@ import {
   X,
   PanelRightClose,
   ShieldAlert,
+  ScrollText,
+  HeartHandshake,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -57,6 +59,16 @@ const navConfig = {
     ],
     loginHref: '/teacher/login',
   },
+  counselor: {
+    label: 'بوابة الموجه الطلابي',
+    icon: HeartHandshake,
+    accent: 'text-teal-600',
+    links: [
+      { href: '/counselor', label: 'الحالات', icon: ClipboardList, exact: true },
+      { href: '/counselor/archive', label: 'الأرشيف', icon: ScrollText },
+    ],
+    loginHref: '/counselor/login',
+  },
   parent: {
     label: 'بوابة ولي الأمر',
     icon: UsersRound,
@@ -74,6 +86,7 @@ type Role = keyof typeof navConfig
 
 const ICON_MAP = {
   LayoutDashboard, Layers, Users, UserCog, Bell, Settings, BookOpen, ClipboardList, CheckSquare, BarChart2,
+  ScrollText, HeartHandshake, ShieldAlert,
 } as const
 
 export type NavIconName = keyof typeof ICON_MAP

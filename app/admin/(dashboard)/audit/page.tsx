@@ -12,17 +12,22 @@ const ROLE_BADGE: Record<string, string> = {
   principal: 'bg-emerald-50 text-emerald-700 border-emerald-100',
   deputy: 'bg-blue-50 text-blue-700 border-blue-100',
   teacher: 'bg-slate-100 text-slate-700 border-slate-200',
+  counselor: 'bg-teal-50 text-teal-700 border-teal-100',
 }
 
 /** The log also carries entries written from the teacher portal, whose actor is not an admin. */
 const OTHER_ROLE_LABELS: Record<string, string> = {
   teacher: 'معلم',
+  counselor: 'موجه طلابي',
 }
 
 /** Destructive actions stand out in red so they're easy to spot when scanning. */
 const DESTRUCTIVE = new Set<string>([
   'student.delete', 'class.delete', 'gradeLevel.delete', 'subject.delete',
   'teacher.delete', 'staff.delete', 'backup.restore',
+  // Not destructive, but the decisions a school is most likely to be asked
+  // about: a family that was never told, and a look at private notes.
+  'case.resolvedPrivately', 'case.noteRead',
 ])
 
 function formatWhen(date: Date) {
@@ -52,6 +57,8 @@ const DETAIL_LABELS: Record<string, string> = {
   email: 'البريد',
   scope: 'النطاق',
   from: 'الاسم السابق',
+  to: 'أُحيلت إلى',
+  caseId: 'رقم الحالة',
   unassignedSubjects: 'مواد أُلغي إسنادها',
   allGrades: 'كل المراحل',
   parentPhone: 'جوال ولي الأمر',
