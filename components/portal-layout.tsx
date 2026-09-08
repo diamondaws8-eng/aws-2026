@@ -29,6 +29,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 
 import { ThemeToggle } from '@/components/theme-toggle'
+import { NotificationBell } from '@/components/notification-bell'
 import { BrandLogo } from '@/components/brand-logo'
 
 // ─── Nav config per role ──────────────────────────────────────────────────────
@@ -55,6 +56,7 @@ const navConfig = {
     links: [
       { href: '/teacher', label: 'الرئيسية', icon: LayoutDashboard, exact: true },
       { href: '/teacher/classes', label: 'الفصول', icon: BookOpen },
+      { href: '/teacher/notifications', label: 'الإشعارات', icon: Bell },
       { href: '/teacher/settings', label: 'الإعدادات', icon: Settings },
     ],
     loginHref: '/teacher/login',
@@ -65,6 +67,7 @@ const navConfig = {
     accent: 'text-teal-600',
     links: [
       { href: '/counselor', label: 'الحالات', icon: ClipboardList, exact: true },
+      { href: '/counselor/notifications', label: 'الإشعارات', icon: Bell },
       { href: '/counselor/archive', label: 'الأرشيف', icon: ScrollText },
     ],
     loginHref: '/counselor/login',
@@ -185,7 +188,8 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
         <div className="border-b border-border px-5 py-5 relative">
           <div className="flex items-center justify-between">
             <BrandLogo size={40} rounded="rounded-xl" href={null} />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <NotificationBell />
               <ThemeToggle />
               <button 
                 onClick={() => setIsOpen(false)}

@@ -1,0 +1,176 @@
+'use client'
+
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
+import { Bell, AlertTriangle, CheckCircle2, ArrowUpCircle, Undo2, MessageSquare, Loader2 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import {
+  getMyNotificationsInbox,
+  markNotificationsRead,
+  markAllNotificationsRead,
+  type BellData,
+} from '@/app/notifications-actions'
+
+const KIND_META: Record<string, { icon: LucideIcon; className: string }> = {
+  announcement: { icon: Bell, className: 'bg-blue-50 text-blue-600 border-blue-100' },
+  case_raised: { icon: AlertTriangle, className: 'bg-amber-50 text-amber-600 border-amber-100' },
+  case_decided: { icon: CheckCircle2, className: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
+  case_escalated: { icon: ArrowUpCircle, className: 'bg-violet-50 text-violet-600 border-violet-100' },
+  case_returned: { icon: Undo2, className: 'bg-amber-50 text-amber-600 border-amber-100' },
+  parent_informed: { icon: MessageSquare, className: 'bg-rose-50 text-rose-600 border-rose-100' },
+}
+
+function relativeAr(date: Date): string {
+  const minutes = Math.floor((Date.now() - date.getTime()) / 60000)
+  if (minutes < 1) return 'الآن'
+  if (minutes < 60) return `منذ ${minutes} د`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `منذ ${hours} س`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `منذ ${days} يوم`
+  // 'ar-SA' alone renders Hijri, which no other date in the system uses.
+  return date.toLocaleDateString('ar-SA-u-ca-gregory', { day: 'numeric', month: 'short' })
+}
+
+/**
+ * One bell for every portal.
+ *
+ * It refreshes when it mounts, when the panel is opened, and when the tab comes
+ * back into focus — but it does not poll on a timer. Three hundred parents each
+ * asking every minute is a real load on a small database for a screen nobody is
+ * looking at, and coming back to the tab is exactly when the count matters.
+ */
+export function NotificationBell() {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [data, setData] = useState<BellData>({ unread: 0, items: [] })
+  const [loading, setLoading] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  const refresh = useCallback(async () => {
+    try {
+      setData(await getMyNotificationsInbox(20))
+    } catch {
+      // A bell that cannot load must never break the page around it.
+    }
+  }, [])
+
+  useEffect(() => {
+    refresh()
+    const onFocus = () => refresh()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refresh])
+
+  // Clicking anywhere else closes the panel.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const toggle = async () => {
+    const next = !open
+    setOpen(next)
+    if (next) {
+      setLoading(true)
+      await refresh()
+      setLoading(false)
+    }
+  }
+
+  const openItem = async (id: string, href: string | null, unread: boolean) => {
+    setOpen(false)
+    if (unread) {
+      // Optimistic: the badge should drop the moment it is clicked, not after
+      // the round trip.
+      setData((d) => ({
+        unread: Math.max(0, d.unread - 1),
+        items: d.items.map((i) => (i.id === id ? { ...i, readAt: new Date() } : i)),
+      }))
+      markNotificationsRead([id]).catch(() => {})
+    }
+    if (href) router.push(href)
+  }
+
+  const readAll = async () => {
+    setData((d) => ({ unread: 0, items: d.items.map((i) => ({ ...i, readAt: i.readAt ?? new Date() })) }))
+    await markAllNotificationsRead().catch(() => {})
+  }
+
+  return (
+    <div className="relative" ref={panelRef}>
+      <button
+        onClick={toggle}
+        className="relative p-1.5 hover:bg-muted text-muted-foreground rounded-lg transition-colors"
+        title="الإشعارات"
+        aria-label={data.unread > 0 ? `${data.unread} إشعار غير مقروء` : 'الإشعارات'}
+      >
+        <Bell className="size-5" />
+        {data.unread > 0 && (
+          <span className="absolute -top-0.5 -left-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold">
+            {data.unread > 99 ? '99+' : data.unread}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-2 w-[320px] max-w-[85vw] rounded-2xl border border-border bg-card shadow-xl z-50 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <span className="font-bold text-sm">الإشعارات</span>
+            {data.unread > 0 && (
+              <button onClick={readAll} className="text-xs text-primary font-semibold hover:underline">
+                تعليم الكل كمقروء
+              </button>
+            )}
+          </div>
+
+          <div className="max-h-[380px] overflow-y-auto">
+            {loading ? (
+              <div className="p-6 flex justify-center text-muted-foreground">
+                <Loader2 className="size-5 animate-spin" />
+              </div>
+            ) : data.items.length === 0 ? (
+              <p className="p-6 text-center text-sm text-muted-foreground">لا توجد إشعارات</p>
+            ) : (
+              data.items.map((item) => {
+                const meta = KIND_META[item.kind] ?? KIND_META.announcement
+                const Icon = meta.icon
+                const unread = !item.readAt
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => openItem(item.id, item.href, unread)}
+                    className={`w-full text-right flex gap-2.5 px-3 py-3 border-b border-border last:border-0 transition-colors hover:bg-muted/50 ${
+                      unread ? 'bg-primary/5' : ''
+                    }`}
+                  >
+                    <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg border ${meta.className}`}>
+                      <Icon className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-start justify-between gap-2">
+                        <span className={`text-sm truncate ${unread ? 'font-bold' : 'font-medium'}`}>{item.title}</span>
+                        {unread && <span className="mt-1.5 size-2 shrink-0 rounded-full bg-rose-500" />}
+                      </span>
+                      {item.body && (
+                        <span className="block text-xs text-muted-foreground mt-0.5 line-clamp-2">{item.body}</span>
+                      )}
+                      <span className="block text-[11px] text-muted-foreground/70 mt-1">
+                        {item.actorName ? `${item.actorName} · ` : ''}
+                        {relativeAr(new Date(item.createdAt))}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

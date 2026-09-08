@@ -2,6 +2,7 @@
 
 import { db } from '@/lib/db'
 import { behaviorCases, students, classes, parentWhatsappMessages } from '@/lib/db/schema'
+import type {} from '@/lib/notifications'
 import { eq, and } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { getAdminAccess, canEditGrade } from '@/lib/admin-access'
@@ -61,6 +62,40 @@ async function requireCaseForAdmin(caseId: string): Promise<AdminCaseGuard> {
   return { ok: true, access, row }
 }
 
+/** Whoever must know how a case they own or raised ended. */
+async function tellCounselorAndTeacher(
+  access: { school: { id: string }; name: string },
+  row: typeof behaviorCases.$inferSelect,
+  outcome: string,
+) {
+  const { notify, counselorsForClass } = await import('@/lib/notifications')
+  const name = await studentName(row.studentId)
+  const counselors = await counselorsForClass(access.school.id, row.classId)
+
+  await notify([
+    ...counselors.map((userId) => ({
+      schoolId: access.school.id,
+      recipientUserId: userId,
+      kind: 'case_returned' as const,
+      title: `${name}: ${outcome}`,
+      body: row.adminNote ?? undefined,
+      href: '/counselor',
+      entityId: row.id,
+      actorName: access.name,
+    })),
+    {
+      schoolId: access.school.id,
+      recipientUserId: row.raisedByUserId,
+      kind: 'case_decided' as const,
+      title: `${name}: ${outcome}`,
+      body: 'الحالة التي رفعتَها تمت معالجتها من الإدارة.',
+      href: `/teacher/classes/${row.classId}`,
+      entityId: row.id,
+      actorName: access.name,
+    },
+  ])
+}
+
 async function studentName(studentId: string) {
   const [s] = await db.select({ fullName: students.fullName }).from(students).where(eq(students.id, studentId)).limit(1)
   return s?.fullName ?? ''
@@ -85,6 +120,7 @@ export async function adminHandleCase(caseId: string, note: string): Promise<Cas
   }).where(eq(behaviorCases.id, caseId))
 
   await logAudit(access, 'case.adminHandled', await studentName(row.studentId), { caseId, date: row.date })
+  await tellCounselorAndTeacher(access, { ...row, adminNote }, 'عالجتها الإدارة')
   revalidatePath('/admin/cases')
   return { ok: true }
 }
@@ -127,6 +163,23 @@ export async function adminInformParent(caseId: string, message: string, note: s
   })
 
   await logAudit(access, 'case.parentInformed', await studentName(row.studentId), { caseId, date: row.date })
+
+  const { notify, parentOfStudent } = await import('@/lib/notifications')
+  const parentUserId = await parentOfStudent(row.studentId)
+  const name = await studentName(row.studentId)
+  if (parentUserId) {
+    await notify([{
+      schoolId: access.school.id,
+      recipientUserId: parentUserId,
+      kind: 'parent_informed',
+      title: `ملاحظة بخصوص ${name}`,
+      body: text,
+      href: '/parent/notifications',
+      entityId: caseId,
+      actorName: access.name,
+    }])
+  }
+  await tellCounselorAndTeacher(access, row, 'أُبلغ ولي الأمر')
   revalidatePath('/admin/cases')
   return {
     ok: true,
@@ -158,6 +211,7 @@ export async function returnCaseToCounselor(caseId: string, note: string): Promi
   }).where(eq(behaviorCases.id, caseId))
 
   await logAudit(access, 'case.returned', await studentName(row.studentId), { caseId, date: row.date })
+  await tellCounselorAndTeacher(access, { ...row, adminNote }, 'أُعيدت إليك من الإدارة')
   revalidatePath('/admin/cases')
   return { ok: true }
 }

@@ -138,6 +138,44 @@ export const behaviorCases = pgTable('behavior_cases', {
   index('behavior_cases_class_date_idx').on(t.classId, t.date),
 ])
 
+// ─── User notifications (صندوق الإشعارات) ────────────────────────────────────
+/**
+ * One inbox for every portal, one row per person.
+ *
+ * The older `notifications` table is a broadcast: it stores what the
+ * administration announced, targeted at a school, a class or a pupil, with no
+ * notion of who has read it. That cannot carry an unread badge, and it cannot
+ * carry the things that now need to reach one named person — the counsellor
+ * when a case is raised, the teacher when their case is decided, the deputy a
+ * case was handed to.
+ *
+ * So announcements are fanned out into this table when sent (281 parents is a
+ * few kilobytes) and every portal reads exactly one place. `readAt` on the row
+ * itself is what makes the badge honest without a second join table.
+ */
+export const userNotifications = pgTable('user_notifications', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  schoolId: uuid('school_id').notNull(),
+  /** FK → user.id. Always one person; broadcasts are fanned out on write. */
+  recipientUserId: text('recipient_user_id').notNull(),
+  /** What happened — drives the icon and colour, never shown raw. */
+  kind: text('kind').notNull(),
+  title: text('title').notNull(),
+  body: text('body'),
+  /** Where clicking it should take the reader. */
+  href: text('href'),
+  /** The case or student it concerns, for context. */
+  entityId: uuid('entity_id'),
+  /** Who caused it, so a notification is never anonymous. */
+  actorName: text('actor_name'),
+  readAt: timestamp('read_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  // The bell asks exactly this: my unread, newest first.
+  index('user_notifications_recipient_idx').on(t.recipientUserId, t.createdAt),
+  index('user_notifications_unread_idx').on(t.recipientUserId, t.readAt),
+])
+
 // ─── Audit Log (سجل التدقيق) ─────────────────────────────────────────────────
 // Who did what, so sensitive actions are never anonymous.
 export const auditLog = pgTable('audit_log', {

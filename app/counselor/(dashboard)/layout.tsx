@@ -22,6 +22,7 @@ export default async function CounselorLayout({ children }: { children: React.Re
 
   const links: PortalNavLink[] = [
     { href: '/counselor', label: 'الحالات', icon: 'ClipboardList', exact: true },
+    { href: '/counselor/notifications', label: 'الإشعارات', icon: 'Bell' },
     { href: '/counselor/archive', label: 'الأرشيف', icon: 'ScrollText' },
   ]
 

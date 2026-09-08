@@ -30,6 +30,34 @@ function toMsisdn(raw: string | null | undefined): string {
 
 const MAX_NOTE = 2000
 
+/**
+ * The teacher who raised a case is told how it ended — the outcome only, never
+ * the counselling note. A teacher who hears nothing assumes they were ignored
+ * and goes back to messaging families from their own phone.
+ */
+async function tellTeacher(
+  access: { schoolId: string; name: string },
+  row: { raisedByUserId: string; studentId: string; classId: string; id: string },
+  outcome: string,
+) {
+  const { notify } = await import('@/lib/notifications')
+  const [student] = await db
+    .select({ fullName: students.fullName })
+    .from(students)
+    .where(eq(students.id, row.studentId))
+    .limit(1)
+  await notify([{
+    schoolId: access.schoolId,
+    recipientUserId: row.raisedByUserId,
+    kind: 'case_decided',
+    title: `${student?.fullName ?? 'طالب'}: ${outcome}`,
+    body: 'الحالة التي رفعتَها تمت معالجتها من الموجه الطلابي.',
+    href: `/teacher/classes/${row.classId}`,
+    entityId: row.id,
+    actorName: access.name,
+  }])
+}
+
 /** Proves the case is inside this counsellor's stages before it can be read or decided. */
 async function requireOwnCase(caseId: string) {
   const access = await requireCounselor()
@@ -117,6 +145,10 @@ export async function resolveCasePrivately(caseId: string, counselorNote: string
     date: row.date,
   })
 
+  // Only the teacher. Telling the family is precisely what this decision chose
+  // not to do, so nothing goes to the parent's bell either.
+  await tellTeacher(access, row, 'عولجت مع الطالب')
+
   revalidatePath('/counselor')
   return { ok: true }
 }
@@ -138,6 +170,7 @@ export async function dismissCase(caseId: string, counselorNote: string): Promis
 
   const [student] = await db.select({ fullName: students.fullName }).from(students).where(eq(students.id, row.studentId)).limit(1)
   await logCounselorAudit(access, 'case.dismissed', student?.fullName ?? '', { caseId, date: row.date })
+  await tellTeacher(access, row, 'أُغلقت — لا يوجد ما يستدعي')
 
   revalidatePath('/counselor')
   return { ok: true }
@@ -184,6 +217,24 @@ export async function informParent(caseId: string, message: string, counselorNot
   const [student] = await db.select({ fullName: students.fullName }).from(students).where(eq(students.id, row.studentId)).limit(1)
   await logCounselorAudit(access, 'case.parentInformed', student?.fullName ?? '', { caseId, date: row.date })
 
+  // WhatsApp can be missed, blocked, or sent to an old number. The portal copy
+  // is the one the family can always come back to.
+  const { notify, parentOfStudent } = await import('@/lib/notifications')
+  const parentUserId = await parentOfStudent(row.studentId)
+  if (parentUserId) {
+    await notify([{
+      schoolId: access.schoolId,
+      recipientUserId: parentUserId,
+      kind: 'parent_informed',
+      title: `ملاحظة بخصوص ${student?.fullName ?? 'ابنك'}`,
+      body: text,
+      href: '/parent/notifications',
+      entityId: caseId,
+      actorName: access.name,
+    }])
+  }
+  await tellTeacher(access, row, 'أُبلغ ولي الأمر')
+
   revalidatePath('/counselor')
   return {
     ok: true,
@@ -217,6 +268,19 @@ export async function escalateCase(caseId: string, toUserId: string, counselorNo
     date: row.date,
     to: target.fullName,
   })
+
+  const { notify } = await import('@/lib/notifications')
+  await notify([{
+    schoolId: access.schoolId,
+    recipientUserId: toUserId,
+    kind: 'case_escalated',
+    title: `حالة محالة إليك: ${student?.fullName ?? 'طالب'}`,
+    body: row.teacherNote.slice(0, 300),
+    href: '/admin/cases',
+    entityId: caseId,
+    actorName: access.name,
+  }])
+  await tellTeacher(access, row, `أُحيلت إلى ${target.fullName}`)
 
   revalidatePath('/counselor')
   return { ok: true }

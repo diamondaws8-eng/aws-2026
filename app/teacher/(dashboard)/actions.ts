@@ -567,7 +567,7 @@ export async function raiseBehaviorCase(input: {
     .where(and(eq(subjects.classId, input.classId), eq(subjects.teacherUserId, userId)))
     .limit(1)
 
-  await db.insert(behaviorCases).values({
+  const [created] = await db.insert(behaviorCases).values({
     schoolId,
     studentId: input.studentId,
     classId: input.classId,
@@ -579,9 +579,24 @@ export async function raiseBehaviorCase(input: {
     // Unowned until a counsellor opens it; the deputy overview surfaces
     // anything left sitting here.
     ownerUserId: null,
-  })
+  }).returning({ id: behaviorCases.id })
+  const caseId = created?.id ?? null
 
   await logTeacherAudit(access, 'case.raised', student.fullName, { classId: input.classId })
+
+  // Somebody has to be told, or the case sits in a queue nobody knows about.
+  const { notify, counselorsForClass } = await import('@/lib/notifications')
+  const counselors = await counselorsForClass(schoolId, input.classId)
+  await notify(counselors.map((userId) => ({
+    schoolId,
+    recipientUserId: userId,
+    kind: 'case_raised' as const,
+    title: `حالة جديدة: ${student.fullName}`,
+    body: note.slice(0, 300),
+    href: '/counselor',
+    entityId: caseId,
+    actorName: access.fullName,
+  })))
 
   revalidatePath(`/teacher/classes/${input.classId}`)
   return { ok: true }

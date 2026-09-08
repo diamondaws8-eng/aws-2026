@@ -60,8 +60,26 @@ export async function sendNotification(data: any) {
     type,
     expiresAt: data.expiresAt || null
   })
+  // The announcement row records what was sent; the bell is what makes anyone
+  // see it. Fanning out one row per parent is what lets each of them carry an
+  // unread mark of their own.
+  const { notify, parentsForAnnouncement } = await import('@/lib/notifications')
+  const recipients = await parentsForAnnouncement(access.school.id, {
+    studentId: data.studentId || null,
+    classId: data.classId || null,
+  })
+  await notify(recipients.map((userId) => ({
+    schoolId: access.school.id,
+    recipientUserId: userId,
+    kind: 'announcement' as const,
+    title,
+    body,
+    href: '/parent/notifications',
+    actorName: access.name,
+  })))
+
   revalidatePath('/admin/notifications')
-  return { ok: true }
+  return { ok: true, sentTo: recipients.length }
 }
 
 export async function deleteNotification(id: string, schoolId: string) {

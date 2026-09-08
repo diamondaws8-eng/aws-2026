@@ -2,11 +2,11 @@ import { NotificationsPage } from '@/components/notifications-page'
 
 export const dynamic = 'force-dynamic'
 
-export default function ParentNotificationsPage() {
+export default function TeacherNotificationsPage() {
   return (
     <NotificationsPage
       title="الإشعارات"
-      subtitle="كل ما يخص أبناءك من المدرسة"
+      subtitle="نتائج الحالات التي رفعتَها وتنبيهات الإدارة"
     />
   )
 }
