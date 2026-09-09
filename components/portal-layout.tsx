@@ -68,6 +68,7 @@ const navConfig = {
       { href: '/counselor', label: 'الحالات', icon: ClipboardList, exact: true },
       { href: '/counselor/notifications', label: 'الإشعارات', icon: Bell },
       { href: '/counselor/archive', label: 'الأرشيف', icon: ScrollText },
+      { href: '/counselor/settings', label: 'الإعدادات', icon: Settings },
     ],
     loginHref: '/counselor/login',
   },

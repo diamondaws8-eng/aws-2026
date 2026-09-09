@@ -24,6 +24,7 @@ export default async function CounselorLayout({ children }: { children: React.Re
     { href: '/counselor', label: 'الحالات', icon: 'ClipboardList', exact: true },
     { href: '/counselor/notifications', label: 'الإشعارات', icon: 'Bell' },
     { href: '/counselor/archive', label: 'الأرشيف', icon: 'ScrollText' },
+    { href: '/counselor/settings', label: 'الإعدادات', icon: 'Settings' },
   ]
 
   return (

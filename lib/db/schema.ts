@@ -85,6 +85,14 @@ export const schoolStaff = pgTable('school_staff', {
   allGrades: boolean('all_grades').notNull().default(false),
   gradeLevelIds: text('grade_level_ids').default('[]'), // JSON array of gradeLevels.id
   canEdit: boolean('can_edit').notNull().default(true),
+  /**
+   * Saved ways of phrasing a message home — JSON array of {title, body}.
+   * Written by the counsellor from their own settings and shown to nobody else:
+   * how a person words bad news to a family is theirs, not the school's.
+   */
+  whatsappTemplates: text('whatsapp_templates').default('[]'),
+  /** Per-person case-inbox thresholds — JSON {staleAfterDays, repeatThreshold}. */
+  casePrefs: text('case_prefs').default('{}'),
   /** @deprecated never written to — passwords are shown once on creation/reset and only stored hashed. */
   tempPassword: text('temp_password'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

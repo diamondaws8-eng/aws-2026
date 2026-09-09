@@ -71,6 +71,11 @@ export async function requireCounselor(): Promise<CounselorAccess> {
  * stage must not appear in their inbox, let alone be decided by them.
  */
 export const getCounselorClassIds = cache(async (access: CounselorAccess): Promise<string[]> => {
+  // A counsellor with no stage assigned yet covers nothing. Said here rather
+  // than as an impossible comparison in SQL: the id column is a uuid, so asking
+  // Postgres for id = '' is not an empty result, it is a type error.
+  if (!access.allGrades && access.gradeIds.length === 0) return []
+
   const rows = await db
     .select({ id: classes.id })
     .from(classes)
@@ -79,11 +84,48 @@ export const getCounselorClassIds = cache(async (access: CounselorAccess): Promi
         ? eq(classes.schoolId, access.schoolId)
         : and(
             eq(classes.schoolId, access.schoolId),
-            access.gradeIds.length ? inArray(classes.gradeLevelId, access.gradeIds) : eq(classes.id, ''),
+            inArray(classes.gradeLevelId, access.gradeIds),
           ),
     )
   return rows.map((c) => c.id)
 })
+
+/**
+ * Who may be handed a case belonging to this stage.
+ *
+ * One rule, used both by the escalation picker and by the counsellor's settings
+ * screen — so the list they are shown in advance is exactly the list they will
+ * be offered at the moment it matters. A deputy set to read-only is left out:
+ * naming them would park the case with somebody who has no way to close it.
+ */
+export async function staffCoveringGrade(
+  schoolId: string,
+  gradeLevelId: string | null,
+): Promise<{ userId: string; fullName: string; role: string }[]> {
+  const staff = await db
+    .select({
+      userId: schoolStaff.userId,
+      fullName: schoolStaff.fullName,
+      role: schoolStaff.role,
+      allGrades: schoolStaff.allGrades,
+      gradeLevelIds: schoolStaff.gradeLevelIds,
+      canEdit: schoolStaff.canEdit,
+    })
+    .from(schoolStaff)
+    .where(and(
+      eq(schoolStaff.schoolId, schoolId),
+      inArray(schoolStaff.role, ['deputy', 'principal', 'quality_manager']),
+    ))
+
+  return staff
+    .filter((s) => {
+      if (s.role === 'deputy' && !s.canEdit) return false
+      if (s.allGrades) return true
+      if (!gradeLevelId) return false
+      return parseGradeIds(s.gradeLevelIds).includes(gradeLevelId)
+    })
+    .map((s) => ({ userId: s.userId, fullName: s.fullName, role: s.role }))
+}
 
 /** Proves a student is inside this counsellor's stages before anything is read or written. */
 export async function requireCounselorForStudent(access: CounselorAccess, studentId: string) {

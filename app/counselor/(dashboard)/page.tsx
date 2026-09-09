@@ -1,5 +1,9 @@
 import { requireCounselor, getCounselorClassIds } from '@/lib/counselor-access'
-import { listCases, countCasesByStatus, countCasesByStudent, STALE_AFTER_DAYS } from '@/lib/behavior-cases'
+import { listCases, countCasesByStatus, countCasesByStudent } from '@/lib/behavior-cases'
+import { db } from '@/lib/db'
+import { schoolStaff } from '@/lib/db/schema'
+import { eq } from 'drizzle-orm'
+import { parseCasePrefs, parseTemplates, daysLabel } from '@/lib/counselor-settings'
 import { CaseInbox } from './case-inbox'
 import { StatCard } from '@/components/stat-card'
 import { EmptyState } from '@/components/empty-state'
@@ -12,13 +16,25 @@ export default async function CounselorInboxPage() {
   const access = await requireCounselor()
   const classIds = access.allGrades ? null : await getCounselorClassIds(access)
 
+  // This person's own thresholds and their own saved wording, set in
+  // /counselor/settings. Both belong to the counsellor, not to the school: how
+  // long is "late" and how many is "repeated" are judgements, and so is how you
+  // word bad news to a family.
+  const [me] = await db
+    .select({ templates: schoolStaff.whatsappTemplates, prefs: schoolStaff.casePrefs })
+    .from(schoolStaff)
+    .where(eq(schoolStaff.id, access.staffId))
+    .limit(1)
+  const prefs = parseCasePrefs(me?.prefs)
+  const templates = parseTemplates(me?.templates)
+
   const [open, counts, repeats] = await Promise.all([
     listCases({ schoolId: access.schoolId, classIds, statuses: ['open'], limit: 200 }),
     countCasesByStatus(access.schoolId, classIds),
-    countCasesByStudent(access.schoolId, classIds, 2),
+    countCasesByStudent(access.schoolId, classIds, prefs.repeatThreshold),
   ])
 
-  const staleCutoff = Date.now() - STALE_AFTER_DAYS * 24 * 60 * 60 * 1000
+  const staleCutoff = Date.now() - prefs.staleAfterDays * 24 * 60 * 60 * 1000
   const stale = open.filter((c) => c.createdAt.getTime() < staleCutoff).length
   const decidedToday =
     (counts.resolved_privately ?? 0) + (counts.parent_informed ?? 0) +
@@ -42,7 +58,7 @@ export default async function CounselorInboxPage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="بانتظار قرارك" value={open.length} icon={ClipboardList} accent="amber" />
-        <StatCard label={`متأخرة أكثر من ${STALE_AFTER_DAYS} يومين`} value={stale} icon={Clock} accent={stale > 0 ? 'red' : 'default'} />
+        <StatCard label={`متأخرة أكثر من ${daysLabel(prefs.staleAfterDays)}`} value={stale} icon={Clock} accent={stale > 0 ? 'red' : 'default'} />
         <StatCard label="طلاب تكررت حالاتهم" value={repeats.length} icon={AlertTriangle} accent="violet" />
         <StatCard label="حالات مغلقة" value={decidedToday} icon={CheckCircle2} accent="emerald" />
       </div>
@@ -71,21 +87,26 @@ export default async function CounselorInboxPage() {
           description="كل ما رفعه المعلمون تمت معالجته"
         />
       ) : (
-        <CaseInbox cases={open.map((c) => ({
-          id: c.id,
-          studentId: c.studentId,
-          studentName: c.studentName,
-          className: c.className,
-          gradeName: c.gradeName,
-          subjectName: c.subjectName,
-          teacherName: c.teacherName,
-          teacherNote: c.teacherNote,
-          date: c.date,
-          createdAt: c.createdAt.toISOString(),
-          isStale: c.createdAt.getTime() < staleCutoff,
-          repeatCount: repeatByStudent.get(c.studentId)?.total ?? 1,
-          repeatTeachers: repeatByStudent.get(c.studentId)?.teachers ?? 1,
-        }))} />
+        <CaseInbox
+          templates={templates}
+          counselorName={access.name}
+          schoolName={access.schoolName}
+          cases={open.map((c) => ({
+            id: c.id,
+            studentId: c.studentId,
+            studentName: c.studentName,
+            className: c.className,
+            gradeName: c.gradeName,
+            subjectName: c.subjectName,
+            teacherName: c.teacherName,
+            teacherNote: c.teacherNote,
+            date: c.date,
+            createdAt: c.createdAt.toISOString(),
+            isStale: c.createdAt.getTime() < staleCutoff,
+            repeatCount: repeatByStudent.get(c.studentId)?.total ?? 1,
+            repeatTeachers: repeatByStudent.get(c.studentId)?.teachers ?? 1,
+          }))}
+        />
       )}
     </div>
   )

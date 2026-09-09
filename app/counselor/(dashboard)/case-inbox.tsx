@@ -10,8 +10,10 @@ import {
   getCaseContext,
   getParentContact,
 } from './actions'
+import Link from 'next/link'
 import { AlertTriangle, Clock, MessageSquare, ShieldCheck, ArrowUpCircle, XCircle, Loader2, Phone, History } from 'lucide-react'
 import { CASE_STATUS, type CaseStatus } from '@/lib/case-status'
+import { applyTemplate, type CounselorTemplate } from '@/lib/counselor-settings'
 
 export type InboxCase = {
   id: string
@@ -47,7 +49,18 @@ const DECISIONS: { key: Decision; label: string; hint: string; className: string
   { key: 'dismiss', label: 'أغلقها', hint: 'لا يوجد ما يستدعي', className: 'border-slate-300 bg-slate-50 text-slate-700' },
 ]
 
-export function CaseInbox({ cases }: { cases: InboxCase[] }) {
+export function CaseInbox({
+  cases,
+  templates,
+  counselorName,
+  schoolName,
+}: {
+  cases: InboxCase[]
+  /** This counsellor's own saved wording, from /counselor/settings. */
+  templates: CounselorTemplate[]
+  counselorName: string
+  schoolName: string
+}) {
   const [openCase, setOpenCase] = useState<InboxCase | null>(null)
 
   return (
@@ -94,17 +107,50 @@ export function CaseInbox({ cases }: { cases: InboxCase[] }) {
         ))}
       </div>
 
-      {openCase && <CaseDecision c={openCase} onClose={() => setOpenCase(null)} />}
+      {openCase && (
+        <CaseDecision
+          c={openCase}
+          templates={templates}
+          counselorName={counselorName}
+          schoolName={schoolName}
+          onClose={() => setOpenCase(null)}
+        />
+      )}
     </>
   )
 }
 
-function CaseDecision({ c, onClose }: { c: InboxCase; onClose: () => void }) {
+function CaseDecision({
+  c,
+  templates,
+  counselorName,
+  schoolName,
+  onClose,
+}: {
+  c: InboxCase
+  templates: CounselorTemplate[]
+  counselorName: string
+  schoolName: string
+  onClose: () => void
+}) {
   const [decision, setDecision] = useState<Decision | null>(null)
   const [note, setNote] = useState('')
   const [message, setMessage] = useState(
     `السلام عليكم ورحمة الله وبركاته\nولي أمر الطالب: ${c.studentName}\nنود إحاطتكم بملاحظة على سلوك الطالب اليوم، ونرجو المتابعة معه.\nوتقبلوا تحياتنا.`
   )
+  // Filled in the browser, into the box, before anything is sent: a template is
+  // a starting point the counsellor still reads and edits — never a message
+  // that leaves for a home without a person having looked at the final words.
+  const useTemplate = (t: CounselorTemplate) =>
+    setMessage(
+      applyTemplate(t.body, {
+        student: c.studentName,
+        class: c.className ?? '',
+        counselor: counselorName,
+        school: schoolName,
+      }),
+    )
+
   const [targets, setTargets] = useState<{ userId: string; fullName: string; role: string }[]>([])
   const [targetId, setTargetId] = useState('')
   const [busy, setBusy] = useState(false)
@@ -350,6 +396,31 @@ function CaseDecision({ c, onClose }: { c: InboxCase; onClose: () => void }) {
                   لا يوجد رقم جوال مسجَّل لولي أمر هذا الطالب.
                 </p>
               ) : null}
+              {templates.length > 0 ? (
+                <div className="mb-3">
+                  <p className="text-xs font-bold text-muted-foreground mb-1.5">قوالبك المحفوظة — اختر واحداً ثم عدّله</p>
+                  <div className="flex flex-wrap gap-2">
+                    {templates.map((t, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => useTemplate(t)}
+                        className="text-xs font-semibold bg-primary/10 text-primary rounded-full px-3 py-1.5 hover:bg-primary/20"
+                      >
+                        {t.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="mb-3 text-xs text-muted-foreground">
+                  يمكنك حفظ صياغاتك المتكررة مرة واحدة في{' '}
+                  <Link href="/counselor/settings" className="font-semibold text-primary hover:underline">
+                    الإعدادات
+                  </Link>{' '}
+                  بدل كتابتها في كل حالة.
+                </p>
+              )}
               <label className="block text-sm font-bold mb-1.5">نص الرسالة لولي الأمر</label>
               <p className="text-xs text-muted-foreground mb-2">
                 اكتبها بصياغتك — هذه هي الفائدة من مرور الحالة عليك. وعند «تأكيد القرار» سيُفتح واتساب بالنص جاهزاً.

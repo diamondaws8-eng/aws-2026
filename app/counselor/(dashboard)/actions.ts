@@ -1,10 +1,15 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { behaviorCases, students, schoolStaff, classes, parentWhatsappMessages } from '@/lib/db/schema'
-import { eq, and, inArray } from 'drizzle-orm'
+import { behaviorCases, students, classes, parentWhatsappMessages } from '@/lib/db/schema'
+import { eq, and } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
-import { requireCounselor, requireCounselorForStudent, getCounselorClassIds } from '@/lib/counselor-access'
+import {
+  requireCounselor,
+  requireCounselorForStudent,
+  getCounselorClassIds,
+  staffCoveringGrade,
+} from '@/lib/counselor-access'
 import { logCounselorAudit } from '@/lib/audit'
 import { today as schoolToday } from '@/lib/utils'
 
@@ -88,37 +93,10 @@ export async function getEscalationTargets(caseId: string) {
     .where(eq(classes.id, row.classId))
     .limit(1)
 
-  const staff = await db
-    .select({
-      userId: schoolStaff.userId,
-      fullName: schoolStaff.fullName,
-      role: schoolStaff.role,
-      allGrades: schoolStaff.allGrades,
-      gradeLevelIds: schoolStaff.gradeLevelIds,
-      canEdit: schoolStaff.canEdit,
-    })
-    .from(schoolStaff)
-    .where(and(
-      eq(schoolStaff.schoolId, access.schoolId),
-      inArray(schoolStaff.role, ['deputy', 'principal', 'quality_manager']),
-    ))
-
-  // Only somebody whose own scope covers this pupil's stage can act on the case
-  // — and a deputy set to read-only cannot act at all, so naming them would
-  // leave the case stuck with a person who has no way to close it.
-  return staff
-    .filter((s) => {
-      if (s.role === 'deputy' && !s.canEdit) return false
-      if (s.allGrades) return true
-      if (!cls?.gradeLevelId) return false
-      try {
-        const ids = JSON.parse(s.gradeLevelIds ?? '[]')
-        return Array.isArray(ids) && ids.includes(cls.gradeLevelId)
-      } catch {
-        return false
-      }
-    })
-    .map((s) => ({ userId: s.userId, fullName: s.fullName, role: s.role }))
+  // The rule itself lives in lib/counselor-access.ts, because the settings
+  // screen shows this same list ahead of time — a stage with nobody to escalate
+  // to must be visible before a case is stuck in it, not at the moment it is.
+  return staffCoveringGrade(access.schoolId, cls?.gradeLevelId ?? null)
 }
 
 /** Settle it with the pupil. The family is deliberately not told. */
