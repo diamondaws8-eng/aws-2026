@@ -294,6 +294,23 @@ export const teachers = pgTable('teachers', {
   userId: text('user_id').notNull().unique(), // FK → user.id
   fullName: text('full_name').notNull(),
   phone: text('phone'),
+
+  /**
+   * The stages this teacher may ever reach — a ceiling that holds even before
+   * any subject is assigned to them.
+   *
+   * Without it, the "class with no assigned subject stays open to everyone"
+   * fallback is school-wide: the moment a girls' building exists, a teacher on
+   * the boys' side can open any girls' class that has not been configured yet.
+   * With it, that fallback narrows to unconfigured classes inside their own
+   * stages, which is a hole a school can live with while it finishes setting up.
+   *
+   * Defaults to true so the teachers who already exist keep exactly the access
+   * they have today; new teachers are given explicit stages when they are added.
+   */
+  allGrades: boolean('all_grades').notNull().default(true),
+  gradeLevelIds: text('grade_level_ids').default('[]'), // JSON array of gradeLevels.id
+
   /** @deprecated never written to — passwords are shown once on creation/reset and only stored hashed. */
   tempPassword: text('temp_password'),
   whatsappTemplates: text('whatsapp_templates').default('{"positive":[],"negative":[]}'),

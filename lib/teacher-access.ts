@@ -16,6 +16,19 @@ export type TeacherAccess = {
   teacherId: string
   schoolId: string
   fullName: string
+  /** A ceiling on the stages this teacher can reach, held even before any subject is assigned. */
+  allGrades: boolean
+  gradeIds: string[]
+}
+
+function parseGradeIds(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []
+  } catch {
+    return []
+  }
 }
 
 /** Cached per request so repeated guards in one render cost a single query. */
@@ -24,14 +37,44 @@ export const getTeacherAccess = cache(async (): Promise<TeacherAccess | null> =>
   if (!session?.user) return null
 
   const [teacher] = await db
-    .select({ id: teachers.id, schoolId: teachers.schoolId, fullName: teachers.fullName })
+    .select({
+      id: teachers.id,
+      schoolId: teachers.schoolId,
+      fullName: teachers.fullName,
+      allGrades: teachers.allGrades,
+      gradeLevelIds: teachers.gradeLevelIds,
+    })
     .from(teachers)
     .where(eq(teachers.userId, session.user.id))
     .limit(1)
   if (!teacher) return null
 
-  return { userId: session.user.id, teacherId: teacher.id, schoolId: teacher.schoolId, fullName: teacher.fullName }
+  return {
+    userId: session.user.id,
+    teacherId: teacher.id,
+    schoolId: teacher.schoolId,
+    fullName: teacher.fullName,
+    allGrades: teacher.allGrades,
+    gradeIds: parseGradeIds(teacher.gradeLevelIds),
+  }
 })
+
+/** Cached per request: the stage a class belongs to. */
+const gradeOfClass = cache(async (classId: string): Promise<string | null> => {
+  const [row] = await db
+    .select({ gradeLevelId: classes.gradeLevelId })
+    .from(classes)
+    .where(eq(classes.id, classId))
+    .limit(1)
+  return row?.gradeLevelId ?? null
+})
+
+/** Is this stage inside the teacher's ceiling? */
+export function teacherCoversGrade(access: TeacherAccess, gradeLevelId: string | null): boolean {
+  if (access.allGrades) return true
+  if (!gradeLevelId) return false
+  return access.gradeIds.includes(gradeLevelId)
+}
 
 export async function requireTeacher(): Promise<TeacherAccess> {
   const access = await getTeacherAccess()
@@ -59,11 +102,16 @@ async function classIsConfigured(classId: string): Promise<boolean> {
 
 async function classIsAccessible(access: TeacherAccess, classId: string): Promise<boolean> {
   const [row] = await db
-    .select({ id: classes.id })
+    .select({ id: classes.id, gradeLevelId: classes.gradeLevelId })
     .from(classes)
     .where(and(eq(classes.id, classId), eq(classes.schoolId, access.schoolId)))
     .limit(1)
   if (!row) return false
+
+  // The stage ceiling comes first, and the fallback below cannot lift it. A
+  // teacher on the boys' side must not reach a girls' class merely because
+  // nobody has assigned its subjects yet.
+  if (!teacherCoversGrade(access, row.gradeLevelId)) return false
 
   if (!(await classIsConfigured(classId))) return true
 
@@ -110,8 +158,21 @@ export async function getTeacherClassAccess(classId: string): Promise<TeacherCla
  * assigned subject, then only the ones they are themselves assigned to.
  */
 export async function getTeacherVisibleClassIds(schoolId: string, teacherUserId: string): Promise<Set<string>> {
+  // Read the ceiling from the named teacher's own row rather than the session,
+  // so the answer is the same whoever asks the question.
+  const [row] = await db
+    .select({ allGrades: teachers.allGrades, gradeLevelIds: teachers.gradeLevelIds })
+    .from(teachers)
+    .where(and(eq(teachers.userId, teacherUserId), eq(teachers.schoolId, schoolId)))
+    .limit(1)
+  if (!row) return new Set()
+  const gradeIds = parseGradeIds(row.gradeLevelIds)
+  const covers = (gradeLevelId: string | null) =>
+    row.allGrades || (!!gradeLevelId && gradeIds.includes(gradeLevelId))
+
   const [allClasses, allSubjects] = await Promise.all([
-    db.select({ id: classes.id }).from(classes).where(eq(classes.schoolId, schoolId)),
+    db.select({ id: classes.id, gradeLevelId: classes.gradeLevelId })
+      .from(classes).where(eq(classes.schoolId, schoolId)),
     db.select({ classId: subjects.classId, teacherUserId: subjects.teacherUserId })
       .from(subjects)
       .where(eq(subjects.schoolId, schoolId)),
@@ -120,5 +181,13 @@ export async function getTeacherVisibleClassIds(schoolId: string, teacherUserId:
   const configuredClassIds = new Set(allSubjects.filter(s => s.teacherUserId).map(s => s.classId))
   const ownClassIds = new Set(allSubjects.filter(s => s.teacherUserId === teacherUserId).map(s => s.classId))
 
-  return new Set(allClasses.map(c => c.id).filter(id => !configuredClassIds.has(id) || ownClassIds.has(id)))
+  // The same two rules as classIsAccessible, in the same order: the stage
+  // ceiling, then the subject rule. A listing that offered a class the guard
+  // would refuse is a door opening onto a wall.
+  return new Set(
+    allClasses
+      .filter((c) => covers(c.gradeLevelId))
+      .map((c) => c.id)
+      .filter((id) => !configuredClassIds.has(id) || ownClassIds.has(id)),
+  )
 }

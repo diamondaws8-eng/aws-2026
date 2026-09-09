@@ -5,12 +5,25 @@ import { addTeacher, deleteTeacher, resetTeacherPassword } from './actions-teach
 import { EmptyState } from '@/components/empty-state'
 import { GraduationCap, UserPlus, Pencil, Trash2, Phone, KeyRound, CheckCircle2, AlertTriangle, Copy, RotateCcw, Loader2 } from 'lucide-react'
 
-export default function TeachersClient({ teachers, schoolId, canManage = true }: { teachers: any[], schoolId: string, canManage?: boolean }) {
+type GradeLevel = { id: string; name: string }
+type ClassRow = { id: string; name: string; gradeLevelId: string }
+
+export default function TeachersClient({ teachers, schoolId, canManage = true, gradeLevels = [], classes = [] }: {
+  teachers: any[]
+  schoolId: string
+  canManage?: boolean
+  gradeLevels?: GradeLevel[]
+  classes?: ClassRow[]
+}) {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [editingTeacher, setEditingTeacher] = useState<any | null>(null)
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
+  const [allGrades, setAllGrades] = useState(false)
+  const [gradeIds, setGradeIds] = useState<string[]>([])
+  const [subjectName, setSubjectName] = useState('')
+  const [classIds, setClassIds] = useState<string[]>([])
   const [resettingId, setResettingId] = useState<string | null>(null)
 
   const [successInfo, setSuccessInfo] = useState<{email: string, tempPassword: string, mode: 'created' | 'reset'} | null>(null)
@@ -47,6 +60,10 @@ export default function TeachersClient({ teachers, schoolId, canManage = true }:
     setEditingTeacher(teacher)
     setFullName(teacher.fullName)
     setPhone(teacher.phone || '')
+    setAllGrades(teacher.allGrades !== false)
+    try { setGradeIds(JSON.parse(teacher.gradeLevelIds || '[]')) } catch { setGradeIds([]) }
+    setSubjectName('')
+    setClassIds([])
     setIsModalOpen(true)
   }
 
@@ -56,15 +73,17 @@ export default function TeachersClient({ teachers, schoolId, canManage = true }:
     try {
       if (editingTeacher) {
         const { editTeacher } = await import('./actions-teachers')
-        const res = await editTeacher(editingTeacher.id, editingTeacher.userId, { fullName, phone })
+        const res = await editTeacher(editingTeacher.id, editingTeacher.userId, { fullName, phone, allGrades, gradeLevelIds: gradeIds })
         if (!res.ok) { alert(res.error); return }
         closeModal()
       } else {
-        const res = await addTeacher({ fullName, phone })
+        const res = await addTeacher({ fullName, phone, allGrades, gradeLevelIds: gradeIds, subjectName, classIds })
         if (!res.ok) { alert(res.error); return }
         setSuccessInfo({ email: res.email, tempPassword: res.tempPassword, mode: 'created' })
         setFullName('')
         setPhone('')
+        setSubjectName('')
+        setClassIds([])
         // Don't close modal, show success info
       }
     } catch (err) {
@@ -129,7 +148,19 @@ export default function TeachersClient({ teachers, schoolId, canManage = true }:
                         <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
                           {teacher.fullName?.charAt(0) ?? '؟'}
                         </div>
-                        <span className="font-semibold">{teacher.fullName}</span>
+                        <div className="min-w-0">
+                          <span className="font-semibold block">{teacher.fullName}</span>
+                          {/* What this teacher can actually reach, at a glance —
+                              the admin should not have to open a form to find out. */}
+                          <span className="text-[11px] text-muted-foreground block truncate">
+                            {teacher.allGrades === false
+                              ? `${(() => { try { return JSON.parse(teacher.gradeLevelIds || '[]').length } catch { return 0 } })()} مرحلة`
+                              : 'كل المراحل'}
+                            {teacher.subjectNames?.length
+                              ? ` · ${teacher.subjectNames.join('، ')}`
+                              : ' · بلا مادة مسنَدة'}
+                          </span>
+                        </div>
                       </div>
                     </td>
                     <td className="p-4 text-muted-foreground">
@@ -225,6 +256,74 @@ export default function TeachersClient({ teachers, schoolId, canManage = true }:
                     <label className="block text-sm mb-1">رقم الجوال</label>
                     <input type="text" required value={phone} onChange={e => setPhone(e.target.value)} className="w-full p-3 rounded-xl border border-border bg-background outline-none" placeholder="05XXXXXXXX" />
                   </div>
+
+                  {/* The stages a teacher may ever reach. Set here, because a
+                      teacher with no stage and no subject can open any class
+                      the school has not finished configuring. */}
+                  <div className="border-t border-border pt-4">
+                    <label className="block text-sm font-semibold mb-1">المرحلة</label>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      لن يرى المعلم أي فصل خارج المراحل المحددة هنا، حتى لو لم تُسنَد مواد بعد.
+                    </p>
+                    <label className="flex items-center gap-2 mb-2 text-sm">
+                      <input type="checkbox" checked={allGrades} onChange={e => { setAllGrades(e.target.checked); if (e.target.checked) setGradeIds([]) }} />
+                      كل المراحل
+                    </label>
+                    {!allGrades && (
+                      <div className="grid sm:grid-cols-2 gap-2">
+                        {gradeLevels.map(g => (
+                          <label key={g.id} className={`flex items-center gap-2 rounded-xl border p-2.5 text-sm cursor-pointer ${gradeIds.includes(g.id) ? 'border-primary/40 bg-primary/5' : 'border-border'}`}>
+                            <input
+                              type="checkbox"
+                              checked={gradeIds.includes(g.id)}
+                              onChange={() => setGradeIds(prev => prev.includes(g.id) ? prev.filter(x => x !== g.id) : [...prev, g.id])}
+                            />
+                            <span className="truncate">{g.name}</span>
+                          </label>
+                        ))}
+                        {gradeLevels.length === 0 && (
+                          <p className="text-xs text-amber-700">لا توجد مراحل بعد — أنشئها من «المراحل والفصول».</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {!editingTeacher && (
+                    <div className="border-t border-border pt-4">
+                      <label className="block text-sm font-semibold mb-1">المادة والفصول (اختياري)</label>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        إسناد المادة هو ما يقصر الفصل على معلميه. ويمكن أن يُسنَد نفس اسم المادة لأكثر من معلم
+                        في فصول مختلفة — أو في نفس الفصل إن كانا يتشاركانه.
+                      </p>
+                      <input
+                        type="text"
+                        value={subjectName}
+                        onChange={e => setSubjectName(e.target.value)}
+                        placeholder="مثال: الرياضيات"
+                        className="w-full p-3 rounded-xl border border-border bg-background outline-none mb-2"
+                      />
+                      {subjectName.trim() && (
+                        <div className="grid sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                          {classes
+                            .filter(c => allGrades || gradeIds.includes(c.gradeLevelId))
+                            .map(c => (
+                              <label key={c.id} className={`flex items-center gap-2 rounded-xl border p-2.5 text-sm cursor-pointer ${classIds.includes(c.id) ? 'border-primary/40 bg-primary/5' : 'border-border'}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={classIds.includes(c.id)}
+                                  onChange={() => setClassIds(prev => prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id])}
+                                />
+                                <span className="truncate">{c.name}</span>
+                              </label>
+                            ))}
+                          {classes.filter(c => allGrades || gradeIds.includes(c.gradeLevelId)).length === 0 && (
+                            <p className="text-xs text-muted-foreground sm:col-span-3">اختر مرحلة أولاً لتظهر فصولها.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex gap-4 mt-8">
                     <button type="submit" disabled={loading} className="flex-1 py-3 bg-primary text-primary-foreground font-semibold rounded-xl hover:opacity-90 disabled:opacity-50">
                       {loading ? 'جاري الحفظ...' : editingTeacher ? 'حفظ التعديلات' : 'إضافة'}

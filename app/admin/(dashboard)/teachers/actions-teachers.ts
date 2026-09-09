@@ -2,8 +2,8 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { teachers, user, schools, account, session, subjects, dailyRecords } from '@/lib/db/schema'
-import { eq, and } from 'drizzle-orm'
+import { teachers, user, schools, account, session, subjects, dailyRecords, gradeLevels, classes } from '@/lib/db/schema'
+import { eq, and, inArray } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { hashPassword } from 'better-auth/crypto'
@@ -22,7 +22,26 @@ function generateTempPassword() {
   return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
-export async function addTeacher(input: { fullName: string; phone: string }) {
+/**
+ * Adding a teacher now says, in one step, three things that used to be set in
+ * three different places (or never): which stages they belong to, what they
+ * teach, and in which classes. Leaving those to a second visit is how nineteen
+ * teachers ended up with no subject at all — and a class with no assigned
+ * subject stays open to every teacher in the school.
+ *
+ * More than one teacher may hold the same subject: subjects are stored per
+ * class, so "رياضيات" in 5\1 and "رياضيات" in 5\2 are separate rows with
+ * separate teachers, and even the same class may carry the subject twice when
+ * two teachers share it.
+ */
+export async function addTeacher(input: {
+  fullName: string
+  phone: string
+  allGrades?: boolean
+  gradeLevelIds?: string[]
+  subjectName?: string
+  classIds?: string[]
+}) {
   const access = await requireTeacherManager()
   if (!access) return { ok: false as const, error: 'غير مصرح لك بهذا الإجراء' }
   const school = access.school
@@ -60,17 +79,81 @@ export async function addTeacher(input: { fullName: string; phone: string }) {
   
   // The password is returned once for the admin to hand over — never stored in
   // plaintext. If it is lost, use "إعادة تعيين كلمة المرور".
+  // Stage ids arrive from the browser, so only ones that belong to this school
+  // are kept — a foreign id would silently widen the ceiling it is meant to set.
+  const allGrades = input.allGrades !== false && (input.gradeLevelIds ?? []).length === 0
+  const gradeIds = allGrades ? [] : await verifiedGradeIds(school.id, input.gradeLevelIds ?? [])
+  if (!allGrades && gradeIds.length === 0) {
+    return { ok: false as const, error: 'اختر مرحلة واحدة على الأقل، أو اختر «كل المراحل»' }
+  }
+
   await db.insert(teachers).values({
     schoolId: school.id,
     userId: createdUser.id,
     fullName,
     phone: input.phone,
+    allGrades,
+    gradeLevelIds: JSON.stringify(gradeIds),
   })
 
-  await logAudit(access, 'teacher.create', fullName, { email })
+  // The subject, in the classes chosen — this is what actually decides which
+  // classes the teacher sees, and closes those classes to everybody else.
+  const subjectName = String(input.subjectName ?? '').trim().slice(0, 80)
+  let subjectsCreated = 0
+  if (subjectName && (input.classIds ?? []).length > 0) {
+    const allowed = await classesInGrades(school.id, allGrades ? null : gradeIds, input.classIds ?? [])
+    if (allowed.length > 0) {
+      await db.insert(subjects).values(
+        allowed.map((classId) => ({
+          schoolId: school.id,
+          classId,
+          name: subjectName,
+          teacherUserId: createdUser.id,
+        })),
+      )
+      subjectsCreated = allowed.length
+    }
+  }
+
+  await logAudit(access, 'teacher.create', fullName, {
+    email,
+    allGrades,
+    grades: gradeIds.length,
+    subject: subjectName || null,
+    classes: subjectsCreated,
+  })
 
   revalidatePath('/admin/teachers')
-  return { ok: true as const, email, tempPassword }
+  revalidatePath('/admin/grade-levels')
+  return { ok: true as const, email, tempPassword, subjectsCreated }
+}
+
+/** Only stage ids that really belong to this school. */
+async function verifiedGradeIds(schoolId: string, ids: string[]): Promise<string[]> {
+  const wanted = [...new Set(ids.filter((v) => typeof v === 'string' && v))]
+  if (wanted.length === 0) return []
+  const rows = await db
+    .select({ id: gradeLevels.id })
+    .from(gradeLevels)
+    .where(and(eq(gradeLevels.schoolId, schoolId), inArray(gradeLevels.id, wanted)))
+  return rows.map((r) => r.id)
+}
+
+/** Only classes in this school, and inside the ceiling just set for the teacher. */
+async function classesInGrades(
+  schoolId: string,
+  gradeIds: string[] | null,
+  classIds: string[],
+): Promise<string[]> {
+  const wanted = [...new Set(classIds.filter((v) => typeof v === 'string' && v))]
+  if (wanted.length === 0) return []
+  const rows = await db
+    .select({ id: classes.id, gradeLevelId: classes.gradeLevelId })
+    .from(classes)
+    .where(and(eq(classes.schoolId, schoolId), inArray(classes.id, wanted)))
+  return rows
+    .filter((c) => gradeIds === null || gradeIds.includes(c.gradeLevelId))
+    .map((c) => c.id)
 }
 
 export async function deleteTeacher(teacherId: string, userId: string) {
@@ -110,7 +193,11 @@ export async function deleteTeacher(teacherId: string, userId: string) {
   }
 }
 
-export async function editTeacher(teacherId: string, userId: string, input: { fullName: string; phone: string }) {
+export async function editTeacher(
+  teacherId: string,
+  userId: string,
+  input: { fullName: string; phone: string; allGrades?: boolean; gradeLevelIds?: string[] },
+) {
   const access = await requireTeacherManager()
   if (!access) return { ok: false as const, error: 'غير مصرح لك بهذا الإجراء' }
   const [teacher] = await db.select().from(teachers).where(eq(teachers.id, teacherId)).limit(1)
@@ -121,11 +208,24 @@ export async function editTeacher(teacherId: string, userId: string, input: { fu
   const fullName = String(input.fullName ?? '').trim().slice(0, 120)
   if (!fullName) return { ok: false as const, error: 'اسم المعلم مطلوب' }
 
+  // Stages are only rewritten when the caller actually sent them, so an older
+  // form that knows nothing about stages cannot blank a teacher's ceiling.
+  let scope: { allGrades: boolean; gradeLevelIds: string } | null = null
+  if (input.allGrades !== undefined || input.gradeLevelIds !== undefined) {
+    const allGrades = input.allGrades === true
+    const gradeIds = allGrades ? [] : await verifiedGradeIds(access.school.id, input.gradeLevelIds ?? [])
+    if (!allGrades && gradeIds.length === 0) {
+      return { ok: false as const, error: 'اختر مرحلة واحدة على الأقل، أو اختر «كل المراحل»' }
+    }
+    scope = { allGrades, gradeLevelIds: JSON.stringify(gradeIds) }
+  }
+
   // We intentionally do NOT change the login email if the phone changes, to avoid locking the teacher out.
   // We only update the display name and phone number.
   await db.update(teachers).set({
     fullName,
     phone: input.phone,
+    ...(scope ?? {}),
   }).where(eq(teachers.id, teacherId))
 
   await db.update(user).set({
