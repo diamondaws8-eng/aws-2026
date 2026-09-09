@@ -7,6 +7,7 @@ import type { TeacherAccess } from '@/lib/teacher-access'
 /** Actions worth recording — anything destructive, credential-related or school-wide. */
 export type AuditAction =
   | 'student.delete'
+  | 'student.transfer'
   | 'student.parentPasswordReset'
   | 'class.delete'
   | 'gradeLevel.delete'
@@ -37,6 +38,7 @@ export type AuditAction =
 
 export const AUDIT_LABELS: Record<AuditAction, string> = {
   'student.delete': 'حذف طالب',
+  'student.transfer': 'ترحيل طلاب بين الفصول',
   'student.parentPasswordReset': 'إعادة تعيين كلمة مرور ولي أمر',
   'class.delete': 'حذف فصل',
   'gradeLevel.delete': 'حذف مرحلة دراسية',
