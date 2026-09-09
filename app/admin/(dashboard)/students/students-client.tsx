@@ -67,7 +67,7 @@ export default function StudentsClient({
   const [importRows, setImportRows]     = useState<ImportRow[]>([])
   const [importing, setImporting]       = useState(false)
   const [importClassId, setImportClassId] = useState('')
-  const [importResult, setImportResult] = useState<{ created: number; failed: number; errors: string[]; unknownGender?: number } | null>(null)
+  const [importResult, setImportResult] = useState<{ created: number; failed: number; errors: string[]; unknownGender?: number; skippedDuplicates?: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Parent password reset
@@ -490,6 +490,11 @@ export default function StudentsClient({
                     <span className="text-emerald-700 dark:text-emerald-300 font-semibold inline-flex items-center gap-1">
                       <CheckCircle2 className="size-3.5" /> تم إضافة: {importResult.created} طالب
                     </span>
+                    {!!importResult.skippedDuplicates && importResult.skippedDuplicates > 0 && (
+                      <span className="inline-flex items-center gap-1.5 text-amber-700 font-semibold">
+                        <AlertTriangle className="size-3.5" /> تُخطّي {importResult.skippedDuplicates} مكرَّراً برقم هوية مسجَّل
+                      </span>
+                    )}
                     {!!importResult.unknownGender && importResult.unknownGender > 0 && (
                       <span className="inline-flex items-center gap-1.5 text-amber-700 font-semibold">
                         <AlertTriangle className="size-3.5" /> بلا جنس محدد: {importResult.unknownGender} — حدّدهم من القائمة

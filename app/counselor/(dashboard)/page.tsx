@@ -1,4 +1,5 @@
-import { requireCounselor, getCounselorClassIds } from '@/lib/counselor-access'
+import { getCounselorAccess, getCounselorClassIds } from '@/lib/counselor-access'
+import { redirect } from 'next/navigation'
 import { listCases, countCasesByStatus, countCasesByStudent } from '@/lib/behavior-cases'
 import { db } from '@/lib/db'
 import { schoolStaff } from '@/lib/db/schema'
@@ -13,7 +14,11 @@ import { NotificationBell } from '@/components/notification-bell'
 export const dynamic = 'force-dynamic'
 
 export default async function CounselorInboxPage() {
-  const access = await requireCounselor()
+  // The layout redirects an unauthorised visitor, but this page renders in
+  // parallel with it — and a throw here reached the logs as an error on every
+  // single anonymous hit. Redirecting says the same thing without the noise.
+  const access = await getCounselorAccess()
+  if (!access) redirect('/counselor/login')
   const classIds = access.allGrades ? null : await getCounselorClassIds(access)
 
   // This person's own thresholds and their own saved wording, set in

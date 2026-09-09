@@ -58,6 +58,21 @@ export async function addStudent(input: any) {
       return { ok: false, error: 'غير مصرح لك بإضافة طالب في هذه المرحلة' }
     }
 
+    // The same guard the bulk import uses. A national id already on the roll
+    // means this pupil is being entered a second time — and a second copy is
+    // counted twice in every register and shown twice to their own family.
+    const nid = String(input.nationalId ?? '').trim()
+    if (nid) {
+      const [clash] = await db
+        .select({ fullName: students.fullName })
+        .from(students)
+        .where(and(eq(students.schoolId, input.schoolId), eq(students.nationalId, nid)))
+        .limit(1)
+      if (clash) {
+        return { ok: false, error: `رقم الهوية مسجَّل بالفعل للطالب: ${clash.fullName}` }
+      }
+    }
+
     let parentUserId = null
 
     if (input.parentPhone) {
@@ -280,11 +295,36 @@ export async function importStudents(
   // Cache headers to avoid calling await headers() in every loop iteration
   const reqHeaders = await headers()
 
+  /**
+   * National ids already on the roll.
+   *
+   * Nothing stopped the same file being imported twice, and re-importing a
+   * class into the wrong one put fifty-one pupils on two rolls at once:
+   * every register counted them twice, their families saw the same child
+   * listed twice, and the leaderboard ranked both copies. The id is the one
+   * thing that identifies a pupil across files, so it is what we check.
+   */
+  const existingIds = new Set(
+    (await db.select({ nid: students.nationalId }).from(students).where(eq(students.schoolId, schoolId)))
+      .map((r) => (r.nid ?? '').trim())
+      .filter(Boolean),
+  )
+  let skippedDuplicates = 0
+
   for (const row of rows) {
     try {
       if (!row.fullName?.trim()) {
         failed++
         errors.push('صف بدون اسم')
+        continue
+      }
+
+      // Also catches the same id twice inside one file, since every accepted
+      // id is added to the set below.
+      const nid = row.nationalId ? String(row.nationalId).replace(/\.0+$/, '').trim() : ''
+      if (nid && existingIds.has(nid)) {
+        skippedDuplicates++
+        errors.push(`${row.fullName.trim()} — مسجَّل من قبل بنفس رقم الهوية`)
         continue
       }
 
@@ -337,6 +377,7 @@ export async function importStudents(
         parentUserId,
       })
       created++
+      if (nid) existingIds.add(nid)
       if (normalizeGender(row.gender) === null) unknownGender++
     } catch (e) {
       failed++
@@ -347,7 +388,7 @@ export async function importStudents(
   revalidatePath('/admin/students')
   // Said out loud rather than buried: a school importing its girls' side
   // needs to know how many rows arrived without a readable gender.
-  return { created, failed, errors, unknownGender }
+  return { created, failed, errors, unknownGender, skippedDuplicates }
 }
 
 // ── Require every parent to pick a new password ───────────────────────────────

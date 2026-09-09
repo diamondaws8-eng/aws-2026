@@ -1,4 +1,5 @@
-import { requireCounselor, getCounselorClassIds, staffCoveringGrade } from '@/lib/counselor-access'
+import { getCounselorAccess, getCounselorClassIds, staffCoveringGrade } from '@/lib/counselor-access'
+import { redirect } from 'next/navigation'
 import { db } from '@/lib/db'
 import { schoolStaff, gradeLevels, students } from '@/lib/db/schema'
 import { eq, and, inArray, sql } from 'drizzle-orm'
@@ -9,7 +10,8 @@ import { CounselorSettingsClient } from './settings-client'
 export const dynamic = 'force-dynamic'
 
 export default async function CounselorSettingsPage() {
-  const access = await requireCounselor()
+  const access = await getCounselorAccess()
+  if (!access) redirect('/counselor/login')
 
   const [me] = await db
     .select({

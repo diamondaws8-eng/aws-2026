@@ -1,4 +1,5 @@
-import { requireCounselor, getCounselorClassIds } from '@/lib/counselor-access'
+import { getCounselorAccess, getCounselorClassIds } from '@/lib/counselor-access'
+import { redirect } from 'next/navigation'
 import { listCases, CASE_STATUS, type CaseStatus } from '@/lib/behavior-cases'
 import { EmptyState } from '@/components/empty-state'
 import { ScrollText } from 'lucide-react'
@@ -16,7 +17,8 @@ const STATUS_STYLE: Record<CaseStatus, string> = {
 }
 
 export default async function CounselorArchivePage() {
-  const access = await requireCounselor()
+  const access = await getCounselorAccess()
+  if (!access) redirect('/counselor/login')
   const classIds = access.allGrades ? null : await getCounselorClassIds(access)
 
   const cases = await listCases({
