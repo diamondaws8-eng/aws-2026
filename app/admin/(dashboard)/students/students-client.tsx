@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react'
 import { addStudent, deleteStudent, importStudents, resetParentPassword } from './actions-students'
 import { EmptyState } from '@/components/empty-state'
+import { normalizeGender, genderLabel, genderShort, GENDER_OPTIONS } from '@/lib/gender'
 import {
   Search, Upload, UserPlus, Download, FileSpreadsheet,
   CheckCircle2, AlertTriangle, XCircle, Loader2, X, Users, Pencil, Trash2, IdCard, Phone,
@@ -66,7 +67,7 @@ export default function StudentsClient({
   const [importRows, setImportRows]     = useState<ImportRow[]>([])
   const [importing, setImporting]       = useState(false)
   const [importClassId, setImportClassId] = useState('')
-  const [importResult, setImportResult] = useState<{ created: number; failed: number; errors: string[] } | null>(null)
+  const [importResult, setImportResult] = useState<{ created: number; failed: number; errors: string[]; unknownGender?: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Parent password reset
@@ -294,6 +295,7 @@ export default function StudentsClient({
                 <tr>
                   <th className="p-4 font-semibold">#</th>
                   <th className="p-4 font-semibold">الاسم</th>
+                  <th className="p-4 font-semibold">الجنس</th>
                   <th className="p-4 font-semibold">رقم الهوية</th>
                   <th className="p-4 font-semibold">الفصل</th>
                   <th className="p-4 font-semibold">جوال ولي الأمر</th>
@@ -311,6 +313,16 @@ export default function StudentsClient({
                         </div>
                         <span className="font-semibold">{student.fullName}</span>
                       </div>
+                    </td>
+                    <td className="p-4">
+                      {/* An unknown is called unknown and coloured, so a bad
+                          import is found by looking rather than by guessing. */}
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full border ${
+                        student.gender === 'female' ? 'bg-pink-50 text-pink-700 border-pink-100'
+                        : student.gender === 'male' ? 'bg-blue-50 text-blue-700 border-blue-100'
+                        : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                        {genderShort(student.gender)}
+                      </span>
                     </td>
                     <td className="p-4 text-muted-foreground">
                       {student.nationalId ? (
@@ -478,6 +490,11 @@ export default function StudentsClient({
                     <span className="text-emerald-700 dark:text-emerald-300 font-semibold inline-flex items-center gap-1">
                       <CheckCircle2 className="size-3.5" /> تم إضافة: {importResult.created} طالب
                     </span>
+                    {!!importResult.unknownGender && importResult.unknownGender > 0 && (
+                      <span className="inline-flex items-center gap-1.5 text-amber-700 font-semibold">
+                        <AlertTriangle className="size-3.5" /> بلا جنس محدد: {importResult.unknownGender} — حدّدهم من القائمة
+                      </span>
+                    )}
                     {importResult.failed > 0 && (
                       <span className="text-red-600 dark:text-red-400 font-semibold inline-flex items-center gap-1">
                         <XCircle className="size-3.5" /> فشل: {importResult.failed}
@@ -543,7 +560,9 @@ export default function StudentsClient({
                               <td className="p-3 font-semibold">{row.fullName || <span className="text-muted-foreground italic">فارغ</span>}</td>
                               <td className="p-3 text-muted-foreground">{row.nationalId || '—'}</td>
                               <td className="p-3 text-muted-foreground">{row.parentPhone || '—'}</td>
-                              <td className="p-3">{row.gender === 'أنثى' || row.gender === 'female' ? 'أنثى' : 'ذكر'}</td>
+                              <td className={`p-3 ${normalizeGender(row.gender) === null ? 'text-amber-700 font-semibold' : ''}`}>
+                                {genderLabel(normalizeGender(row.gender))}
+                              </td>
                               <td className="p-3">
                                 {row.valid
                                   ? <CheckCircle2 className="size-4 text-emerald-600" />

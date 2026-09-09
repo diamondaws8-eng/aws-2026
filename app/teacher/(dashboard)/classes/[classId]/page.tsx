@@ -76,6 +76,7 @@ export default async function ClassPage({ params }: { params: Promise<{ classId:
           id: s.id,
           fullName: s.fullName,
           parentPhone: s.parentPhone,
+          gender: s.gender,
         }))}
         teacherName={teacher?.fullName || fullName}
         schoolName={school?.name || ''}

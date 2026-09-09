@@ -7,8 +7,9 @@ import { NotificationBell } from '@/components/notification-bell'
 import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage, raiseBehaviorCase } from '../../actions'
 import type { DailyStudentRecord, AbsenceLock, BlockedAbsence } from '../../actions'
 import { termLabel as termLabelOf } from '@/lib/academic'
+import { genderShort } from '@/lib/gender'
 
-type Student = { id: string; fullName: string; parentPhone?: string | null }
+type Student = { id: string; fullName: string; parentPhone?: string | null; gender?: string | null }
 type DailyRecord = {
   studentId: string
   attendanceStatus: string
@@ -157,6 +158,11 @@ export default function ClassRoster({
   classInfo, students, teacherName, schoolName, subjects, initialDate, initialRecords, pointsSummary, savedGrades, absenceLocks, schoolSettings, teacherTemplates, termLabel
 }: Props) {
   const router = useRouter()
+  // A roster only needs to distinguish boys from girls where it actually
+  // holds both — the mixed first three primary years. Everywhere else the
+  // badge would be noise on every single row.
+  const isMixedClass =
+    students.some(s => s.gender === 'male') && students.some(s => s.gender === 'female')
   const [activeTab, setActiveTab] = useState<'daily' | 'grades' | 'points'>('daily')
   const [selectedDate, setSelectedDate] = useState(initialDate)
 
@@ -548,6 +554,16 @@ export default function ClassRoster({
                               <Link href={`/teacher/classes/${classInfo.id}/students/${student.id}`} className="hover:text-primary hover:underline">
                                 {student.fullName}
                               </Link>
+                              {/* Shown only where it tells the teacher something:
+                                  in a class that really holds both. */}
+                              {isMixedClass && (
+                                <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                                  student.gender === 'female' ? 'bg-pink-100 text-pink-700'
+                                  : student.gender === 'male' ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-amber-100 text-amber-700'}`}>
+                                  {genderShort(student.gender)}
+                                </span>
+                              )}
                             </span>
                           </td>
 

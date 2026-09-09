@@ -8,6 +8,7 @@ import {
 } from '@/lib/db/schema'
 import { eq, and, inArray, ne } from 'drizzle-orm'
 import { parentEmail, parentEmailCandidates } from '@/lib/utils'
+import { normalizeGender } from '@/lib/gender'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/lib/auth'
 import { headers } from 'next/headers'
@@ -259,6 +260,7 @@ export async function importStudents(
 ) {
   let created = 0
   let failed  = 0
+  let unknownGender = 0
   const errors: string[] = []
 
   const access = await getAdminAccess()
@@ -328,11 +330,14 @@ export async function importStudents(
         fullName:    row.fullName.trim(),
         nationalId:  row.nationalId  ? String(row.nationalId).replace(/\.0+$/, '').trim()  : null,
         parentPhone: row.parentPhone ? String(row.parentPhone).replace(/\.0+$/, '').trim() : null,
-        gender:      row.gender === 'أنثى' || row.gender === 'female' ? 'female' : 'male',
+        // Unknown stays unknown. Defaulting to male here is what turned a
+        // missing column into a roll of boys.
+        gender:      normalizeGender(row.gender),
         classId:     row.classId || null,
         parentUserId,
       })
       created++
+      if (normalizeGender(row.gender) === null) unknownGender++
     } catch (e) {
       failed++
       errors.push(row.fullName || 'صف غير معروف')
@@ -340,7 +345,9 @@ export async function importStudents(
   }
 
   revalidatePath('/admin/students')
-  return { created, failed, errors }
+  // Said out loud rather than buried: a school importing its girls' side
+  // needs to know how many rows arrived without a readable gender.
+  return { created, failed, errors, unknownGender }
 }
 
 // ── Require every parent to pick a new password ───────────────────────────────
