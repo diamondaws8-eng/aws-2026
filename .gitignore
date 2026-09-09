@@ -18,3 +18,6 @@ deleted-duplicate-school-backup.json
 
 # Temporary debug routes — never commit
 app/api/devcheck/
+
+# One-off maintenance scripts — never commit
+cleanup-duplicates.mjs
