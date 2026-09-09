@@ -24,6 +24,14 @@ export async function getSchoolSettings(schoolId: string): Promise<SchoolSetting
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return DEFAULT_SETTINGS
 
+  // Holding a session proves the caller is somebody; it does not prove they are
+  // somebody at THIS school. The id arrives from the browser, so without this a
+  // signed-in parent could read any school's message templates and point values
+  // by naming its id. Every real caller passes the school it already resolved
+  // from its own session, so nothing legitimate changes.
+  const { isMemberOfSchool } = await import('@/lib/school-membership')
+  if (!(await isMemberOfSchool(session.user.id, schoolId))) return DEFAULT_SETTINGS
+
   const [school] = await db
     .select({ settings: schools.settings })
     .from(schools)
