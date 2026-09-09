@@ -34,6 +34,8 @@ type Props = {
   absenceLocks?: AbsenceLock[]
   schoolSettings?: any
   teacherTemplates?: { positive: string[], negative: string[] }
+  /** Which term marks are filed under, shown so it is never a silent guess. */
+  termLabel?: string
 }
 
 type AttStatus = 'present' | 'absent' | 'late' | 'excused'
@@ -151,7 +153,7 @@ function formatDateArabic(dateStr: string): string {
 
 // ── MAIN COMPONENT ─────────────────────────────────────────────────────────────
 export default function ClassRoster({
-  classInfo, students, teacherName, schoolName, subjects, initialDate, initialRecords, pointsSummary, savedGrades, absenceLocks, schoolSettings, teacherTemplates
+  classInfo, students, teacherName, schoolName, subjects, initialDate, initialRecords, pointsSummary, savedGrades, absenceLocks, schoolSettings, teacherTemplates, termLabel
 }: Props) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'daily' | 'grades' | 'points'>('daily')
@@ -758,6 +760,12 @@ export default function ClassRoster({
             <div className="text-center text-muted-foreground py-12">لا توجد مواد — يرجى إضافتها من بوابة الإدارة</div>
           ) : (
             <>
+              {termLabel && (
+                <p className="text-xs text-muted-foreground bg-muted/50 rounded-xl px-3 py-2">
+                  ستُحفظ هذه الدرجات في: <span className="font-bold text-foreground">{termLabel}</span>
+                  {' — '}إن لم يكن هذا هو الفصل الحالي فأبلغ الإدارة قبل الحفظ.
+                </p>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground block mb-1">المادة</label>

@@ -75,6 +75,30 @@ export const schools = pgTable('schools', {
    */
   parentActivationMessage: text('parent_activation_message'),
 
+  /**
+   * Which term the school is in right now.
+   *
+   * Every mark is stamped with it, and re-saving an exam replaces the rows
+   * matching (subject, exam name, term, year). While this was the constant
+   * 'first', an exam of the same name in the second term overwrote the first
+   * term's marks instead of standing beside them.
+   *
+   * The number of terms is deliberately not fixed in code: the ministry has
+   * changed it more than once, and a school should not need a deployment to
+   * follow.
+   */
+  currentSemester: text('current_semester').notNull().default('first'),
+
+  /**
+   * First day of the current academic year (YYYY-MM-DD).
+   *
+   * Points and the leaderboard count from this date, so a pupil's score from
+   * last year does not follow them into this one. Null means count everything,
+   * which is exactly right until a school has more than one year of data — and
+   * is what every existing school gets, so nothing changes until it is set.
+   */
+  yearStartDate: text('year_start_date'),
+
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   // Every admin-portal request resolves the school through this column.

@@ -67,6 +67,65 @@ export async function saveSchoolSettings(schoolId: string, settings: SchoolSetti
   return { ok: true }
 }
 
+// ── Academic calendar ─────────────────────────────────────────────────────────
+/**
+ * The term marks are stamped with, and the day the year's points start from.
+ *
+ * These were a constant and a missing concept respectively: every mark was
+ * filed under the year '1446' regardless of the school, and the leaderboard
+ * summed a pupil's whole history, so last year's score would have followed them
+ * into this year forever.
+ */
+export async function saveAcademicCalendar(input: {
+  academicYear: string
+  currentSemester: string
+  yearStartDate: string | null
+}) {
+  const access = await getAdminAccess()
+  if (!access) return { ok: false as const, error: 'غير مصرح بهذا الإجراء' }
+  if (!access.canManageSchoolSettings) {
+    return { ok: false as const, error: 'تعديل العام الدراسي متاح لمدير الجودة ومالك النظام' }
+  }
+
+  const { isSemester } = await import('@/lib/academic')
+  const { isValidDateString } = await import('@/lib/utils')
+
+  const academicYear = String(input.academicYear ?? '').trim().slice(0, 20)
+  if (!academicYear) return { ok: false as const, error: 'العام الدراسي مطلوب' }
+
+  const currentSemester = String(input.currentSemester ?? '')
+  if (!isSemester(currentSemester)) return { ok: false as const, error: 'الفصل الدراسي غير صالح' }
+
+  // Empty means "count everything", which is the right answer for a school in
+  // its first year — so it is allowed, but anything else must be a real date.
+  const raw = String(input.yearStartDate ?? '').trim()
+  if (raw && !isValidDateString(raw)) {
+    return { ok: false as const, error: 'تاريخ بداية العام يجب أن يكون بصيغة YYYY-MM-DD' }
+  }
+  const yearStartDate = raw || null
+
+  try {
+    await db.update(schools)
+      .set({ academicYear, currentSemester, yearStartDate })
+      .where(eq(schools.id, access.school.id))
+
+    await logAudit(access, 'settings.update', 'العام الدراسي والفصل الحالي', {
+      academicYear,
+      currentSemester,
+      yearStartDate,
+    })
+
+    // Points totals are read on every portal, so rebuild each of them.
+    revalidatePath('/admin', 'layout')
+    revalidatePath('/teacher', 'layout')
+    revalidatePath('/parent', 'layout')
+    return { ok: true as const }
+  } catch (error) {
+    console.error('Save Academic Calendar Error:', error)
+    return { ok: false as const, error: 'تعذّر حفظ بيانات العام الدراسي' }
+  }
+}
+
 // ── Update own profile (name + login email) ───────────────────────────────────
 // Available to every admin-portal role for their OWN account only.
 export async function updateAdminProfile(input: { name: string; email: string }) {

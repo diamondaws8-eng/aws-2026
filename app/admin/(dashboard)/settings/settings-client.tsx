@@ -2,14 +2,15 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { saveSchoolSettings, changeAdminPassword, exportFullBackup, restoreFullBackup, updateAdminProfile } from './actions-settings'
+import { saveSchoolSettings, changeAdminPassword, exportFullBackup, restoreFullBackup, updateAdminProfile, saveAcademicCalendar } from './actions-settings'
 import { requireAllParentsToChangePassword } from '../students/actions-students'
 import type { SchoolSettings } from './settings-types'
+import { SEMESTERS, SEMESTER_LABELS } from '@/lib/academic'
 import {
   Sliders, MessageCircle, Lock, Database, Save, Backpack, Star,
   CalendarCheck2, BookOpen, Hand, Award, ShieldAlert, Trash2, Loader2,
   Download, KeyRound, CheckCircle2, XCircle, Upload, FileJson, AlertTriangle, RotateCcw, X,
-  UserCircle, Users,
+  UserCircle, Users, CalendarDays,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -117,6 +118,9 @@ export default function SettingsClient({
   canBackup,
   backupAllGrades = true,
   canRestore = false,
+  initialAcademicYear,
+  initialCurrentSemester,
+  initialYearStartDate,
 }: {
   schoolId: string
   initialSettings: SchoolSettings
@@ -127,10 +131,40 @@ export default function SettingsClient({
   canBackup: boolean
   backupAllGrades?: boolean
   canRestore?: boolean
+  initialAcademicYear: string
+  initialCurrentSemester: string
+  initialYearStartDate: string | null
 }) {
   const [settings, setSettings] = useState<SchoolSettings>(initialSettings)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  // Academic calendar — what every mark is stamped with, and where the year's
+  // points start counting from.
+  const [academicYear, setAcademicYear] = useState(initialAcademicYear)
+  const [currentSemester, setCurrentSemester] = useState(initialCurrentSemester)
+  const [yearStartDate, setYearStartDate] = useState(initialYearStartDate ?? '')
+  const [calendarLoading, setCalendarLoading] = useState(false)
+  const [calendarMsg, setCalendarMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const handleSaveCalendar = async () => {
+    setCalendarLoading(true)
+    setCalendarMsg(null)
+    try {
+      const res = await saveAcademicCalendar({
+        academicYear,
+        currentSemester,
+        yearStartDate: yearStartDate || null,
+      })
+      setCalendarMsg(res.ok
+        ? { ok: true, text: 'تم الحفظ' }
+        : { ok: false, text: res.error })
+    } catch {
+      setCalendarMsg({ ok: false, text: 'حدث خطأ غير متوقع' })
+    } finally {
+      setCalendarLoading(false)
+    }
+  }
 
   // Profile form (own account — available to every admin-portal role)
   const [profileName, setProfileName]   = useState(adminName)
@@ -362,6 +396,71 @@ export default function SettingsClient({
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
+
+      {/* ── The academic calendar ────────────────────────────────────────────── */}
+      {canManageSchoolSettings && (
+        <Section title="العام الدراسي والفصل الحالي" icon={CalendarDays}>
+          <p className="text-sm text-muted-foreground mb-5 leading-7">
+            هذان الحقلان يحكمان أمرين: <span className="font-semibold text-foreground">كل درجة يحفظها المعلم
+            تُختم بالعام والفصل المذكورين هنا</span>، و<span className="font-semibold text-foreground">النقاط
+            ولوحة الصدارة تُحسب من تاريخ بداية العام فصاعداً</span>.
+          </p>
+
+          <div className="grid sm:grid-cols-3 gap-4 max-w-3xl">
+            <div>
+              <label className="block text-sm font-semibold mb-1.5">العام الدراسي</label>
+              <input
+                type="text"
+                value={academicYear}
+                onChange={e => setAcademicYear(e.target.value)}
+                placeholder="1448"
+                className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold mb-1.5">الفصل الحالي</label>
+              <select
+                value={currentSemester}
+                onChange={e => setCurrentSemester(e.target.value)}
+                className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-sm"
+              >
+                {SEMESTERS.map(s => (
+                  <option key={s} value={s}>{SEMESTER_LABELS[s]}</option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground mt-1">
+                غيّره يوم يبدأ الفصل التالي. إن نسيت، ستُحفظ درجات الفصل الجديد فوق القديم.
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold mb-1.5">تاريخ بداية العام</label>
+              <input
+                type="date"
+                value={yearStartDate}
+                onChange={e => setYearStartDate(e.target.value)}
+                className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-sm"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {yearStartDate
+                  ? 'النقاط تُحسب من هذا التاريخ فصاعداً.'
+                  : 'اتركه فارغاً في عامك الأول. حدّده قبل بداية العام الثاني، وإلا ظلّت نقاط العام الماضي تُحسب مع الجديد.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 mt-5">
+            <button
+              type="button"
+              onClick={handleSaveCalendar}
+              disabled={calendarLoading}
+              className="px-6 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-sm disabled:opacity-50"
+            >
+              {calendarLoading ? 'جاري الحفظ...' : 'حفظ العام والفصل'}
+            </button>
+            {calendarMsg && <StatusMsg ok={calendarMsg.ok} text={calendarMsg.text} />}
+          </div>
+        </Section>
+      )}
 
       {/* ── Section 0: My profile (every role) ───────────────────────────────── */}
       <Section title="الملف الشخصي" icon={UserCircle}>

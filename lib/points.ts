@@ -1,7 +1,51 @@
+import { cache } from 'react'
 import { db } from '@/lib/db'
-import { dailyRecords, lessonRecords, studentPoints, students, classes } from '@/lib/db/schema'
-import { eq, and, inArray, sql, type SQL } from 'drizzle-orm'
+import { dailyRecords, lessonRecords, studentPoints, students, classes, schools } from '@/lib/db/schema'
+import { eq, and, gte, inArray, sql, type SQL } from 'drizzle-orm'
 import type { SchoolSettings } from '@/app/admin/(dashboard)/settings/settings-types'
+
+// ─── The academic year boundary ───────────────────────────────────────────────
+/**
+ * Every total below counts from the first day of the school's current year.
+ *
+ * Without it a pupil's score is their entire history. That is the right answer
+ * in a school's first year and the wrong one ever after: the child who did well
+ * last year would top this year's board on last year's marks, and a parent
+ * would be shown a "total" that quietly spans two years with no way to tell.
+ *
+ * The boundary is resolved here rather than passed in by each caller. There are
+ * nine call sites across four portals, and a rule applied in one place cannot
+ * be forgotten at the tenth.
+ *
+ * Null — a school that has not set a start date — means count everything, which
+ * is exactly today's behaviour. So nothing changes until the date is set.
+ */
+const yearStartForSchool = cache(async (schoolId: string): Promise<string | null> => {
+  const [row] = await db
+    .select({ d: schools.yearStartDate })
+    .from(schools)
+    .where(eq(schools.id, schoolId))
+    .limit(1)
+  return row?.d ?? null
+})
+
+const yearStartForStudent = cache(async (studentId: string): Promise<string | null> => {
+  const [row] = await db
+    .select({ schoolId: students.schoolId })
+    .from(students)
+    .where(eq(students.id, studentId))
+    .limit(1)
+  return row ? yearStartForSchool(row.schoolId) : null
+})
+
+const yearStartForClass = cache(async (classId: string): Promise<string | null> => {
+  const [row] = await db
+    .select({ schoolId: classes.schoolId })
+    .from(classes)
+    .where(eq(classes.id, classId))
+    .limit(1)
+  return row ? yearStartForSchool(row.schoolId) : null
+})
 
 /**
  * Points are DERIVED, not duplicated.
@@ -197,13 +241,24 @@ export async function resyncSchoolPoints(schoolId: string, settings: SchoolSetti
 
 /** One student's lifetime total. */
 export async function getStudentPointsTotal(studentId: string): Promise<number> {
+  const since = await yearStartForStudent(studentId)
+
   const [attendance, lessons, manual] = await Promise.all([
     db.select({ v: sql<number>`COALESCE(SUM(${dailyRecords.pointsEarned}), 0)`.mapWith(Number) })
-      .from(dailyRecords).where(eq(dailyRecords.studentId, studentId)),
+      .from(dailyRecords).where(and(
+        eq(dailyRecords.studentId, studentId),
+        since ? gte(dailyRecords.date, since) : undefined,
+      )),
     db.select({ v: sql<number>`COALESCE(SUM(${lessonRecords.pointsEarned}), 0)`.mapWith(Number) })
-      .from(lessonRecords).where(eq(lessonRecords.studentId, studentId)),
+      .from(lessonRecords).where(and(
+        eq(lessonRecords.studentId, studentId),
+        since ? gte(lessonRecords.date, since) : undefined,
+      )),
     db.select({ v: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`.mapWith(Number) })
-      .from(studentPoints).where(eq(studentPoints.studentId, studentId)),
+      .from(studentPoints).where(and(
+        eq(studentPoints.studentId, studentId),
+        since ? gte(studentPoints.date, since) : undefined,
+      )),
   ])
   return (attendance[0]?.v ?? 0) + (lessons[0]?.v ?? 0) + (manual[0]?.v ?? 0)
 }
@@ -216,6 +271,8 @@ export async function getStudentTeacherPointsTotal(
 ): Promise<number> {
   // Attendance is nobody's in particular — it belongs to the day, so a single
   // teacher's total is their own lesson score plus what they awarded by hand.
+  const since = await yearStartForClass(classId)
+
   const [daily, manual] = await Promise.all([
     db.select({ v: sql<number>`COALESCE(SUM(${lessonRecords.pointsEarned}), 0)`.mapWith(Number) })
       .from(lessonRecords)
@@ -223,6 +280,7 @@ export async function getStudentTeacherPointsTotal(
         eq(lessonRecords.studentId, studentId),
         eq(lessonRecords.classId, classId),
         eq(lessonRecords.teacherUserId, teacherUserId),
+        since ? gte(lessonRecords.date, since) : undefined,
       )),
     db.select({ v: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`.mapWith(Number) })
       .from(studentPoints)
@@ -230,6 +288,7 @@ export async function getStudentTeacherPointsTotal(
         eq(studentPoints.studentId, studentId),
         eq(studentPoints.classId, classId),
         eq(studentPoints.teacherUserId, teacherUserId),
+        since ? gte(studentPoints.date, since) : undefined,
       )),
   ])
   return (daily[0]?.v ?? 0) + (manual[0]?.v ?? 0)
@@ -237,22 +296,30 @@ export async function getStudentTeacherPointsTotal(
 
 /** Totals for every student in a class, keyed by student id. */
 export async function getClassPointsTotals(classId: string): Promise<Record<string, number>> {
+  const since = await yearStartForClass(classId)
+
   const [attendance, lessons, manual] = await Promise.all([
     db.select({
         studentId: dailyRecords.studentId,
         v: sql<number>`COALESCE(SUM(${dailyRecords.pointsEarned}), 0)`.mapWith(Number),
       })
-      .from(dailyRecords).where(eq(dailyRecords.classId, classId)).groupBy(dailyRecords.studentId),
+      .from(dailyRecords)
+      .where(and(eq(dailyRecords.classId, classId), since ? gte(dailyRecords.date, since) : undefined))
+      .groupBy(dailyRecords.studentId),
     db.select({
         studentId: lessonRecords.studentId,
         v: sql<number>`COALESCE(SUM(${lessonRecords.pointsEarned}), 0)`.mapWith(Number),
       })
-      .from(lessonRecords).where(eq(lessonRecords.classId, classId)).groupBy(lessonRecords.studentId),
+      .from(lessonRecords)
+      .where(and(eq(lessonRecords.classId, classId), since ? gte(lessonRecords.date, since) : undefined))
+      .groupBy(lessonRecords.studentId),
     db.select({
         studentId: studentPoints.studentId,
         v: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`.mapWith(Number),
       })
-      .from(studentPoints).where(eq(studentPoints.classId, classId)).groupBy(studentPoints.studentId),
+      .from(studentPoints)
+      .where(and(eq(studentPoints.classId, classId), since ? gte(studentPoints.date, since) : undefined))
+      .groupBy(studentPoints.studentId),
   ])
 
   const totals: Record<string, number> = {}
@@ -276,6 +343,7 @@ export type LeaderboardRow = {
  */
 export async function getLeaderboard(schoolId: string, classIds?: string[] | null): Promise<LeaderboardRow[]> {
   const classFilter = classIds ? (classIds.length ? inArray(students.classId, classIds) : sql`false`) : undefined
+  const since = await yearStartForSchool(schoolId)
 
   const [roster, attendance, lessons, manual] = await Promise.all([
     db.select({
@@ -292,19 +360,25 @@ export async function getLeaderboard(schoolId: string, classIds?: string[] | nul
         studentId: dailyRecords.studentId,
         v: sql<number>`COALESCE(SUM(${dailyRecords.pointsEarned}), 0)`.mapWith(Number),
       })
-      .from(dailyRecords).where(eq(dailyRecords.schoolId, schoolId)).groupBy(dailyRecords.studentId),
+      .from(dailyRecords)
+      .where(and(eq(dailyRecords.schoolId, schoolId), since ? gte(dailyRecords.date, since) : undefined))
+      .groupBy(dailyRecords.studentId),
 
     db.select({
         studentId: lessonRecords.studentId,
         v: sql<number>`COALESCE(SUM(${lessonRecords.pointsEarned}), 0)`.mapWith(Number),
       })
-      .from(lessonRecords).where(eq(lessonRecords.schoolId, schoolId)).groupBy(lessonRecords.studentId),
+      .from(lessonRecords)
+      .where(and(eq(lessonRecords.schoolId, schoolId), since ? gte(lessonRecords.date, since) : undefined))
+      .groupBy(lessonRecords.studentId),
 
     db.select({
         studentId: studentPoints.studentId,
         v: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`.mapWith(Number),
       })
-      .from(studentPoints).where(eq(studentPoints.schoolId, schoolId)).groupBy(studentPoints.studentId),
+      .from(studentPoints)
+      .where(and(eq(studentPoints.schoolId, schoolId), since ? gte(studentPoints.date, since) : undefined))
+      .groupBy(studentPoints.studentId),
   ])
 
   const totals: Record<string, number> = {}
@@ -328,8 +402,10 @@ export async function getManualPoints(
   studentId: string,
   opts?: { teacherUserId?: string },
 ): Promise<PointEntry[]> {
+  const since = await yearStartForStudent(studentId)
   const filters = [eq(studentPoints.studentId, studentId)]
   if (opts?.teacherUserId) filters.push(eq(studentPoints.teacherUserId, opts.teacherUserId))
+  if (since) filters.push(gte(studentPoints.date, since))
 
   const rows = await db
     .select({ date: studentPoints.date, points: studentPoints.points, reason: studentPoints.reason })
@@ -350,9 +426,15 @@ export async function getStudentPointsHistory(
 ): Promise<PointEntry[]> {
   const limit = opts?.limit ?? 100
 
+  const since = await yearStartForStudent(studentId)
   const dailyFilters = [eq(dailyRecords.studentId, studentId)]
   const lessonFilters = [eq(lessonRecords.studentId, studentId)]
   const manualFilters = [eq(studentPoints.studentId, studentId)]
+  if (since) {
+    dailyFilters.push(gte(dailyRecords.date, since))
+    lessonFilters.push(gte(lessonRecords.date, since))
+    manualFilters.push(gte(studentPoints.date, since))
+  }
   if (opts?.teacherUserId) {
     // Attendance has no owner, so narrowing to one teacher means their lessons.
     lessonFilters.push(eq(lessonRecords.teacherUserId, opts.teacherUserId))

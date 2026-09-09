@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import {
   students, user, account, classes, session,
   dailyRecords, studentPoints, attendance, gradeEntries, parentWhatsappMessages, notifications,
+  lessonRecords, behaviorCases, userNotifications, parentActivationLog,
 } from '@/lib/db/schema'
 import { eq, and, inArray, ne } from 'drizzle-orm'
 import { parentEmail, parentEmailCandidates } from '@/lib/utils'
@@ -132,13 +133,36 @@ export async function deleteStudent(id: string) {
 
     await db.transaction(async (tx) => {
       await tx.delete(dailyRecords).where(eq(dailyRecords.studentId, id))
+      // Added after this list was first written, and missing from it since:
+      // a deleted pupil left their per-teacher assessments behind for good.
+      await tx.delete(lessonRecords).where(eq(lessonRecords.studentId, id))
       await tx.delete(studentPoints).where(eq(studentPoints.studentId, id))
       await tx.delete(attendance).where(eq(attendance.studentId, id))
       await tx.delete(gradeEntries).where(eq(gradeEntries.studentId, id))
       await tx.delete(parentWhatsappMessages).where(eq(parentWhatsappMessages.studentId, id))
       await tx.delete(notifications).where(eq(notifications.studentId, id))
+
+      // Behaviour cases, and the bell entries that point at them — a teacher or
+      // counsellor left holding a notification for a case about a pupil who no
+      // longer exists opens it onto nothing.
+      const removedCases = await tx
+        .delete(behaviorCases)
+        .where(eq(behaviorCases.studentId, id))
+        .returning({ id: behaviorCases.id })
+      if (removedCases.length > 0) {
+        await tx.delete(userNotifications).where(
+          inArray(userNotifications.entityId, removedCases.map((c) => c.id)),
+        )
+      }
+
       await tx.delete(students).where(eq(students.id, id))
+
       if (parentToRemove) {
+        // The parent's own inbox and their place in the activation campaign go
+        // with the account: both are addressed by a user id that is about to
+        // stop existing.
+        await tx.delete(userNotifications).where(eq(userNotifications.recipientUserId, parentToRemove))
+        await tx.delete(parentActivationLog).where(eq(parentActivationLog.parentUserId, parentToRemove))
         await tx.delete(account).where(eq(account.userId, parentToRemove))
         await tx.delete(session).where(eq(session.userId, parentToRemove))
         await tx.delete(user).where(eq(user.id, parentToRemove))

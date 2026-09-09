@@ -6,6 +6,7 @@ import ClassRoster from './class-roster'
 import { today as schoolToday } from '@/lib/utils'
 import { getClassPointsTotals } from '@/lib/points'
 import { getTeacherClassAccess } from '@/lib/teacher-access'
+import { termLabel } from '@/lib/academic'
 
 export const dynamic = 'force-dynamic'
 
@@ -88,6 +89,7 @@ export default async function ClassPage({ params }: { params: Promise<{ classId:
         absenceLocks={absenceLocks}
         savedGrades={savedGrades}
         schoolSettings={schoolSettings}
+        termLabel={termLabel(school?.currentSemester, school?.academicYear)}
         teacherTemplates={teacher?.whatsappTemplates ? JSON.parse(teacher.whatsappTemplates as string) : { positive: [], negative: [] }}
       />
     </div>

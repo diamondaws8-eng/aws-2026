@@ -33,6 +33,9 @@ export default async function AdminSettingsPage() {
         canBackup={access.canBackup}
         backupAllGrades={access.backupAllGrades}
         canRestore={access.canRestore}
+        initialAcademicYear={access.school.academicYear}
+        initialCurrentSemester={access.school.currentSemester}
+        initialYearStartDate={access.school.yearStartDate}
       />
     </div>
   )

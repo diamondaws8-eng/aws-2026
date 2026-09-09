@@ -2,7 +2,7 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { dailyRecords, lessonRecords, studentPoints, gradeEntries, subjects, parentWhatsappMessages, students, classes, teachers, behaviorCases } from '@/lib/db/schema'
+import { dailyRecords, lessonRecords, studentPoints, gradeEntries, subjects, parentWhatsappMessages, students, classes, teachers, behaviorCases, schools } from '@/lib/db/schema'
 import { eq, and, desc, sql, inArray, isNotNull } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
@@ -458,8 +458,20 @@ export async function saveGrades(input: {
     return { ok: false, error: 'الدرجة القصوى يجب أن تكون رقماً صحيحاً بين 1 و 1000' }
   }
 
-  const semester = 'first'
-  const academicYear = '1446'
+  // Both of these used to be constants: semester 'first' forever, and the year
+  // hard-coded to '1446' while this school is in 1448. Every mark was therefore
+  // filed under a year the school has never been in, and — because the replace
+  // below matches on (subject, exam name, term, year) — the second term's
+  // "اختبار قصير ١" would have overwritten the first term's instead of being a
+  // second exam. They come from the school row now.
+  const [school] = await db
+    .select({ semester: schools.currentSemester, academicYear: schools.academicYear })
+    .from(schools)
+    .where(eq(schools.id, schoolId))
+    .limit(1)
+  if (!school) return { ok: false, error: 'تعذّر تحديد العام الدراسي — راجع الإدارة' }
+  const semester = school.semester
+  const academicYear = school.academicYear
 
   // The same student twice in one payload would otherwise become two rows.
   const byStudent = new Map<string, number>()
