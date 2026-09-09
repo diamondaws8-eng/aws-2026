@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { students, classes, gradeLevels } from '@/lib/db/schema'
-import { eq, asc } from 'drizzle-orm'
+import { eq, and, asc } from 'drizzle-orm'
 import StudentsClient from './students-client'
 import { requireAdminAccess, canViewGrade, canEditGrade } from '@/lib/admin-access'
 import { NotificationBell } from '@/components/notification-bell'
@@ -26,7 +26,7 @@ export default async function StudentsPage() {
     .from(students)
     .leftJoin(classes, eq(students.classId, classes.id))
     .leftJoin(gradeLevels, eq(classes.gradeLevelId, gradeLevels.id))
-    .where(eq(students.schoolId, school.id))
+    .where(and(eq(students.schoolId, school.id), eq(students.status, 'active')))
     .orderBy(asc(students.fullName))
 
   const classesList = await db

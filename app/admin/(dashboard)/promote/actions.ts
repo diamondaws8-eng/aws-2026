@@ -60,7 +60,7 @@ export async function transferStudents(
       .select({ id: students.id, classId: students.classId, gradeLevelId: classes.gradeLevelId })
       .from(students)
       .leftJoin(classes, eq(students.classId, classes.id))
-      .where(and(eq(students.schoolId, access.school.id), inArray(students.id, ids)))
+      .where(and(eq(students.schoolId, access.school.id), eq(students.status, 'active'), inArray(students.id, ids)))
 
     if (rows.length !== ids.length) {
       return { ok: false, error: 'بعض الطلاب المحددين غير موجودين في هذه المدرسة' }

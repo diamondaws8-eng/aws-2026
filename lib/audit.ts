@@ -8,6 +8,7 @@ import type { TeacherAccess } from '@/lib/teacher-access'
 export type AuditAction =
   | 'student.delete'
   | 'student.transfer'
+  | 'students.annualPromotion'
   | 'student.parentPasswordReset'
   | 'class.delete'
   | 'gradeLevel.delete'
@@ -39,6 +40,7 @@ export type AuditAction =
 export const AUDIT_LABELS: Record<AuditAction, string> = {
   'student.delete': 'حذف طالب',
   'student.transfer': 'ترحيل طلاب بين الفصول',
+  'students.annualPromotion': 'ترحيل سنوي وتخريج',
   'student.parentPasswordReset': 'إعادة تعيين كلمة مرور ولي أمر',
   'class.delete': 'حذف فصل',
   'gradeLevel.delete': 'حذف مرحلة دراسية',

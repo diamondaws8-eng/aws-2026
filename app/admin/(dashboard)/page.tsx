@@ -67,7 +67,7 @@ export default async function AdminDashboardPage() {
     recentNotifications,
   ] = await Promise.all([
     db.select({ value: count() }).from(students)
-      .where(and(eq(students.schoolId, school.id), inScopeClasses(students.classId))),
+      .where(and(eq(students.schoolId, school.id), eq(students.status, 'active'), inScopeClasses(students.classId))),
 
     db.select({ value: count() }).from(teachers).where(eq(teachers.schoolId, school.id)),
 

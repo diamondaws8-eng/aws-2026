@@ -113,7 +113,8 @@ export async function parentsForAnnouncement(
   schoolId: string,
   opts: { studentId?: string | null; classId?: string | null },
 ): Promise<string[]> {
-  const filters = [eq(students.schoolId, schoolId)]
+  // A graduate's family is no longer part of the school's announcements.
+  const filters = [eq(students.schoolId, schoolId), eq(students.status, 'active')]
   if (opts.studentId) filters.push(eq(students.id, opts.studentId))
   else if (opts.classId) filters.push(eq(students.classId, opts.classId))
 
@@ -187,7 +188,7 @@ export async function parentActivation(schoolId: string): Promise<{ total: numbe
     .selectDistinct({ id: user.id, mustChange: user.mustChangePassword })
     .from(students)
     .innerJoin(user, eq(user.id, students.parentUserId))
-    .where(eq(students.schoolId, schoolId))
+    .where(and(eq(students.schoolId, schoolId), eq(students.status, 'active')))
   return { total: rows.length, activated: rows.filter((r) => !r.mustChange).length }
 }
 

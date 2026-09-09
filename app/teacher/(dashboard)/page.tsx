@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { students, classes, gradeLevels } from '@/lib/db/schema'
-import { eq, count } from 'drizzle-orm'
+import { eq, and, count } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { formatDateAr, today } from '@/lib/utils'
@@ -25,7 +25,7 @@ export default async function TeacherDashboard() {
   const [{ count: totalStudents }] = await db
     .select({ count: count() })
     .from(students)
-    .where(eq(students.schoolId, teacher.schoolId))
+    .where(and(eq(students.schoolId, teacher.schoolId), eq(students.status, 'active')))
 
   // Total classes in school
   const [{ count: totalClasses }] = await db

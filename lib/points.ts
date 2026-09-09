@@ -354,7 +354,8 @@ export async function getLeaderboard(schoolId: string, classIds?: string[] | nul
       })
       .from(students)
       .leftJoin(classes, eq(students.classId, classes.id))
-      .where(and(eq(students.schoolId, schoolId), classFilter)),
+      // A pupil who has left does not compete on this year's board.
+      .where(and(eq(students.schoolId, schoolId), eq(students.status, 'active'), classFilter)),
 
     db.select({
         studentId: dailyRecords.studentId,

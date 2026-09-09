@@ -260,6 +260,26 @@ export const classes = pgTable('classes', {
   gradeLevelId: uuid('grade_level_id').notNull(), // FK → gradeLevels.id
   name: text('name').notNull(), // أ / ب / ج
   capacity: integer('capacity'),
+
+  /**
+   * Where this class's pupils go at the end of the year.
+   *
+   * The system has no concept of a "year" — a class is named "3\1" and the
+   * grade is a prefix inside that string, so nothing can work out that third
+   * intermediate is followed by first secondary, still less that the two sit in
+   * different buildings. Stating the destination per class says it exactly,
+   * including the jumps between stages and between buildings, and it survives a
+   * school whose boys' and girls' sides progress into different places.
+   */
+  promotesToClassId: uuid('promotes_to_class_id'),
+
+  /**
+   * The last class of a path: third secondary. Its pupils graduate rather than
+   * move, so promotion must not silently leave them where they are for a year
+   * they are no longer in.
+   */
+  isTerminal: boolean('is_terminal').notNull().default(false),
+
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   index('classes_school_idx').on(t.schoolId),
@@ -293,6 +313,24 @@ export const students = pgTable('students', {
   gender: text('gender'),                 // 'male' | 'female'
   dateOfBirth: text('date_of_birth'),     // YYYY-MM-DD
   parentUserId: text('parent_user_id'),   // FK → user.id (auto-created)
+
+  /**
+   * 'active' | 'graduated'.
+   *
+   * A pupil who finishes the last year has to leave the rolls without leaving
+   * the record: deleting them erases every mark, every absence and every
+   * behaviour case the school may later be asked about, and leaving them in a
+   * class puts a graduate on next year's register. So they keep their row and
+   * their history, lose their class, and stop appearing anywhere that lists
+   * pupils who are still here.
+   */
+  status: text('status').notNull().default('active'),
+  graduatedAt: timestamp('graduated_at', { withTimezone: true }),
+  /** The class they left from — classId is cleared, so this is the only record of it. */
+  graduatedFromClassId: uuid('graduated_from_class_id'),
+  /** The academic year label as it stood on the day they graduated. */
+  graduationYear: text('graduation_year'),
+
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   index('students_school_idx').on(t.schoolId),

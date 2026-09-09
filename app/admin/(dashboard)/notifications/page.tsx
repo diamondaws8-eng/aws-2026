@@ -25,7 +25,7 @@ export default async function NotificationsPage() {
   const allStudents = await db
     .select({ id: students.id, fullName: students.fullName, classId: students.classId })
     .from(students)
-    .where(eq(students.schoolId, school.id))
+    .where(and(eq(students.schoolId, school.id), eq(students.status, 'active')))
   const studentsList = access.viewAllGrades
     ? allStudents
     : allStudents.filter((s) => s.classId && visibleClassIds.has(s.classId))
