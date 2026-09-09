@@ -9,6 +9,8 @@ export const dynamic = 'force-dynamic'
 export default async function AdminSettingsPage() {
   const access = await requireAdminAccess()
   const settings = await getSchoolSettings(access.school.id)
+  const { listSchoolHolidays } = await import('@/lib/school-holidays')
+  const holidays = await listSchoolHolidays(access.school.id)
 
   return (
     <div className="px-6 py-8 max-w-3xl mx-auto space-y-8">
@@ -36,6 +38,9 @@ export default async function AdminSettingsPage() {
         initialAcademicYear={access.school.academicYear}
         initialCurrentSemester={access.school.currentSemester}
         initialYearStartDate={access.school.yearStartDate}
+        canManageSchoolDays={access.canManageSchoolDays}
+        initialSaturdayIsSchoolDay={access.school.saturdayIsSchoolDay}
+        initialHolidays={holidays}
       />
     </div>
   )

@@ -344,7 +344,8 @@ function TrendChart({
           if (blank === 0) return null
           return (
             <span className="text-xs text-muted-foreground">
-              — {blank} من {trend.length} يوماً بلا تسجيل، ولا تظهر في الرسم
+              — {blank} من {trend.length} يوم دراسة بلا تسجيل، ولا تظهر في الرسم
+              <span className="opacity-70"> (الإجازات مستبعدة)</span>
             </span>
           )
         })()}

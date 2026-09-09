@@ -6,11 +6,12 @@ import { saveSchoolSettings, changeAdminPassword, exportFullBackup, restoreFullB
 import { requireAllParentsToChangePassword } from '../students/actions-students'
 import type { SchoolSettings } from './settings-types'
 import { SEMESTERS, SEMESTER_LABELS } from '@/lib/academic'
+import { setSaturdayIsSchoolDay, addSchoolHoliday, deleteSchoolHoliday } from './actions-school-days'
 import {
   Sliders, MessageCircle, Lock, Database, Save, Backpack, Star,
   CalendarCheck2, BookOpen, Hand, Award, ShieldAlert, Trash2, Loader2,
   Download, KeyRound, CheckCircle2, XCircle, Upload, FileJson, AlertTriangle, RotateCcw, X,
-  UserCircle, Users, CalendarDays,
+  UserCircle, Users, CalendarDays, CalendarOff,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -121,6 +122,9 @@ export default function SettingsClient({
   initialAcademicYear,
   initialCurrentSemester,
   initialYearStartDate,
+  canManageSchoolDays,
+  initialSaturdayIsSchoolDay,
+  initialHolidays,
 }: {
   schoolId: string
   initialSettings: SchoolSettings
@@ -134,6 +138,9 @@ export default function SettingsClient({
   initialAcademicYear: string
   initialCurrentSemester: string
   initialYearStartDate: string | null
+  canManageSchoolDays: boolean
+  initialSaturdayIsSchoolDay: boolean
+  initialHolidays: { id: string; name: string; startDate: string; endDate: string }[]
 }) {
   const [settings, setSettings] = useState<SchoolSettings>(initialSettings)
   const [saving, setSaving] = useState(false)
@@ -146,6 +153,55 @@ export default function SettingsClient({
   const [yearStartDate, setYearStartDate] = useState(initialYearStartDate ?? '')
   const [calendarLoading, setCalendarLoading] = useState(false)
   const [calendarMsg, setCalendarMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  // Teaching days: the weekly rest and the school's own holidays.
+  const [saturdayOn, setSaturdayOn] = useState(initialSaturdayIsSchoolDay)
+  const [holidays, setHolidays] = useState(initialHolidays)
+  const [holidayName, setHolidayName] = useState('')
+  const [holidayStart, setHolidayStart] = useState('')
+  const [holidayEnd, setHolidayEnd] = useState('')
+  const [daysLoading, setDaysLoading] = useState(false)
+  const [daysMsg, setDaysMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const handleAddHoliday = async () => {
+    if (!holidayName.trim() || !holidayStart) {
+      setDaysMsg({ ok: false, text: 'اسم الإجازة وتاريخ البداية مطلوبان' })
+      return
+    }
+    setDaysLoading(true)
+    setDaysMsg(null)
+    try {
+      const end = holidayEnd || holidayStart
+      const res = await addSchoolHoliday({ name: holidayName.trim(), startDate: holidayStart, endDate: end })
+      if (res.ok) {
+        // Shown immediately; the refresh below replaces it with the stored row.
+        setHolidays(prev => [...prev, { id: `pending-${Date.now()}`, name: holidayName.trim(), startDate: holidayStart, endDate: end }]
+          .sort((a, b) => a.startDate.localeCompare(b.startDate)))
+        setHolidayName(''); setHolidayStart(''); setHolidayEnd('')
+        setDaysMsg({ ok: true, text: 'أُضيفت الإجازة' })
+        router.refresh()
+      } else {
+        setDaysMsg({ ok: false, text: res.error })
+      }
+    } catch {
+      setDaysMsg({ ok: false, text: 'حدث خطأ غير متوقع' })
+    } finally {
+      setDaysLoading(false)
+    }
+  }
+
+  const handleDeleteHoliday = async (id: string) => {
+    const before = holidays
+    setHolidays(prev => prev.filter(h => h.id !== id))
+    const res = await deleteSchoolHoliday(id)
+    if (!res.ok) {
+      setHolidays(before)
+      setDaysMsg({ ok: false, text: res.error })
+    } else {
+      setDaysMsg({ ok: true, text: 'حُذفت الإجازة' })
+      router.refresh()
+    }
+  }
 
   const handleSaveCalendar = async () => {
     setCalendarLoading(true)
@@ -459,6 +515,111 @@ export default function SettingsClient({
             </button>
             {calendarMsg && <StatusMsg ok={calendarMsg.ok} text={calendarMsg.text} />}
           </div>
+        </Section>
+      )}
+
+      {/* ── Teaching days and holidays ───────────────────────────────────────── */}
+      {canManageSchoolDays && (
+        <Section title="أيام الدراسة والإجازات" icon={CalendarOff}>
+          <p className="text-sm text-muted-foreground mb-5 leading-7">
+            الأيام غير الدراسية تُستبعد من لوحة المتابعة، فلا تُحسب ضمن «أيام بلا تسجيل».
+            الجمعة إجازة دائماً، والسبت متروك لكم.
+          </p>
+
+          <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border border-border bg-muted/20 max-w-2xl">
+            <div>
+              <p className="font-bold text-sm">يوم السبت يوم دراسي</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {saturdayOn
+                  ? 'السبت محسوب كيوم دراسي، ويُتوقَّع فيه التسجيل.'
+                  : 'السبت إجازة، ولا يظهر في لوحة المتابعة ولا يُحسب بلا تسجيل.'}
+              </p>
+            </div>
+            <Toggle
+              enabled={saturdayOn}
+              onChange={async (v) => {
+                setSaturdayOn(v)
+                const res = await setSaturdayIsSchoolDay(v)
+                if (!res.ok) {
+                  setSaturdayOn(!v)
+                  setDaysMsg({ ok: false, text: res.error })
+                } else {
+                  setDaysMsg({ ok: true, text: v ? 'السبت أصبح يوم دراسة' : 'السبت أصبح إجازة' })
+                  router.refresh()
+                }
+              }}
+            />
+          </div>
+
+          <h3 className="font-bold text-sm mt-6 mb-3">الإجازات الرسمية</h3>
+          <div className="grid sm:grid-cols-4 gap-3 max-w-3xl items-end">
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold mb-1.5">اسم الإجازة</label>
+              <input
+                type="text"
+                value={holidayName}
+                onChange={e => setHolidayName(e.target.value)}
+                placeholder="إجازة عيد الفطر"
+                className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1.5">من</label>
+              <input
+                type="date"
+                value={holidayStart}
+                onChange={e => setHolidayStart(e.target.value)}
+                className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1.5">إلى</label>
+              <input
+                type="date"
+                value={holidayEnd}
+                onChange={e => setHolidayEnd(e.target.value)}
+                className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-sm"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mt-3">
+            <button
+              type="button"
+              onClick={handleAddHoliday}
+              disabled={daysLoading}
+              className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-sm disabled:opacity-50"
+            >
+              {daysLoading ? '...' : 'إضافة إجازة'}
+            </button>
+            {daysMsg && <StatusMsg ok={daysMsg.ok} text={daysMsg.text} />}
+          </div>
+
+          {holidays.length === 0 ? (
+            <p className="text-sm text-muted-foreground bg-muted/40 rounded-xl p-4 mt-5 max-w-3xl">
+              لا توجد إجازات مسجَّلة. أضف إجازات العيد واليوم الوطني ونصف العام حتى لا تُحسب أياماً مهملة.
+            </p>
+          ) : (
+            <div className="space-y-2 mt-5 max-w-3xl">
+              {holidays.map(h => (
+                <div key={h.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-border">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm truncate">{h.name}</p>
+                    <p className="text-xs text-muted-foreground" dir="ltr">
+                      {h.startDate}{h.endDate !== h.startDate ? ` → ${h.endDate}` : ''}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteHoliday(h.id)}
+                    aria-label="حذف الإجازة"
+                    className="px-3 py-2 rounded-lg text-red-600 hover:bg-red-50 shrink-0"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </Section>
       )}
 

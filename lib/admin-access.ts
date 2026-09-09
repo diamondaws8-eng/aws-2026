@@ -52,6 +52,14 @@ export type AdminAccess = {
   canManageStaff: boolean
   canManageTeachers: boolean
   canManageSchoolSettings: boolean
+  /**
+   * Which days the school teaches on, and its holiday calendar.
+   *
+   * Wider than canManageSchoolSettings on purpose: knowing that this
+   * Saturday is being taught is the principal's business, and making them
+   * ask a quality manager to flip it is how the calendar goes stale.
+   */
+  canManageSchoolDays: boolean
   /** May download a backup at all. */
   canBackup: boolean
   /** true = the backup covers the whole school, false = only the assigned grades. */
@@ -96,6 +104,7 @@ export const getAdminAccess = cache(async (): Promise<AdminAccess | null> => {
       canManageStaff: true,
       canManageTeachers: true,
       canManageSchoolSettings: true,
+      canManageSchoolDays: true,
       canBackup: true,
       backupAllGrades: true,
       canRestore: true,
@@ -139,6 +148,7 @@ export const getAdminAccess = cache(async (): Promise<AdminAccess | null> => {
     canManageStaff: isQualityManager,
     canManageTeachers: isQualityManager,
     canManageSchoolSettings: isQualityManager,
+    canManageSchoolDays: isQualityManager || isPrincipal,
     // Quality managers back up the whole school; principals back up their grades.
     canBackup: isQualityManager || isPrincipal,
     backupAllGrades: isQualityManager || staff.allGrades,

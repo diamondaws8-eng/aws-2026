@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { NotificationBell } from '@/components/notification-bell'
 import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage, raiseBehaviorCase } from '../../actions'
 import type { DailyStudentRecord, AbsenceLock, BlockedAbsence } from '../../actions'
+import { termLabel as termLabelOf } from '@/lib/academic'
 
 type Student = { id: string; fullName: string; parentPhone?: string | null }
 type DailyRecord = {
@@ -860,22 +861,35 @@ export default function ClassRoster({
                   <h3 className="font-bold text-lg mb-4">الدرجات المحفوظة</h3>
                   <div className="space-y-3">
                     {/* Group by Exam Name and Subject */}
+                    {/* The key carries the term and the year. Without them, an
+                        exam of the same name in the second term collapsed into
+                        the first term's row and showed one combined count —
+                        two different exams reported as one. */}
                     {Object.entries(
                       savedGrades.reduce((acc, curr) => {
-                        const key = `${curr.examName}_${curr.subjectId}`
-                        if (!acc[key]) acc[key] = { examName: curr.examName, subjectId: curr.subjectId, maxScore: curr.maxScore, count: 0, date: curr.createdAt }
+                        const key = `${curr.academicYear}_${curr.semester}_${curr.subjectId}_${curr.examName}`
+                        if (!acc[key]) acc[key] = {
+                          examName: curr.examName, subjectId: curr.subjectId, maxScore: curr.maxScore,
+                          semester: curr.semester, academicYear: curr.academicYear,
+                          count: 0, date: curr.createdAt,
+                        }
                         acc[key].count++
                         return acc
                       }, {} as Record<string, any>)
                     ).map(([key, group]: any) => {
                       const subj = subjects.find(s => s.id === group.subjectId)
+                      const isCurrentTerm = termLabel === termLabelOf(group.semester, group.academicYear)
                       return (
-                        <div key={key} className="p-4 bg-muted/20 border border-border rounded-xl flex items-center justify-between">
-                          <div>
+                        <div key={key} className="p-4 bg-muted/20 border border-border rounded-xl flex items-center justify-between gap-3">
+                          <div className="min-w-0">
                             <div className="font-bold">{group.examName}</div>
                             <div className="text-sm text-muted-foreground">{subj?.name}</div>
+                            <div className={`text-xs mt-1 ${isCurrentTerm ? 'text-muted-foreground' : 'text-amber-700 font-semibold'}`}>
+                              {termLabelOf(group.semester, group.academicYear)}
+                              {!isCurrentTerm && ' — فصل سابق'}
+                            </div>
                           </div>
-                          <div className="text-left">
+                          <div className="text-left shrink-0">
                             <div className="text-sm font-semibold">{group.count} طالب</div>
                             <div className="text-xs text-muted-foreground">الدرجة من {group.maxScore}</div>
                           </div>

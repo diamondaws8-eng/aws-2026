@@ -2,7 +2,9 @@ import { db } from '@/lib/db'
 import { students, teachers, classes, gradeLevels, notifications, parentWhatsappMessages, dailyRecords, lessonRecords, subjects } from '@/lib/db/schema'
 import { eq, desc, and, isNull, count, or, gt, gte, sql, asc, inArray } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
-import { today, schoolDate, wholePercents } from '@/lib/utils'
+import { today, wholePercents } from '@/lib/utils'
+import { lastSchoolDays } from '@/lib/school-days'
+import { getSchoolDaysConfig } from '@/lib/school-holidays'
 import { requireAdminAccess } from '@/lib/admin-access'
 import { getLeaderboard } from '@/lib/points'
 import { LeaderboardClient } from './leaderboard-client'
@@ -33,13 +35,13 @@ export default async function AdminDashboardPage() {
   const todayStr = today()
 
   // ── Daily performance window (14-day trend, 8-day per-class history) ────────
-  const trendDays: string[] = []
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date()
-    d.setDate(d.getDate() - i)
-    trendDays.push(schoolDate(d))
-  }
-  const backNavDays = trendDays.slice(-8) // today + up to 7 previous days, ascending
+  // Teaching days only. Fourteen *calendar* days always contain four weekend
+  // days, so the panel reported "4 of 14 days with no recording" at a school
+  // that had recorded every single school day — and stepping back through the
+  // per-day history landed on empty Fridays.
+  const daysConfig = await getSchoolDaysConfig(school.id)
+  const trendDays = lastSchoolDays(14, daysConfig, todayStr)
+  const backNavDays = trendDays.slice(-8) // today + up to 7 previous school days, ascending
 
   // None of these depend on each other, so they run in parallel — the dashboard
   // used to wait for a dozen sequential round trips to the database.

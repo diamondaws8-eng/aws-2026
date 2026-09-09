@@ -99,6 +99,13 @@ export const schools = pgTable('schools', {
    */
   yearStartDate: text('year_start_date'),
 
+  /**
+   * Whether Saturday is taught. Friday never is, so it stays fixed; Saturday
+   * varies by school and by season, which is exactly why it is a setting the
+   * school's own management flips rather than a constant in the code.
+   */
+  saturdayIsSchoolDay: boolean('saturday_is_school_day').notNull().default(false),
+
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   // Every admin-portal request resolves the school through this column.
@@ -511,4 +518,26 @@ export const parentActivationLog = pgTable('parent_activation_log', {
 }, (t) => [
   index('parent_activation_school_idx').on(t.schoolId),
   index('parent_activation_parent_idx').on(t.parentUserId),
+])
+
+// ─── School holidays (إجازات المدرسة) ────────────────────────────────────────
+/**
+ * Days the school is closed, beyond the weekly rest.
+ *
+ * Stored as inclusive ranges because that is how a school thinks about them —
+ * "إجازة عيد الفطر من كذا إلى كذا" — not as a row per day. A range costs one
+ * row whether it covers a day or a month.
+ *
+ * These days are removed from the dashboard's window, so "days with no
+ * recording" means neglect and nothing else.
+ */
+export const schoolHolidays = pgTable('school_holidays', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  schoolId: uuid('school_id').notNull(),
+  name: text('name').notNull(),
+  startDate: text('start_date').notNull(), // YYYY-MM-DD, inclusive
+  endDate: text('end_date').notNull(),     // YYYY-MM-DD, inclusive
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('school_holidays_school_idx').on(t.schoolId, t.startDate),
 ])
