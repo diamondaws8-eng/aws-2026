@@ -66,6 +66,15 @@ export const schools = pgTable('schools', {
   // JSONB for dynamic settings: { features: { attendance: boolean, behavior: boolean, homework: boolean }, points: { attendance: number, behavior: number, homework: number } }
   settings: text('settings').default('{"features":{"attendance":true,"behavior":true,"homework":true},"points":{"attendance":1,"behavior":2,"homework":1}}'),
 
+  /**
+   * The wording of the activation invitation sent to families, kept in its own
+   * column rather than inside `settings`: that blob is rewritten wholesale by
+   * the settings screen, and a message the school spent time phrasing must not
+   * disappear because somebody saved an unrelated setting. Null = use the
+   * built-in text in lib/parent-activation.ts.
+   */
+  parentActivationMessage: text('parent_activation_message'),
+
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   // Every admin-portal request resolves the school through this column.
@@ -455,3 +464,27 @@ export const parentWhatsappMessages = pgTable('parent_whatsapp_messages', {
   index('parent_msgs_class_date_idx').on(t.classId, t.date),
 ])
 
+
+// ─── Parent activation outreach (حملة تفعيل حسابات أولياء الأمور) ────────────
+/**
+ * One row per time a family was invited to activate their portal account.
+ *
+ * A campaign across 281 families is not one afternoon's work but several, split
+ * between people, and the only question that matters when you come back to it
+ * is "who have we already asked". Without a record that question is answered by
+ * memory, and a parent gets messaged four times while another gets none.
+ *
+ * It deliberately keeps a row per attempt rather than a flag per parent: how
+ * many times a family was asked before they responded is the thing that tells
+ * the school whether the message itself is working.
+ */
+export const parentActivationLog = pgTable('parent_activation_log', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  schoolId: uuid('school_id').notNull(),
+  parentUserId: text('parent_user_id').notNull(), // FK → user.id
+  sentByUserId: text('sent_by_user_id').notNull(), // FK → user.id (who did the asking)
+  sentAt: timestamp('sent_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('parent_activation_school_idx').on(t.schoolId),
+  index('parent_activation_parent_idx').on(t.parentUserId),
+])
