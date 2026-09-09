@@ -125,6 +125,7 @@ export default function SettingsClient({
   canManageSchoolDays,
   initialSaturdayIsSchoolDay,
   initialHolidays,
+  initialStages = [],
 }: {
   schoolId: string
   initialSettings: SchoolSettings
@@ -140,7 +141,8 @@ export default function SettingsClient({
   initialYearStartDate: string | null
   canManageSchoolDays: boolean
   initialSaturdayIsSchoolDay: boolean
-  initialHolidays: { id: string; name: string; startDate: string; endDate: string }[]
+  initialHolidays: { id: string; name: string; startDate: string; endDate: string; gradeLevelId: string | null }[]
+  initialStages?: { id: string; name: string; saturdayIsSchoolDay: boolean | null }[]
 }) {
   const [settings, setSettings] = useState<SchoolSettings>(initialSettings)
   const [saving, setSaving] = useState(false)
@@ -156,6 +158,9 @@ export default function SettingsClient({
 
   // Teaching days: the weekly rest and the school's own holidays.
   const [saturdayOn, setSaturdayOn] = useState(initialSaturdayIsSchoolDay)
+  // Which calendar is being edited: the school's, or one stage's own.
+  const [calScope, setCalScope] = useState<string>('')
+  const [stages, setStages] = useState(initialStages)
   const [holidays, setHolidays] = useState(initialHolidays)
   const [holidayName, setHolidayName] = useState('')
   const [holidayStart, setHolidayStart] = useState('')
@@ -172,10 +177,10 @@ export default function SettingsClient({
     setDaysMsg(null)
     try {
       const end = holidayEnd || holidayStart
-      const res = await addSchoolHoliday({ name: holidayName.trim(), startDate: holidayStart, endDate: end })
+      const res = await addSchoolHoliday({ name: holidayName.trim(), startDate: holidayStart, endDate: end, gradeLevelId: calScope || null })
       if (res.ok) {
         // Shown immediately; the refresh below replaces it with the stored row.
-        setHolidays(prev => [...prev, { id: `pending-${Date.now()}`, name: holidayName.trim(), startDate: holidayStart, endDate: end }]
+        setHolidays(prev => [...prev, { id: `pending-${Date.now()}`, name: holidayName.trim(), startDate: holidayStart, endDate: end, gradeLevelId: calScope || null }]
           .sort((a, b) => a.startDate.localeCompare(b.startDate)))
         setHolidayName(''); setHolidayStart(''); setHolidayEnd('')
         setDaysMsg({ ok: true, text: 'أُضيفت الإجازة' })
@@ -524,34 +529,99 @@ export default function SettingsClient({
           <p className="text-sm text-muted-foreground mb-5 leading-7">
             الأيام غير الدراسية تُستبعد من لوحة المتابعة، فلا تُحسب ضمن «أيام بلا تسجيل».
             الجمعة إجازة دائماً، والسبت متروك لكم.
+            <br />
+            <span className="font-semibold text-foreground">ولكل مرحلة أن يكون لها تقويمها الخاص — أو تتبع
+            المدرسة.</span> لا شيء مفروض: المرحلة التي لا رأي لها تسير على تقويم المدرسة.
           </p>
 
-          <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border border-border bg-muted/20 max-w-2xl">
-            <div>
-              <p className="font-bold text-sm">يوم السبت يوم دراسي</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {saturdayOn
-                  ? 'السبت محسوب كيوم دراسي، ويُتوقَّع فيه التسجيل.'
-                  : 'السبت إجازة، ولا يظهر في لوحة المتابعة ولا يُحسب بلا تسجيل.'}
-              </p>
+          {stages.length > 0 && (
+            <div className="mb-5 max-w-2xl">
+              <label className="block text-sm font-semibold mb-1.5">التقويم الذي تعدّله الآن</label>
+              <select
+                value={calScope}
+                onChange={e => { setCalScope(e.target.value); setDaysMsg(null) }}
+                className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-sm"
+              >
+                <option value="">كل المدرسة (التقويم الأساسي)</option>
+                {stages.map(st => (
+                  <option key={st.id} value={st.id}>
+                    {st.name}
+                    {st.saturdayIsSchoolDay === null ? ' — يتبع المدرسة' : st.saturdayIsSchoolDay ? ' — السبت دراسة' : ' — السبت إجازة'}
+                  </option>
+                ))}
+              </select>
             </div>
-            <Toggle
-              enabled={saturdayOn}
-              onChange={async (v) => {
-                setSaturdayOn(v)
-                const res = await setSaturdayIsSchoolDay(v)
-                if (!res.ok) {
-                  setSaturdayOn(!v)
-                  setDaysMsg({ ok: false, text: res.error })
-                } else {
-                  setDaysMsg({ ok: true, text: v ? 'السبت أصبح يوم دراسة' : 'السبت أصبح إجازة' })
-                  router.refresh()
-                }
-              }}
-            />
-          </div>
+          )}
 
-          <h3 className="font-bold text-sm mt-6 mb-3">الإجازات الرسمية</h3>
+          {calScope === '' ? (
+            <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border border-border bg-muted/20 max-w-2xl">
+              <div>
+                <p className="font-bold text-sm">يوم السبت يوم دراسي — لكل المدرسة</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {saturdayOn
+                    ? 'السبت محسوب كيوم دراسي، ويُتوقَّع فيه التسجيل.'
+                    : 'السبت إجازة، ولا يظهر في لوحة المتابعة ولا يُحسب بلا تسجيل.'}
+                  {' '}تتبعه كل مرحلة لم تحدد رأيها.
+                </p>
+              </div>
+              <Toggle
+                enabled={saturdayOn}
+                onChange={async (v) => {
+                  setSaturdayOn(v)
+                  const res = await setSaturdayIsSchoolDay(v, null)
+                  if (!res.ok) {
+                    setSaturdayOn(!v)
+                    setDaysMsg({ ok: false, text: res.error })
+                  } else {
+                    setDaysMsg({ ok: true, text: v ? 'السبت أصبح يوم دراسة' : 'السبت أصبح إجازة' })
+                    router.refresh()
+                  }
+                }}
+              />
+            </div>
+          ) : (
+            <div className="p-4 rounded-2xl border border-border bg-muted/20 max-w-2xl">
+              <p className="font-bold text-sm mb-1">يوم السبت — {stages.find(s => s.id === calScope)?.name}</p>
+              <p className="text-xs text-muted-foreground mb-3">
+                «يتبع المدرسة» هو الوضع الطبيعي. لا تخرج عنه إلا إذا كان هذا المبنى يختلف فعلاً.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {([
+                  { v: null, label: `يتبع المدرسة (${saturdayOn ? 'دراسة' : 'إجازة'})` },
+                  { v: true, label: 'يوم دراسة' },
+                  { v: false, label: 'إجازة' },
+                ] as { v: boolean | null; label: string }[]).map(opt => {
+                  const current = stages.find(s => s.id === calScope)?.saturdayIsSchoolDay ?? null
+                  const on = current === opt.v
+                  return (
+                    <button
+                      key={String(opt.v)}
+                      type="button"
+                      onClick={async () => {
+                        const before = stages
+                        setStages(prev => prev.map(s => s.id === calScope ? { ...s, saturdayIsSchoolDay: opt.v } : s))
+                        const res = await setSaturdayIsSchoolDay(opt.v, calScope)
+                        if (!res.ok) { setStages(before); setDaysMsg({ ok: false, text: res.error }) }
+                        else { setDaysMsg({ ok: true, text: 'حُفظ' }); router.refresh() }
+                      }}
+                      className={`rounded-xl px-4 py-2.5 text-sm font-semibold ${on ? 'bg-primary text-primary-foreground' : 'bg-background border border-border hover:bg-muted'}`}
+                    >
+                      {opt.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <h3 className="font-bold text-sm mt-6 mb-1">
+            الإجازات {calScope ? `— ${stages.find(s => s.id === calScope)?.name} وحدها` : 'الرسمية — لكل المدرسة'}
+          </h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            {calScope
+              ? 'تُضاف هذه فوق إجازات المدرسة، ولا تغلق غير هذه المرحلة.'
+              : 'تغلق المدرسة كلها. لإغلاق مبنى واحد فقط، اختر مرحلته من الأعلى.'}
+          </p>
           <div className="grid sm:grid-cols-4 gap-3 max-w-3xl items-end">
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold mb-1.5">اسم الإجازة</label>
@@ -594,13 +664,13 @@ export default function SettingsClient({
             {daysMsg && <StatusMsg ok={daysMsg.ok} text={daysMsg.text} />}
           </div>
 
-          {holidays.length === 0 ? (
+          {(() => { const shown = holidays.filter(h => (h.gradeLevelId ?? '') === calScope); return shown.length === 0 ? (
             <p className="text-sm text-muted-foreground bg-muted/40 rounded-xl p-4 mt-5 max-w-3xl">
               لا توجد إجازات مسجَّلة. أضف إجازات العيد واليوم الوطني ونصف العام حتى لا تُحسب أياماً مهملة.
             </p>
           ) : (
             <div className="space-y-2 mt-5 max-w-3xl">
-              {holidays.map(h => (
+              {shown.map(h => (
                 <div key={h.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-border">
                   <div className="min-w-0">
                     <p className="font-semibold text-sm truncate">{h.name}</p>
@@ -619,7 +689,7 @@ export default function SettingsClient({
                 </div>
               ))}
             </div>
-          )}
+          ) })()}
         </Section>
       )}
 

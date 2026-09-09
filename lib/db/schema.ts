@@ -247,6 +247,16 @@ export const gradeLevels = pgTable('grade_levels', {
   schoolId: uuid('school_id').notNull(),
   name: text('name').notNull(),
   orderIndex: integer('order_index').notNull().default(0),
+
+  /**
+   * This stage's own answer on Saturday — or no answer at all.
+   *
+   * Null means "whatever the school says", which is the state every stage
+   * starts in and most will stay in. A building that teaches Saturday while the
+   * rest of the school rests sets true here; one that rests while the rest
+   * teaches sets false. Nothing is forced to have an opinion.
+   */
+  saturdayIsSchoolDay: boolean('saturday_is_school_day'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   index('grade_levels_school_idx').on(t.schoolId),
@@ -589,6 +599,16 @@ export const parentActivationLog = pgTable('parent_activation_log', {
 export const schoolHolidays = pgTable('school_holidays', {
   id: uuid('id').defaultRandom().primaryKey(),
   schoolId: uuid('school_id').notNull(),
+
+  /**
+   * Null = the whole school is closed. Set = only this stage is.
+   *
+   * Both are real cases: Eid closes everyone, while an exam week or a building
+   * repair closes one side only. Neither is imposed — a school that never needs
+   * the distinction simply never sets it.
+   */
+  gradeLevelId: uuid('grade_level_id'),
+
   name: text('name').notNull(),
   startDate: text('start_date').notNull(), // YYYY-MM-DD, inclusive
   endDate: text('end_date').notNull(),     // YYYY-MM-DD, inclusive

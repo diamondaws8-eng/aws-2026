@@ -39,7 +39,14 @@ export default async function AdminDashboardPage() {
   // days, so the panel reported "4 of 14 days with no recording" at a school
   // that had recorded every single school day — and stepping back through the
   // per-day history landed on empty Fridays.
-  const daysConfig = await getSchoolDaysConfig(school.id)
+  // Someone who answers for exactly one stage is shown that stage's calendar,
+  // including any Saturday or holiday it keeps for itself. Anyone looking at
+  // several stages at once gets the school's, since a single window cannot
+  // honour two disagreeing calendars at the same time.
+  const daysConfig = await getSchoolDaysConfig(
+    school.id,
+    scopedGradeIds?.length === 1 ? scopedGradeIds[0] : null,
+  )
   const trendDays = lastSchoolDays(14, daysConfig, todayStr)
   const backNavDays = trendDays.slice(-8) // today + up to 7 previous school days, ascending
 

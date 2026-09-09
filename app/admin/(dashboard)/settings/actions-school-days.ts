@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { schools, schoolHolidays } from '@/lib/db/schema'
+import { schools, schoolHolidays, gradeLevels } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { getAdminAccess } from '@/lib/admin-access'
@@ -28,17 +28,45 @@ async function requireDaysManager() {
   return { error: null, access }
 }
 
-/** The weekly rest. Friday is fixed; only Saturday is the school's to decide. */
-export async function setSaturdayIsSchoolDay(on: boolean): Promise<DaysResult> {
+/**
+ * The weekly rest. Friday is fixed; only Saturday is anybody's to decide.
+ *
+ * `gradeLevelId` null sets the school's answer. Naming a stage sets that
+ * stage's own — and `on` null there means it has no answer of its own and goes
+ * back to following the school, which is where every stage starts.
+ */
+export async function setSaturdayIsSchoolDay(
+  on: boolean | null,
+  gradeLevelId?: string | null,
+): Promise<DaysResult> {
   const { error, access } = await requireDaysManager()
   if (!access) return { ok: false, error }
 
   try {
-    await db.update(schools)
-      .set({ saturdayIsSchoolDay: !!on })
-      .where(eq(schools.id, access.school.id))
+    if (gradeLevelId) {
+      const [stage] = await db
+        .select({ id: gradeLevels.id, name: gradeLevels.name })
+        .from(gradeLevels)
+        .where(and(eq(gradeLevels.id, gradeLevelId), eq(gradeLevels.schoolId, access.school.id)))
+        .limit(1)
+      if (!stage) return { ok: false, error: 'المرحلة غير موجودة' }
 
-    await logAudit(access, 'settings.update', on ? 'تشغيل يوم السبت' : 'إيقاف يوم السبت')
+      await db.update(gradeLevels)
+        .set({ saturdayIsSchoolDay: on })
+        .where(eq(gradeLevels.id, gradeLevelId))
+
+      await logAudit(access, 'settings.update',
+        `يوم السبت — ${stage.name}: ${on === null ? 'يتبع المدرسة' : on ? 'يوم دراسة' : 'إجازة'}`)
+    } else {
+      // The school's own answer is never absent: it is the value stages fall
+      // back to, so it stays a plain true/false.
+      await db.update(schools)
+        .set({ saturdayIsSchoolDay: on === true })
+        .where(eq(schools.id, access.school.id))
+
+      await logAudit(access, 'settings.update', on ? 'تشغيل يوم السبت' : 'إيقاف يوم السبت')
+    }
+
     revalidatePath('/admin', 'layout')
     return { ok: true }
   } catch (e) {
@@ -51,6 +79,8 @@ export async function addSchoolHoliday(input: {
   name: string
   startDate: string
   endDate: string
+  /** Null closes the whole school; a stage id closes only that stage. */
+  gradeLevelId?: string | null
 }): Promise<DaysResult> {
   const { error, access } = await requireDaysManager()
   if (!access) return { ok: false, error }
@@ -76,14 +106,28 @@ export async function addSchoolHoliday(input: {
       return { ok: false, error: `الحد الأقصى ${MAX_HOLIDAYS} إجازة` }
     }
 
+    // A stage id from the browser is only honoured if it is really this
+    // school's, so a stray value cannot file a holiday under someone else.
+    let gradeLevelId: string | null = null
+    if (input.gradeLevelId) {
+      const [stage] = await db
+        .select({ id: gradeLevels.id })
+        .from(gradeLevels)
+        .where(and(eq(gradeLevels.id, input.gradeLevelId), eq(gradeLevels.schoolId, access.school.id)))
+        .limit(1)
+      if (!stage) return { ok: false, error: 'المرحلة غير موجودة' }
+      gradeLevelId = stage.id
+    }
+
     await db.insert(schoolHolidays).values({
       schoolId: access.school.id,
+      gradeLevelId,
       name,
       startDate,
       endDate,
     })
 
-    await logAudit(access, 'settings.update', `إضافة إجازة: ${name}`, { startDate, endDate })
+    await logAudit(access, 'settings.update', `إضافة إجازة: ${name}`, { startDate, endDate, gradeLevelId })
     revalidatePath('/admin', 'layout')
     return { ok: true }
   } catch (e) {
