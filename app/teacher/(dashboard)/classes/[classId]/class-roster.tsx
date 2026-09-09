@@ -516,8 +516,13 @@ export default function ClassRoster({
                 <table className="w-full text-sm">
                   <thead className="bg-muted/60 text-muted-foreground font-semibold text-xs sticky top-0 z-10">
                     <tr>
-                      <th className="px-3 py-3 text-center w-10">#</th>
-                      <th className="px-3 py-3 text-right min-w-[130px]">الطالب</th>
+                      {/* The ordinal is the first thing worth losing on a phone. */}
+                      <th className="hidden sm:table-cell px-3 py-3 text-center w-10">#</th>
+                      {/* Pinned. The row is about 1240px wide, so on a phone the
+                          teacher scrolls sideways through six columns — and without
+                          this they end up marking a pupil whose name has scrolled
+                          out of sight. */}
+                      <th className="sticky right-0 z-20 bg-muted px-3 py-3 text-right min-w-[150px]">الطالب</th>
                       {schoolSettings?.features?.attendance !== false && <th className="px-3 py-3 text-center min-w-[220px]">الحضور</th>}
                       {schoolSettings?.features?.behavior !== false && <th className="px-3 py-3 text-center min-w-[160px]">السلوك</th>}
                       {schoolSettings?.features?.homework !== false && <th className="px-3 py-3 text-center min-w-[180px]">الواجب</th>}
@@ -545,8 +550,8 @@ export default function ClassRoster({
                           : att === 'late' ? 'bg-amber-50/30'
                           : !reviewed.has(student.id) ? 'bg-amber-50/20' : ''
                         }`}>
-                          <td className="px-3 py-3 text-center text-xs text-muted-foreground">{idx + 1}</td>
-                          <td className="px-3 py-3 font-semibold">
+                          <td className="hidden sm:table-cell px-3 py-3 text-center text-xs text-muted-foreground">{idx + 1}</td>
+                          <td className="sticky right-0 z-10 bg-card px-3 py-3 font-semibold">
                             <span className="flex items-center gap-1.5">
                               {!reviewed.has(student.id) && (
                                 <span className="size-1.5 shrink-0 rounded-full bg-amber-400" title="لم تُراجع بعد" />

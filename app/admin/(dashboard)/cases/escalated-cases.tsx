@@ -158,7 +158,12 @@ function DecisionModal({ c, onClose }: { c: EscalatedCase; onClose: () => void }
 
           <div>
             <p className="text-sm font-bold mb-2">قرارك</p>
-            <div className="grid grid-cols-3 gap-2">
+            {/* Stacked on a phone. These are three decisions with a line of
+                explanation each; squeezed into thirds of a 375px screen the
+                explanation is what gets lost, and this is the screen where a
+                deputy decides what reaches a family. The counsellor's own
+                decision buttons already collapse this way. */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {CHOICES.map((ch) => (
                 <button
                   key={ch.key}

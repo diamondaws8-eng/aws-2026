@@ -118,7 +118,10 @@ export default async function ParentDashboardPage({
         </div>
 
         {/* Attendance grid */}
-        <div className="grid grid-cols-4 gap-3">
+        {/* Two across on a phone. Four tiles on a 375px screen leave about 76px
+            each, and "حضور حصة" then breaks across two lines under the number.
+            Parents read this on a phone almost exclusively. */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: 'حضور حصة', value: attendance.present,  emoji: '✅', color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
             { label: 'غياب حصة', value: attendance.absent,   emoji: '❌', color: 'text-red-600 bg-red-50 border-red-100' },
