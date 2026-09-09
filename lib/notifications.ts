@@ -1,5 +1,5 @@
 import { db } from '@/lib/db'
-import { userNotifications, schoolStaff, students, classes, teachers, schools } from '@/lib/db/schema'
+import { userNotifications, schoolStaff, students, classes, teachers, user } from '@/lib/db/schema'
 import { eq, and, desc, isNull, inArray, sql } from 'drizzle-orm'
 
 /**
@@ -17,6 +17,7 @@ export const NOTIFICATION_KINDS = {
   case_escalated: { label: 'حالة محالة إليك', icon: 'up', tone: 'violet' },
   case_returned: { label: 'حالة أُعيدت إليك', icon: 'undo', tone: 'amber' },
   parent_informed: { label: 'ملاحظة بخصوص ابنك', icon: 'message', tone: 'rose' },
+  absence: { label: 'غياب', icon: 'userx', tone: 'red' },
 } as const
 
 export type NotificationKind = keyof typeof NOTIFICATION_KINDS
@@ -123,6 +124,108 @@ export async function parentsForAnnouncement(
 
   // Siblings share one login, so the same parent must not be told twice.
   return [...new Set(rows.map((r) => r.parentUserId).filter((v): v is string => !!v))]
+}
+
+/**
+ * Everyone who works at the school: every teacher, plus the admin team.
+ * A notice for the staff room has no student and no class — it is addressed to
+ * the people, so it is built from the staff tables rather than from pupils.
+ */
+export async function staffForAnnouncement(
+  schoolId: string,
+  exceptUserId?: string,
+): Promise<{ userId: string; href: string }[]> {
+  const [teacherRows, staffRows] = await Promise.all([
+    db.select({ userId: teachers.userId }).from(teachers).where(eq(teachers.schoolId, schoolId)),
+    db.select({ userId: schoolStaff.userId, role: schoolStaff.role }).from(schoolStaff).where(eq(schoolStaff.schoolId, schoolId)),
+  ])
+
+  // Each portal keeps its own inbox page, so the link has to be chosen per
+  // person — one href for everyone would send a teacher to a screen they
+  // cannot open. Somebody who is both a teacher and on the admin team is
+  // listed once, under the desk they'd read it at.
+  const byUser = new Map<string, string>()
+  for (const r of teacherRows) {
+    if (r.userId && r.userId !== exceptUserId) byUser.set(r.userId, '/teacher/notifications')
+  }
+  for (const r of staffRows) {
+    if (!r.userId || r.userId === exceptUserId) continue
+    byUser.set(r.userId, r.role === 'counselor' ? '/counselor/notifications' : '/admin/my-notifications')
+  }
+  return [...byUser].map(([userId, href]) => ({ userId, href }))
+}
+
+/**
+ * How many families can actually be reached today.
+ *
+ * A parent still holding the starter password sees the "choose a password"
+ * screen instead of the portal, so a notice addressed to them is written but
+ * never seen. The sender is told the number rather than left to assume that
+ * "sent to 281" means 281 people read it.
+ */
+export async function parentReach(schoolId: string, recipientIds: string[]): Promise<{ total: number; reachable: number }> {
+  if (recipientIds.length === 0) return { total: 0, reachable: 0 }
+  const rows = await db
+    .select({ id: user.id, mustChange: user.mustChangePassword })
+    .from(user)
+    .where(inArray(user.id, recipientIds))
+  return { total: recipientIds.length, reachable: rows.filter((r) => !r.mustChange).length }
+}
+
+/**
+ * How many parent accounts have been activated at all.
+ *
+ * Shown on the sending screen rather than only after a send: "nobody got my
+ * notice" almost always means the accounts were never opened — a parent still
+ * holding the starter password sees the "choose a password" screen instead of
+ * the portal, so a notice addressed to them is written and never seen.
+ *
+ * Siblings share one login, so this counts accounts, not children.
+ */
+export async function parentActivation(schoolId: string): Promise<{ total: number; activated: number }> {
+  const rows = await db
+    .selectDistinct({ id: user.id, mustChange: user.mustChangePassword })
+    .from(students)
+    .innerJoin(user, eq(user.id, students.parentUserId))
+    .where(eq(students.schoolId, schoolId))
+  return { total: rows.length, activated: rows.filter((r) => !r.mustChange).length }
+}
+
+/**
+ * Which of these students already had a notification of this kind today.
+ *
+ * The register is the first guard against telling a family twice — a pupil the
+ * roll already shows as out is not announced again — but it is not the last:
+ * the teacher who owns an absence may undo it, and a later period could then
+ * write a fresh one. "Today" is the school's day, not the server's, so the
+ * comparison is made in the school's timezone.
+ */
+export async function notifiedTodayFor(
+  schoolId: string,
+  kind: NotificationKind,
+  entityIds: string[],
+): Promise<Set<string>> {
+  if (entityIds.length === 0) return new Set()
+  const rows = await db
+    .select({ entityId: userNotifications.entityId })
+    .from(userNotifications)
+    .where(and(
+      eq(userNotifications.schoolId, schoolId),
+      eq(userNotifications.kind, kind),
+      inArray(userNotifications.entityId, entityIds),
+      sql`${userNotifications.createdAt} AT TIME ZONE 'Asia/Riyadh' >= date_trunc('day', now() AT TIME ZONE 'Asia/Riyadh')`,
+    ))
+  return new Set(rows.map((r) => r.entityId).filter((v): v is string => !!v))
+}
+
+/**
+ * Removing the announcement must remove it from the bells it was copied into,
+ * or a notice the school retracted keeps sitting in three hundred pockets.
+ */
+export async function deleteNotificationsForEntity(schoolId: string, entityId: string): Promise<void> {
+  await db
+    .delete(userNotifications)
+    .where(and(eq(userNotifications.schoolId, schoolId), eq(userNotifications.entityId, entityId)))
 }
 
 // ─── Reading ──────────────────────────────────────────────────────────────────

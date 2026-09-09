@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { authClient } from '@/lib/auth-client'
 import { updateTeacherSettings } from './actions'
+import { NotificationBell } from '@/components/notification-bell'
 
 type Templates = { positive: string[]; negative: string[] }
 
@@ -106,9 +107,12 @@ export function TeacherSettingsClient({
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">الإعدادات</h1>
-        <p className="text-sm text-muted-foreground mt-1">إدارة حسابك وقوالب واتساب الخاصة بك</p>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">الإعدادات</h1>
+          <p className="text-sm text-muted-foreground mt-1">إدارة حسابك وقوالب واتساب الخاصة بك</p>
+        </div>
+        <NotificationBell />
       </div>
 
       {status === 'success' && (

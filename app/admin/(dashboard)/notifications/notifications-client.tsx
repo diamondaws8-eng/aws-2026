@@ -17,6 +17,7 @@ const TYPE_ICON: Record<string, LucideIcon> = {
 export default function NotificationsClient({ schoolId, userId, classes, students, notifications, canSend = true }: any) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
+  const [audience, setAudience] = useState('parents') // parents, staff, both
   const [targetType, setTargetType] = useState('all') // all, class, student
   const [targetId, setTargetId] = useState('')
   const [type, setType] = useState('info')
@@ -35,18 +36,32 @@ export default function NotificationsClient({ schoolId, userId, classes, student
         expiresAt = d.toISOString()
       }
 
+      // A staff notice is addressed to people, not to a class — the server
+      // refuses the combination, so never send a target with it.
+      const staffOnly = audience !== 'parents'
       const payload = {
-        schoolId, fromUserId: userId, title, body, type, expiresAt,
-        classId: targetType === 'class' ? targetId : null,
-        studentId: targetType === 'student' ? targetId : null
+        schoolId, fromUserId: userId, title, body, type, expiresAt, audience,
+        classId: !staffOnly && targetType === 'class' ? targetId : null,
+        studentId: !staffOnly && targetType === 'student' ? targetId : null
       }
-      const res = await sendNotification(payload)
+      const res: any = await sendNotification(payload)
       if (res && res.ok === false) {
         alert(res.error || 'حدث خطأ أثناء الإرسال')
         return
       }
       setTitle(''); setBody('');
-      alert('تم إرسال التنبيه بنجاح')
+
+      // Say who it actually reached. "Sent to 281" reads like 281 people saw
+      // it; a family still on the starter password sees the "choose a password"
+      // screen instead of the portal, so their copy is written and never read.
+      const lines = ['تم إرسال التنبيه']
+      if (res?.parents) lines.push(`أولياء الأمور: ${res.parents}`)
+      if (res?.staff) lines.push(`المعلمون والإدارة: ${res.staff}`)
+      if (res?.parentsNotActivated > 0) {
+        lines.push('')
+        lines.push(`تنبيه: ${res.parentsNotActivated} من أولياء الأمور لم يفعّلوا حساباتهم بعد (لم يغيّروا كلمة المرور الافتراضية)، ولن يظهر لهم الإشعار حتى يدخلوا ويختاروا كلمة مرور.`)
+      }
+      alert(lines.join('\n'))
     } catch (err) {
       alert('حدث خطأ أثناء الإرسال')
     } finally {
@@ -131,15 +146,31 @@ export default function NotificationsClient({ schoolId, userId, classes, student
             </div>
 
             <div>
+              <label className="block text-sm font-semibold mb-1">إلى مَن</label>
+              <select value={audience} onChange={e => { setAudience(e.target.value); if (e.target.value !== 'parents') { setTargetType('all'); setTargetId('') } }} className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary">
+                <option value="parents">أولياء الأمور</option>
+                <option value="staff">المعلمون والإدارة</option>
+                <option value="both">الجميع (أولياء الأمور والطاقم)</option>
+              </select>
+              {audience !== 'parents' && (
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  تنبيه الطاقم يصل لكل المعلمين وفريق الإدارة — ولا يُخصَّص لفصل أو طالب.
+                </p>
+              )}
+            </div>
+
+            {audience !== 'staff' && (
+            <div>
               <label className="block text-sm font-semibold mb-1">المستهدف</label>
-              <select value={targetType} onChange={e => { setTargetType(e.target.value); setTargetId('') }} className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary">
+              <select value={targetType} disabled={audience === 'both'} onChange={e => { setTargetType(e.target.value); setTargetId('') }} className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary disabled:opacity-60">
                 <option value="all">الجميع</option>
                 <option value="class">فصل محدد</option>
                 <option value="student">طالب محدد</option>
               </select>
             </div>
+            )}
 
-            {targetType === 'class' && (
+            {audience === 'parents' && targetType === 'class' && (
               <div className="animate-in fade-in slide-in-from-top-2">
                 <label className="block text-sm font-semibold mb-1">اختر الفصل</label>
                 <select required value={targetId} onChange={e => setTargetId(e.target.value)} className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary">
@@ -149,7 +180,7 @@ export default function NotificationsClient({ schoolId, userId, classes, student
               </div>
             )}
 
-            {targetType === 'student' && (
+            {audience === 'parents' && targetType === 'student' && (
               <div className="animate-in fade-in slide-in-from-top-2">
                 <label className="block text-sm mb-1">اختر الطالب</label>
                 <select required value={targetId} onChange={e => setTargetId(e.target.value)} className="w-full p-3 rounded-xl border border-border bg-background outline-none">

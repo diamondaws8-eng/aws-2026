@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { Bell, AlertTriangle, CheckCircle2, ArrowUpCircle, Undo2, MessageSquare, Loader2 } from 'lucide-react'
+import { Bell, AlertTriangle, CheckCircle2, ArrowUpCircle, Undo2, MessageSquare, UserX, Loader2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
   getMyNotificationsInbox,
@@ -18,6 +18,7 @@ const KIND_META: Record<string, { icon: LucideIcon; className: string }> = {
   case_escalated: { icon: ArrowUpCircle, className: 'bg-violet-50 text-violet-600 border-violet-100' },
   case_returned: { icon: Undo2, className: 'bg-amber-50 text-amber-600 border-amber-100' },
   parent_informed: { icon: MessageSquare, className: 'bg-rose-50 text-rose-600 border-rose-100' },
+  absence: { icon: UserX, className: 'bg-red-50 text-red-600 border-red-100' },
 }
 
 function relativeAr(date: Date): string {
@@ -32,14 +33,8 @@ function relativeAr(date: Date): string {
   return date.toLocaleDateString('ar-SA-u-ca-gregory', { day: 'numeric', month: 'short' })
 }
 
-/**
- * One bell for every portal.
- *
- * It refreshes when it mounts, when the panel is opened, and when the tab comes
- * back into focus — but it does not poll on a timer. Three hundred parents each
- * asking every minute is a real load on a small database for a screen nobody is
- * looking at, and coming back to the tab is exactly when the count matters.
- */
+const POLL_MS = 60_000
+
 /** Each portal keeps its own inbox page; the bell reads which one from the path. */
 const NOTIFICATIONS_HREF: { prefix: string; href: string }[] = [
   { prefix: '/admin', href: '/admin/my-notifications' },
@@ -49,9 +44,17 @@ const NOTIFICATIONS_HREF: { prefix: string; href: string }[] = [
 ]
 
 /**
+ * One bell for every portal.
+ *
  * Dropped into a page's own header row rather than a bar of its own: a strip
  * that holds nothing but a bell costs every screen 56px, and on the class
  * register that is the space the save button needs.
+ *
+ * It refreshes on mount, when the panel is opened, when the tab comes back into
+ * focus, and once a minute — but only while the tab is actually visible. A
+ * background tab left open all day would otherwise ask a small database sixty
+ * times an hour about a screen nobody is looking at, and the moment the count
+ * matters is the moment somebody looks.
  */
 export function NotificationBell() {
   const router = useRouter()
@@ -72,9 +75,15 @@ export function NotificationBell() {
 
   useEffect(() => {
     refresh()
-    const onFocus = () => refresh()
-    window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
+    const tick = () => { if (document.visibilityState === 'visible') refresh() }
+    const timer = setInterval(tick, POLL_MS)
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', tick)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', tick)
+    }
   }, [refresh])
 
   // Clicking anywhere else closes the panel.

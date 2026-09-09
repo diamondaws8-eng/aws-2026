@@ -6,7 +6,7 @@ import { dailyRecords, lessonRecords, studentPoints, gradeEntries, subjects, par
 import { eq, and, desc, sql, inArray, isNotNull } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
-import { today as schoolToday, isValidDateString } from '@/lib/utils'
+import { today as schoolToday, isValidDateString, formatDateAr } from '@/lib/utils'
 import { attendancePointsFor, lessonPointsFor, getStudentPointsTotal, getClassPointsTotals, getStudentPointsHistory as buildPointsHistory } from '@/lib/points'
 import { requireTeacher, requireTeacherForClass } from '@/lib/teacher-access'
 import { logTeacherAudit } from '@/lib/audit'
@@ -87,11 +87,19 @@ export async function saveDailyRecords(
   const previous = new Map(existing.map((r) => [r.studentId, r]))
 
   const blockedIds: string[] = []
+  // Families are told about an absence once — by whoever first writes it. See
+  // the notify block after the register is saved.
+  const newlyAbsentIds: string[] = []
 
   // ── 1. The register: one shared row a day, whoever writes it ───────────────
   const attendanceRows = records.map((rec) => {
     const prev = previous.get(rec.studentId)
     const standingAbsence = !!prev && isOutOfSchool(prev.attendanceStatus) && !!prev.absenceMarkedBy
+    // "New" means the register did not already show this pupil out of school —
+    // not merely that the lock is unset, because rows written before the lock
+    // column existed carry no owner and would otherwise be announced twice.
+    const alreadyOut = !!prev && isOutOfSchool(prev.attendanceStatus)
+    if (rec.attendanceStatus === 'absent' && !alreadyOut) newlyAbsentIds.push(rec.studentId)
 
     let attendanceStatus = rec.attendanceStatus
     let absenceMarkedBy: string | null = null
@@ -185,6 +193,36 @@ export async function saveDailyRecords(
         updatedAt: new Date(),
       },
     })
+
+  // ── 3. The family hears it from the school first ──────────────────────────
+  // Only for today, and only for a plain absence: an authorised leave is
+  // already known at home, and announcing a correction to a day three weeks ago
+  // would fill three hundred pockets with news nobody can act on.
+  if (newlyAbsentIds.length > 0 && date === schoolToday()) {
+    const { notify, notifiedTodayFor } = await import('@/lib/notifications')
+    // The owner of an absence may undo it and a later period write a fresh one;
+    // the family should still hear it once.
+    const alreadyTold = await notifiedTodayFor(schoolId, 'absence', newlyAbsentIds)
+    const absentees = await db
+      .select({ id: students.id, fullName: students.fullName, parentUserId: students.parentUserId })
+      .from(students)
+      .where(and(eq(students.classId, classId), inArray(students.id, newlyAbsentIds)))
+
+    await notify(
+      absentees
+        .filter((s) => !!s.parentUserId && !alreadyTold.has(s.id))
+        .map((s) => ({
+          schoolId,
+          recipientUserId: s.parentUserId!,
+          kind: 'absence' as const,
+          title: `غياب: ${s.fullName}`,
+          body: `تم تسجيل غياب ${s.fullName} اليوم ${formatDateAr(date)}. إن كان هناك عذر فيرجى التواصل مع المدرسة.`,
+          href: '/parent',
+          entityId: s.id,
+          actorName: access.fullName,
+        })),
+    )
+  }
 
   // Saving an earlier day overwrites values nobody kept a copy of, so it leaves
   // a trail. Today's save needs none: the row itself carries the teacher who

@@ -6,6 +6,9 @@ import { revalidatePath } from 'next/cache'
 import { eq, and } from 'drizzle-orm'
 import { getAdminAccess, canEditGrade } from '@/lib/admin-access'
 
+const AUDIENCES = ['parents', 'staff', 'both'] as const
+type Audience = (typeof AUDIENCES)[number]
+
 export async function sendNotification(data: any) {
   const access = await getAdminAccess()
   if (!access || !access.canEdit || access.school.id !== data.schoolId) {
@@ -50,7 +53,19 @@ export async function sendNotification(data: any) {
   if (!title || !body) return { ok: false, error: 'العنوان والنص مطلوبان' }
   const type = ['info', 'warning', 'absence', 'grade'].includes(data.type) ? data.type : 'info'
 
-  await db.insert(notifications).values({
+  // Who the notice is addressed to. Anything not one of the three is treated as
+  // the old behaviour, so a stale browser tab still sends to families.
+  const audience: Audience = AUDIENCES.includes(data.audience) ? data.audience : 'parents'
+  // A notice for the staff room is addressed to people, not to a class — asking
+  // for one about a single pupil would silently mean something else.
+  if (audience !== 'parents' && (data.classId || data.studentId)) {
+    return { ok: false, error: 'تنبيه الطاقم يُرسل للمدرسة كلها — لا يُخصَّص لفصل أو طالب' }
+  }
+  if (audience !== 'parents' && !access.editAllGrades) {
+    return { ok: false, error: 'تنبيه الطاقم متاح لمن يملك صلاحية على كل المراحل' }
+  }
+
+  const [notice] = await db.insert(notifications).values({
     schoolId: access.school.id,
     fromUserId: access.userId,
     studentId: data.studentId || null,
@@ -59,27 +74,60 @@ export async function sendNotification(data: any) {
     body,
     type,
     expiresAt: data.expiresAt || null
-  })
+  }).returning({ id: notifications.id })
+
   // The announcement row records what was sent; the bell is what makes anyone
-  // see it. Fanning out one row per parent is what lets each of them carry an
-  // unread mark of their own.
-  const { notify, parentsForAnnouncement } = await import('@/lib/notifications')
-  const recipients = await parentsForAnnouncement(access.school.id, {
-    studentId: data.studentId || null,
-    classId: data.classId || null,
-  })
-  await notify(recipients.map((userId) => ({
-    schoolId: access.school.id,
-    recipientUserId: userId,
-    kind: 'announcement' as const,
-    title,
-    body,
-    href: '/parent/notifications',
-    actorName: access.name,
-  })))
+  // see it. Fanning out one row per person is what lets each of them carry an
+  // unread mark of their own — and carrying the notice id means withdrawing the
+  // announcement can withdraw every copy with it.
+  const { notify, parentsForAnnouncement, staffForAnnouncement, parentReach } = await import('@/lib/notifications')
+
+  const parents = audience === 'staff'
+    ? []
+    : await parentsForAnnouncement(access.school.id, {
+        studentId: data.studentId || null,
+        classId: data.classId || null,
+      })
+  const staff = audience === 'parents'
+    ? []
+    : await staffForAnnouncement(access.school.id, access.userId)
+
+  await notify([
+    ...parents.map((userId) => ({
+      schoolId: access.school.id,
+      recipientUserId: userId,
+      kind: 'announcement' as const,
+      title,
+      body,
+      href: '/parent/notifications',
+      entityId: notice?.id ?? null,
+      actorName: access.name,
+    })),
+    ...staff.map((s) => ({
+      schoolId: access.school.id,
+      recipientUserId: s.userId,
+      kind: 'announcement' as const,
+      title,
+      body,
+      // Each portal keeps its own inbox page — see staffForAnnouncement.
+      href: s.href,
+      entityId: notice?.id ?? null,
+      actorName: access.name,
+    })),
+  ])
+
+  // "Sent to 281" is not the same as "281 people will see it": a family still
+  // holding the starter password cannot open the portal at all.
+  const reach = await parentReach(access.school.id, parents)
 
   revalidatePath('/admin/notifications')
-  return { ok: true, sentTo: recipients.length }
+  return {
+    ok: true,
+    sentTo: parents.length + staff.length,
+    parents: parents.length,
+    staff: staff.length,
+    parentsNotActivated: reach.total - reach.reachable,
+  }
 }
 
 export async function deleteNotification(id: string, schoolId: string) {
@@ -127,6 +175,11 @@ export async function deleteNotification(id: string, schoolId: string) {
       eq(notifications.schoolId, schoolId)
     )
   )
+  // Withdrawing the notice has to withdraw the copies in people's bells too,
+  // or a message the school took back keeps sitting in three hundred pockets.
+  const { deleteNotificationsForEntity } = await import('@/lib/notifications')
+  await deleteNotificationsForEntity(schoolId, id)
+
   revalidatePath('/admin/notifications')
   return { ok: true as const }
 }

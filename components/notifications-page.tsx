@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Bell, AlertTriangle, CheckCircle2, ArrowUpCircle, Undo2, MessageSquare, Loader2, CheckCheck } from 'lucide-react'
+import { Bell, AlertTriangle, CheckCircle2, ArrowUpCircle, Undo2, MessageSquare, UserX, Loader2, CheckCheck } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { EmptyState } from '@/components/empty-state'
 import { NotificationBell } from '@/components/notification-bell'
@@ -20,6 +20,7 @@ const KIND_META: Record<string, { icon: LucideIcon; className: string; label: st
   case_escalated: { icon: ArrowUpCircle, className: 'bg-violet-50 text-violet-600 border-violet-100', label: 'حالة محالة إليك' },
   case_returned: { icon: Undo2, className: 'bg-amber-50 text-amber-600 border-amber-100', label: 'حالة أُعيدت' },
   parent_informed: { icon: MessageSquare, className: 'bg-rose-50 text-rose-600 border-rose-100', label: 'ملاحظة بخصوص ابنك' },
+  absence: { icon: UserX, className: 'bg-red-50 text-red-600 border-red-100', label: 'غياب' },
 }
 
 function formatWhen(date: Date): string {

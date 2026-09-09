@@ -4,12 +4,19 @@ import { eq, desc, and, or, isNull, gt, sql } from 'drizzle-orm'
 import NotificationsClient from './notifications-client'
 import { requireAdminAccess, canViewGrade } from '@/lib/admin-access'
 import { NotificationBell } from '@/components/notification-bell'
+import { parentActivation } from '@/lib/notifications'
+import { UserRoundX } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
 export default async function NotificationsPage() {
   const access = await requireAdminAccess()
   const school = access.school
+
+  // Sending is only half the story: a family still holding the starter
+  // password never reaches the portal, so their copy of a notice is written
+  // and never read. Say so before the message is written, not after.
+  const reach = await parentActivation(school.id)
 
   const allClasses = await db.select().from(classes).where(eq(classes.schoolId, school.id))
   const classesList = allClasses.filter((c) => canViewGrade(access, c.gradeLevelId))
@@ -59,6 +66,21 @@ export default async function NotificationsPage() {
         </div>
         <NotificationBell />
       </div>
+
+      {reach.total - reach.activated > 0 && (
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <UserRoundX className="size-5 shrink-0 mt-0.5" />
+          <div className="text-sm leading-6">
+            <p className="font-bold">
+              {reach.total - reach.activated} من أصل {reach.total} من أولياء الأمور لم يفعّلوا حساباتهم بعد
+            </p>
+            <p className="mt-0.5">
+              الحساب لا يُفتح إلا بعد أن يدخل ولي الأمر ويختار كلمة مرور خاصة به. قبل ذلك لا تظهر له أي إشعارات —
+              لا التنبيهات ولا رسائل الغياب. يصل الآن إلى {reach.activated} ولي أمر فقط.
+            </p>
+          </div>
+        </div>
+      )}
 
       <NotificationsClient
         schoolId={school.id}
