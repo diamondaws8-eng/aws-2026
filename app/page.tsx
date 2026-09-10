@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { ArrowLeft, GraduationCap, School, UsersRound, Sparkles, HeartHandshake, ShieldCheck, BellRing, LineChart } from 'lucide-react'
 import { BrandLogo } from '@/components/brand-logo'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { MotionLayer } from '@/components/motion-layer'
 
 const portals = [
   {
@@ -51,9 +52,7 @@ const promises = [
 export default function HomePage() {
   return (
     <main data-portal="admin" className="portal-shell relative min-h-screen overflow-hidden px-5 py-12 lg:px-12">
-      {/* Coloured light behind the hero */}
-      <div className="pointer-events-none absolute -top-40 right-1/4 size-[520px] rounded-full bg-indigo-500/15 blur-3xl dark:bg-indigo-400/10" />
-      <div className="pointer-events-none absolute -bottom-48 left-1/4 size-[560px] rounded-full bg-fuchsia-500/10 blur-3xl dark:bg-fuchsia-400/10" />
+      <MotionLayer />
 
       <div className="absolute top-6 left-6">
         <ThemeToggle />
@@ -94,8 +93,10 @@ export default function HomePage() {
             <Link
               key={href}
               href={href}
-              className="group relative flex flex-col overflow-hidden rounded-3xl border border-border bg-card/85 p-7 shadow-[var(--shadow-card)] backdrop-blur transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[var(--shadow-card-hover)]"
+              data-tilt="7"
+              className="group relative flex flex-col overflow-hidden rounded-3xl border border-border bg-card/85 p-7 shadow-[var(--shadow-card)] backdrop-blur hover:shadow-[var(--shadow-card-hover)]"
             >
+              <span className="glare rounded-3xl" />
               {/* Colour edge along the top */}
               <span className="absolute inset-x-0 top-0 h-1.5" style={{ backgroundImage: `linear-gradient(90deg, ${from}, ${to})` }} />
               {/* Glow that grows on hover */}

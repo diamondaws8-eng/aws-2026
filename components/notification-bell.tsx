@@ -138,7 +138,7 @@ export function NotificationBell() {
         title="الإشعارات"
         aria-label={data.unread > 0 ? `${data.unread} إشعار غير مقروء` : 'الإشعارات'}
       >
-        <Bell className="size-5" />
+        <Bell className={data.unread > 0 ? 'size-5 bell-live text-primary' : 'size-5'} />
         {data.unread > 0 && (
           <span className="absolute -top-0.5 -left-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold">
             {data.unread > 99 ? '99+' : data.unread}

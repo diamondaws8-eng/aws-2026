@@ -31,6 +31,7 @@ import type { LucideIcon } from 'lucide-react'
 
 import { ThemeToggle } from '@/components/theme-toggle'
 import { BrandLogo } from '@/components/brand-logo'
+import { MotionLayer } from '@/components/motion-layer'
 
 // ─── Nav config per role ──────────────────────────────────────────────────────
 
@@ -165,6 +166,7 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
 
   return (
     <div data-portal={role} className="portal-shell flex min-h-screen">
+      <MotionLayer />
       {/* Mobile Overlay */}
       {isOpen && isMobile && (
         <div 
@@ -198,8 +200,8 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
         {/* Brand block: the school in the portal's own colours */}
         <div className="px-3 pt-3">
           <div
-            className="relative overflow-hidden rounded-2xl p-4 text-white shadow-[0_14px_28px_-14px_var(--glow)]"
-            style={{ backgroundImage: 'linear-gradient(135deg, var(--portal-a), var(--portal-b))' }}
+            className="gradient-live relative overflow-hidden rounded-2xl p-4 text-white shadow-[0_14px_28px_-14px_var(--glow)]"
+            style={{ backgroundImage: 'linear-gradient(135deg, var(--portal-a), var(--portal-b), var(--portal-a))' }}
           >
             <div className="pointer-events-none absolute -top-10 -left-10 size-32 rounded-full bg-white/15 blur-2xl" />
             <div className="pointer-events-none absolute inset-0 opacity-[0.14] [background-image:radial-gradient(white_1px,transparent_1px)] [background-size:18px_18px]" />

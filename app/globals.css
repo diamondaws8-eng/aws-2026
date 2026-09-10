@@ -493,3 +493,193 @@
 .dark .text-gray-600, .dark .text-gray-700 { color: oklch(0.84 0.027 264.364); }
 .dark .text-gray-800, .dark .text-gray-900 { color: oklch(0.9 0.027 264.364); }
 .dark .border-gray-100, .dark .border-gray-200, .dark .border-gray-300 { border-color: color-mix(in oklch, oklch(0.551 0.027 264.364) 38%, transparent); }
+
+@layer components {
+  /* ──────────────────────────────────────────────────────────────────────────
+     Motion
+     Aurora behind the page, spotlight on cards, 3D tilt for the portal cards,
+     a shine sweep on primary buttons, a live bell, and a short entrance for
+     every page and every card. Transform and opacity only — nothing here
+     forces layout — and all of it is switched off under reduced motion.
+     ────────────────────────────────────────────────────────────────────────── */
+  .aurora {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .aurora-orb {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(70px);
+    opacity: 0.55;
+    will-change: transform;
+    animation: aurora-drift 26s ease-in-out infinite alternate;
+  }
+  .dark .aurora-orb { opacity: 0.35; }
+  .aurora-a {
+    width: 44vw; height: 44vw; top: -18vw; right: -10vw;
+    background: radial-gradient(circle at 30% 30%, var(--portal-a), transparent 65%);
+  }
+  .aurora-b {
+    width: 40vw; height: 40vw; bottom: -16vw; left: -12vw;
+    background: radial-gradient(circle at 70% 70%, var(--portal-b), transparent 65%);
+    animation-duration: 32s;
+    animation-delay: -8s;
+  }
+  .aurora-c {
+    width: 28vw; height: 28vw; top: 40%; left: 35%;
+    background: radial-gradient(circle, color-mix(in oklch, var(--portal-a) 70%, var(--portal-b)), transparent 65%);
+    opacity: 0.28;
+    animation-duration: 38s;
+    animation-delay: -16s;
+  }
+  .aurora-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(color-mix(in oklch, var(--foreground) 5%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in oklch, var(--foreground) 5%, transparent) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 30%, transparent 75%);
+    opacity: 0.5;
+  }
+  @keyframes aurora-drift {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    50%  { transform: translate3d(-6vw, 4vw, 0) scale(1.12); }
+    100% { transform: translate3d(4vw, -5vw, 0) scale(0.94); }
+  }
+  
+  /* Everything that sits on the aurora must be above it — written with
+     :where() so a fixed sidebar or an absolute button keeps its own position */
+  :where(.portal-shell > *:not(.aurora)) { position: relative; z-index: 1; }
+  .portal-shell { background-attachment: scroll; }
+  
+  /* Spotlight: the pointer lights the card it is over */
+  .portal-shell :where(.bg-card.border, .bg-card.border-border) {
+    background-image: radial-gradient(
+      360px circle at var(--mx, -200px) var(--my, -200px),
+      color-mix(in oklch, var(--primary) 9%, transparent),
+      transparent 55%
+    );
+    transition: box-shadow 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
+  }
+  
+  /* 3D tilt targets */
+  [data-tilt] {
+    transform-style: preserve-3d;
+    transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.35s ease;
+    will-change: transform;
+  }
+  [data-tilt] .glare {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(300px circle at var(--glare-x, 50%) var(--glare-y, 50%), rgb(255 255 255 / 0.28), transparent 60%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  [data-tilt]:hover .glare { opacity: 1; }
+  
+  /* Shine sweep on primary actions */
+  .portal-shell :where(button.bg-primary, a.bg-primary) {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .portal-shell :where(button.bg-primary, a.bg-primary)::after {
+    content: '';
+    position: absolute;
+    inset: -40% auto -40% -60%;
+    width: 40%;
+    transform: skewX(-20deg) translateX(-120%);
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+    transition: transform 0.6s ease;
+    pointer-events: none;
+  }
+  .portal-shell :where(button.bg-primary:hover, a.bg-primary:hover)::after {
+    transform: skewX(-20deg) translateX(420%);
+  }
+  
+  /* Animated gradient text and surfaces */
+  .text-gradient,
+  .gradient-live {
+    background-size: 200% 200%;
+    animation: gradient-shift 8s ease infinite;
+  }
+  @keyframes gradient-shift {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  
+  /* Page entrance + staggered children */
+  .page-enter {
+    animation: portal-rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .page-enter > * > * {
+    animation: portal-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .page-enter > * > *:nth-child(1)  { animation-delay: 0.02s; }
+  .page-enter > * > *:nth-child(2)  { animation-delay: 0.07s; }
+  .page-enter > * > *:nth-child(3)  { animation-delay: 0.12s; }
+  .page-enter > * > *:nth-child(4)  { animation-delay: 0.17s; }
+  .page-enter > * > *:nth-child(5)  { animation-delay: 0.22s; }
+  .page-enter > * > *:nth-child(6)  { animation-delay: 0.27s; }
+  .page-enter > * > *:nth-child(n+7) { animation-delay: 0.32s; }
+  /* Rows of a table arrive one after another too */
+  .portal-shell :where(table tbody tr) {
+    animation: row-in 0.35s ease-out both;
+  }
+  .portal-shell :where(table tbody tr:nth-child(1))  { animation-delay: 0.03s; }
+  .portal-shell :where(table tbody tr:nth-child(2))  { animation-delay: 0.06s; }
+  .portal-shell :where(table tbody tr:nth-child(3))  { animation-delay: 0.09s; }
+  .portal-shell :where(table tbody tr:nth-child(4))  { animation-delay: 0.12s; }
+  .portal-shell :where(table tbody tr:nth-child(5))  { animation-delay: 0.15s; }
+  .portal-shell :where(table tbody tr:nth-child(6))  { animation-delay: 0.18s; }
+  .portal-shell :where(table tbody tr:nth-child(7))  { animation-delay: 0.21s; }
+  .portal-shell :where(table tbody tr:nth-child(8))  { animation-delay: 0.24s; }
+  .portal-shell :where(table tbody tr:nth-child(n+9)) { animation-delay: 0.27s; }
+  @keyframes row-in {
+    from { opacity: 0; transform: translateX(6px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  
+  /* The bell rings while something is unread */
+  .bell-live { animation: bell-ring 2.6s ease-in-out infinite; transform-origin: 50% 0; }
+  @keyframes bell-ring {
+    0%, 60%, 100% { transform: rotate(0); }
+    64% { transform: rotate(12deg); }
+    68% { transform: rotate(-10deg); }
+    72% { transform: rotate(8deg); }
+    76% { transform: rotate(-6deg); }
+    80% { transform: rotate(3deg); }
+  }
+  
+  /* Nav icons nudge on hover */
+  .portal-shell :where(nav a:hover svg) { animation: nudge 0.5s ease; }
+  @keyframes nudge {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.25) rotate(-6deg); }
+    100% { transform: scale(1); }
+  }
+  
+  /* Floating shapes in the brand panels */
+  .float-slow { animation: float 7s ease-in-out infinite; }
+  .float-slower { animation: float 11s ease-in-out infinite reverse; }
+  @keyframes float {
+    0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+    50% { transform: translate3d(0, -14px, 0) rotate(3deg); }
+  }
+  
+  @media (prefers-reduced-motion: reduce) {
+    .aurora-orb, .page-enter, .page-enter > * > *, .portal-shell :where(table tbody tr),
+    .bell-live, .text-gradient, .gradient-live, .float-slow, .float-slower {
+      animation: none !important;
+    }
+    [data-tilt] { transform: none !important; }
+  }
+  
+}

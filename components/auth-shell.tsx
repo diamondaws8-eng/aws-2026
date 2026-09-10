@@ -4,6 +4,7 @@ import { CheckCircle2 } from 'lucide-react'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { BackToPortals } from '@/components/back-to-portals'
 import { BrandLogo } from '@/components/brand-logo'
+import { MotionLayer } from '@/components/motion-layer'
 
 type Portal = 'admin' | 'teacher' | 'counselor' | 'parent'
 
@@ -31,6 +32,7 @@ export function AuthShell({
 
   return (
     <div data-portal={portal} className="portal-shell relative min-h-screen">
+      <MotionLayer />
       <div className="absolute top-5 left-5 z-10">
         <ThemeToggle />
       </div>
@@ -41,9 +43,17 @@ export function AuthShell({
       <div className="mx-auto grid min-h-screen max-w-6xl items-center gap-10 px-5 py-20 lg:grid-cols-[1.05fr_1fr] lg:px-10">
         {/* Brand panel — desktop only; a phone goes straight to the form */}
         <section className="hidden lg:block">
-          <div className="relative overflow-hidden rounded-[2rem] p-10 text-white shadow-2xl" style={gradient}>
-            <div className="pointer-events-none absolute -top-24 -left-24 size-72 rounded-full bg-white/15 blur-3xl" />
-            <div className="pointer-events-none absolute -bottom-28 -right-16 size-80 rounded-full bg-black/15 blur-3xl" />
+          <div
+            data-tilt="4"
+            className="gradient-live relative overflow-hidden rounded-[2rem] p-10 text-white shadow-2xl"
+            style={{ backgroundImage: 'linear-gradient(135deg, var(--portal-a), var(--portal-b), var(--portal-a))' }}
+          >
+            <span className="glare" />
+            <div className="pointer-events-none absolute -top-24 -left-24 size-72 rounded-full bg-white/15 blur-3xl float-slow" />
+            <div className="pointer-events-none absolute -bottom-28 -right-16 size-80 rounded-full bg-black/15 blur-3xl float-slower" />
+            <div className="pointer-events-none absolute top-16 left-10 size-16 rounded-2xl border border-white/30 bg-white/10 backdrop-blur float-slow" />
+            <div className="pointer-events-none absolute bottom-24 left-24 size-9 rounded-full border border-white/30 bg-white/10 float-slower" />
+            <div className="pointer-events-none absolute top-1/2 right-12 size-6 rotate-45 rounded-md bg-white/20 float-slow" />
             <div className="pointer-events-none absolute inset-0 opacity-[0.12] [background-image:radial-gradient(white_1px,transparent_1px)] [background-size:22px_22px]" />
 
             <div className="relative">
