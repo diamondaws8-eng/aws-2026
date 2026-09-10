@@ -10,6 +10,8 @@ import { StatCard } from '@/components/stat-card'
 import { EmptyState } from '@/components/empty-state'
 import { Users, BookOpen, AlertCircle } from 'lucide-react'
 import { NotificationBell } from '@/components/notification-bell'
+import { getLeaderboard } from '@/lib/points'
+import { LeaderboardClient } from '@/app/admin/(dashboard)/leaderboard-client'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,6 +49,16 @@ export default async function TeacherDashboard() {
     }))
     .filter(g => g.classCount > 0)
 
+  // The honour board for this teacher's own classes — the same figures the
+  // administration sees, cut to the classes this account may open.
+  const gradeNameOf = new Map(gradesData.map((g) => [g.id, g.name]))
+  const boardClasses = visibleClasses
+    .sort((a, b) => (gradeNameOf.get(a.gradeLevelId) ?? '').localeCompare(gradeNameOf.get(b.gradeLevelId) ?? '') || a.name.localeCompare(b.name))
+    .map((c) => ({ id: c.id, name: `${gradeNameOf.get(c.gradeLevelId) ?? ''} — ${c.name}` }))
+  const boardRows = visibleClasses.length
+    ? await getLeaderboard(teacher.schoolId, visibleClasses.map((c) => c.id))
+    : []
+
   return (
     <div className="p-6 space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -66,7 +78,18 @@ export default async function TeacherDashboard() {
         <StatCard label="إجمالي الطلاب بالمدرسة" value={totalStudents} icon={Users} accent="blue" />
         <StatCard label="إجمالي الفصول بالمدرسة" value={totalClasses} icon={BookOpen} accent="emerald" />
       </div>
-      
+
+      {boardClasses.length > 0 && (
+        <LeaderboardClient
+          students={boardRows}
+          classes={boardClasses}
+          title="لوحة الشرف — فصولي"
+          allLabel="كل فصولي"
+          showAll={boardClasses.length > 1}
+          defaultClassId={boardClasses[0].id}
+        />
+      )}
+
       <div>
         <h2 className="text-xl font-bold text-foreground mb-6">الفصول المتاحة</h2>
         {gradesWithCounts.length === 0 ? (

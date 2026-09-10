@@ -2,6 +2,11 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getMyChildren, getStudentDashboard } from './actions'
 import { NotificationBell } from '@/components/notification-bell'
+import { HonorBoard } from './honor-board'
+import { getLeaderboard } from '@/lib/points'
+import { db } from '@/lib/db'
+import { students } from '@/lib/db/schema'
+import { and, count, eq } from 'drizzle-orm'
 
 /**
  * Points earned as a share of the points that were possible. It used to be an
@@ -63,6 +68,17 @@ export default async function ParentDashboardPage({
   const { student, classInfo, gradeName, totalPoints, attendance, subjectCards, possiblePoints } = dashboard
   const totalSessions = attendance.present + attendance.absent + attendance.late + attendance.excused
   const perf = getPerformanceRating(totalPoints, possiblePoints)
+
+  // The class honour board, scoped to the child's own class only — the same
+  // figures the administration's board uses, from the same year boundary.
+  const [honorRows, classSize] = student.classId
+    ? await Promise.all([
+        getLeaderboard(student.schoolId, [student.classId]),
+        db.select({ n: count() }).from(students)
+          .where(and(eq(students.classId, student.classId), eq(students.status, 'active')))
+          .then((r) => r[0]?.n ?? 0),
+      ])
+    : [[], 0]
 
   return (
     <div className="px-4 py-8 max-w-4xl mx-auto space-y-6">
@@ -156,6 +172,16 @@ export default async function ParentDashboardPage({
           </p>
         )}
       </div>
+
+      {/* ── Class honour board ───────────────────────────────────────────────── */}
+      {student.classId && (
+        <HonorBoard
+          rows={honorRows}
+          childId={student.id}
+          childFirstName={student.fullName.split(' ')[0]}
+          classSize={classSize}
+        />
+      )}
 
       {/* ── Subject Cards ────────────────────────────────────────────────────── */}
       <div>

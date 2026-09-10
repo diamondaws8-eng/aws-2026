@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { EmptyState } from '@/components/empty-state'
+import { rankWithTies } from '@/lib/ranking'
 import { Trophy, Medal, Star, Crown } from 'lucide-react'
 
 type LeaderboardStudent = {
@@ -19,17 +20,30 @@ type ClassInfo = {
 
 export function LeaderboardClient({
   students,
-  classes
+  classes,
+  title = 'لوحة الشرف (أعلى 10)',
+  allLabel = 'المدرسة بالكامل',
+  showAll = true,
+  defaultClassId,
 }: {
   students: LeaderboardStudent[]
   classes: ClassInfo[]
+  title?: string
+  /** What the "everything" option is called — a teacher's is "كل فصولي". */
+  allLabel?: string
+  /** A teacher with one class has nothing to combine; hide the option. */
+  showAll?: boolean
+  defaultClassId?: string
 }) {
-  const [selectedClass, setSelectedClass] = useState<string>('all')
+  const [selectedClass, setSelectedClass] = useState<string>(
+    defaultClassId && classes.some((c) => c.id === defaultClassId) ? defaultClassId : showAll ? 'all' : (classes[0]?.id ?? 'all'),
+  )
 
-  const filteredStudents = students
-    .filter(s => selectedClass === 'all' || s.classId === selectedClass)
-    .sort((a, b) => b.totalPoints - a.totalPoints)
-    .slice(0, 10)
+  // Ranked with ties before the cut, so two pupils on the same score share a
+  // place instead of one of them being "11th" and dropped.
+  const filteredStudents = rankWithTies(
+    students.filter(s => selectedClass === 'all' || s.classId === selectedClass),
+  ).slice(0, 10)
 
   const maxPoints = filteredStudents.length > 0 ? filteredStudents[0].totalPoints : 0
 
@@ -41,7 +55,7 @@ export function LeaderboardClient({
           <div className="flex size-9 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
             <Trophy className="w-4.5 h-4.5" />
           </div>
-          لوحة الشرف (أعلى 10)
+          {title}
         </h2>
 
         <select
@@ -49,7 +63,7 @@ export function LeaderboardClient({
           onChange={(e) => setSelectedClass(e.target.value)}
           className="p-2 text-sm rounded-xl border border-border bg-muted outline-none focus:ring-2 focus:ring-primary min-w-[150px]"
         >
-          <option value="all">المدرسة بالكامل</option>
+          {showAll && <option value="all">{allLabel}</option>}
           {classes.map(c => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
@@ -67,10 +81,10 @@ export function LeaderboardClient({
 
       {filteredStudents.length > 0 ? (
         <div className="relative space-y-2.5 flex-1 overflow-y-auto pr-2">
-          {filteredStudents.map((student, idx) => {
-            const isFirst = idx === 0
-            const isSecond = idx === 1
-            const isThird = idx === 2
+          {filteredStudents.map((student) => {
+            const isFirst = student.rank === 1
+            const isSecond = student.rank === 2
+            const isThird = student.rank === 3
             const barPct = maxPoints > 0 ? Math.max((student.totalPoints / maxPoints) * 100, 4) : 0
 
             return (
@@ -97,7 +111,7 @@ export function LeaderboardClient({
                       isThird ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400' :
                       'bg-muted text-muted-foreground'
                     }`}>
-                      {isFirst ? <Crown className="w-4 h-4" /> : idx + 1}
+                      {isFirst ? <Crown className="w-4 h-4" /> : student.rank}
                     </div>
                     <div>
                       <div className={`font-bold ${isFirst ? 'text-amber-900 dark:text-amber-400' : ''}`}>

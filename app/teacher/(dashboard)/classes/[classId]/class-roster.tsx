@@ -8,6 +8,7 @@ import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage
 import type { DailyStudentRecord, AbsenceLock, BlockedAbsence } from '../../actions'
 import { termLabel as termLabelOf } from '@/lib/academic'
 import { genderShort } from '@/lib/gender'
+import { rankWithTies, medalFor } from '@/lib/ranking'
 
 type Student = { id: string; fullName: string; parentPhone?: string | null; gender?: string | null }
 type DailyRecord = {
@@ -946,11 +947,9 @@ export default function ClassRoster({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {[...students]
-                .sort((a, b) => (points[b.id] ?? 0) - (points[a.id] ?? 0))
+              {rankWithTies(students.map((s) => ({ ...s, totalPoints: points[s.id] ?? 0 })))
                 .map((student, idx) => {
-                  const total = points[student.id] ?? 0
-                  const medals = ['🥇', '🥈', '🥉']
+                  const total = student.totalPoints
                   return (
                     <tr key={student.id} className="hover:bg-muted/20">
                       <td className="px-4 py-3 text-muted-foreground">{idx + 1}</td>
@@ -965,7 +964,7 @@ export default function ClassRoster({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center text-xl">
-                        {idx < 3 ? medals[idx] : <span className="text-sm text-muted-foreground">{idx + 1}</span>}
+                        {medalFor(student.rank) ?? <span className="text-sm text-muted-foreground">{student.rank}</span>}
                       </td>
                       <td className="px-4 py-3 text-center">
                         {manualStudent === student.id ? (
