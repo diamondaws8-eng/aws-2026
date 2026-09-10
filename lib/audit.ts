@@ -31,6 +31,7 @@ export type AuditAction =
   | 'parents.requirePasswordChange'
   | 'teacher.dailyRecords.backdated'
   | 'teacher.attendance.lateArrival'
+  | 'admin.attendance.correct'
   | 'teacher.points.manual'
   | 'teacher.grades.save'
   | 'case.raised'
@@ -68,6 +69,7 @@ export const AUDIT_LABELS: Record<AuditAction, string> = {
   'parents.requirePasswordChange': 'إلزام أولياء الأمور بتغيير كلمة المرور',
   'teacher.dailyRecords.backdated': 'تعديل سجل يوم سابق',
   'teacher.attendance.lateArrival': 'تسجيل وصول متأخر بدل غياب سجّله معلم آخر',
+  'admin.attendance.correct': 'تصحيح الحضور من الإدارة',
   'teacher.points.manual': 'منح نقاط يدوية',
   'teacher.grades.save': 'حفظ درجات اختبار',
   'case.raised': 'رفع حالة سلوكية',

@@ -2,7 +2,7 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { dailyRecords, lessonRecords, studentPoints, gradeEntries, subjects, parentWhatsappMessages, students, classes, teachers, behaviorCases, schools } from '@/lib/db/schema'
+import { dailyRecords, lessonRecords, studentPoints, gradeEntries, subjects, parentWhatsappMessages, students, classes, teachers, schoolStaff, behaviorCases, schools } from '@/lib/db/schema'
 import { eq, and, desc, sql, inArray, isNotNull } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
@@ -376,12 +376,14 @@ async function describeAbsences(classId: string, date: string, studentIds: strin
       studentId: dailyRecords.studentId,
       studentName: students.fullName,
       teacherName: teachers.fullName,
+      staffName: schoolStaff.fullName,
       status: dailyRecords.attendanceStatus,
       at: dailyRecords.absenceMarkedAt,
     })
     .from(dailyRecords)
     .innerJoin(students, eq(students.id, dailyRecords.studentId))
     .leftJoin(teachers, eq(teachers.userId, dailyRecords.absenceMarkedBy))
+    .leftJoin(schoolStaff, eq(schoolStaff.userId, dailyRecords.absenceMarkedBy))
     .where(and(
       eq(dailyRecords.classId, classId),
       eq(dailyRecords.date, date),
@@ -390,10 +392,21 @@ async function describeAbsences(classId: string, date: string, studentIds: strin
   return rows.map((r) => ({
     studentId: r.studentId,
     studentName: r.studentName,
-    teacherName: r.teacherName ?? 'معلم آخر',
+    teacherName: ownerLabel(r.teacherName, r.staffName),
     status: r.status,
     at: r.at ? r.at.toISOString() : null,
   }))
+}
+
+/**
+ * Who holds an absence, as the roster names them. The administration can
+ * write the register too (its corrections override the lock), and a teacher
+ * has to be able to see that the lock is the office's, not a colleague's.
+ */
+function ownerLabel(teacherName: string | null, staffName: string | null): string {
+  if (teacherName) return `المعلم ${teacherName}`
+  if (staffName) return `الإدارة (${staffName})`
+  return 'معلم آخر'
 }
 
 /**
@@ -413,9 +426,11 @@ export async function getAbsenceLocks(classId: string, date: string): Promise<Ab
       status: dailyRecords.attendanceStatus,
       at: dailyRecords.absenceMarkedAt,
       teacherName: teachers.fullName,
+      staffName: schoolStaff.fullName,
     })
     .from(dailyRecords)
     .leftJoin(teachers, eq(teachers.userId, dailyRecords.absenceMarkedBy))
+    .leftJoin(schoolStaff, eq(schoolStaff.userId, dailyRecords.absenceMarkedBy))
     .where(and(
       eq(dailyRecords.classId, classId),
       eq(dailyRecords.date, date),
@@ -427,7 +442,7 @@ export async function getAbsenceLocks(classId: string, date: string): Promise<Ab
     .filter((r) => r.markedBy !== userId)
     .map((r) => ({
       studentId: r.studentId,
-      teacherName: r.teacherName ?? 'معلم آخر',
+      teacherName: ownerLabel(r.teacherName, r.staffName),
       status: r.status,
       at: r.at ? r.at.toISOString() : null,
     }))

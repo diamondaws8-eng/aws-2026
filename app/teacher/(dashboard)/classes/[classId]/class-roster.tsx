@@ -1143,7 +1143,7 @@ export default function ClassRoster({
               <p className="text-sm leading-7">
                 الطالب <span className="font-bold">{lockCard.student.fullName}</span> مسجَّل اليوم{' '}
                 <span className="font-bold">{ATT_LABELS[(lockCard.lock.status as AttStatus)] ?? 'غائب'}</span>{' '}
-                بواسطة المعلم <span className="font-bold">{lockCard.lock.teacherName}</span>
+                بواسطة <span className="font-bold">{lockCard.lock.teacherName}</span>
                 {lockCard.lock.at
                   ? ` الساعة ${new Date(lockCard.lock.at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}`
                   : ''}.
