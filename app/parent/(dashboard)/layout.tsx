@@ -1,6 +1,6 @@
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { students, user } from '@/lib/db/schema'
+import { students, user, schools } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -22,16 +22,16 @@ export default async function ParentDashboardLayout({ children }: { children: Re
     return <SetPasswordCard parentName={session.user.name} />
   }
 
-  // Get school name from first linked student
-  const [firstStudent] = await db
-    .select()
+  // The school's real name, through the first linked child. It used to be a
+  // hard-coded string — right until the day the school is renamed or a second
+  // one exists, and then wrong on every parent's screen.
+  const [row] = await db
+    .select({ schoolName: schools.name })
     .from(students)
+    .innerJoin(schools, eq(schools.id, students.schoolId))
     .where(eq(students.parentUserId, session.user.id))
     .limit(1)
-
-  // We don't have a direct school name lookup here without joining,
-  // but we can pass a fallback
-  const schoolName = 'مدارس الأوس الأهلية - متابعة الطالب'
+  const schoolName = row?.schoolName ?? 'بوابة ولي الأمر'
 
   return (
     <PortalLayout

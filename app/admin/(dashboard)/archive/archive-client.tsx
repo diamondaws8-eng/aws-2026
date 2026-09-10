@@ -81,18 +81,30 @@ export function ArchiveClient({
 
   const doOpen = async () => {
     setBusy(true); setNote(null)
-    const res = await openCurrentYear(openStart)
-    setBusy(false)
-    setNote(res.ok ? { ok: true, text: res.message } : { ok: false, text: res.error })
-    if (res.ok) router.refresh()
+    try {
+      const res = await openCurrentYear(openStart)
+      setNote(res.ok ? { ok: true, text: res.message } : { ok: false, text: res.error })
+      if (res.ok) router.refresh()
+    } catch {
+      setNote({ ok: false, text: 'حدث خطأ غير متوقع — لم يُسجَّل العام' })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const doClose = async () => {
     setBusy(true); setNote(null)
-    const res = await closeYearAndOpenNext({ endDate, nextLabel, nextStartDate: nextStart })
-    setBusy(false)
-    setNote(res.ok ? { ok: true, text: res.message } : { ok: false, text: res.error })
-    if (res.ok) { setConfirm(''); setNextLabel(''); setNextStart(''); router.refresh() }
+    try {
+      const res = await closeYearAndOpenNext({ endDate, nextLabel, nextStartDate: nextStart })
+      setNote(res.ok ? { ok: true, text: res.message } : { ok: false, text: res.error })
+      if (res.ok) { setConfirm(''); setNextLabel(''); setNextStart(''); router.refresh() }
+    } catch {
+      // A dropped connection here must not leave the button spinning forever
+      // on the one screen where the person will not dare click twice.
+      setNote({ ok: false, text: 'حدث خطأ غير متوقع — أعد تحميل الصفحة وتحقق من حالة العام قبل المحاولة مرة أخرى' })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const readyToClose = confirm.trim() === 'إقفال' && !!nextLabel.trim() && !!nextStart && !!endDate

@@ -2,7 +2,7 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { teachers, user, schools, account, session, subjects, dailyRecords, gradeLevels, classes } from '@/lib/db/schema'
+import { teachers, user, schools, account, session, subjects, dailyRecords, gradeLevels, classes, userNotifications } from '@/lib/db/schema'
 import { eq, and, inArray } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
@@ -176,6 +176,10 @@ export async function deleteTeacher(teacherId: string, userId: string) {
       await tx.update(dailyRecords)
         .set({ absenceMarkedBy: null, absenceMarkedAt: null })
         .where(eq(dailyRecords.absenceMarkedBy, userId))
+      // Their inbox goes with the account — rows addressed to a user id that is
+      // about to stop existing. Their lessons, marks and cases stay: that is
+      // the pupils' history, shown as «معلم محذوف».
+      await tx.delete(userNotifications).where(eq(userNotifications.recipientUserId, userId))
       await tx.delete(teachers).where(eq(teachers.id, teacherId))
       await tx.delete(account).where(eq(account.userId, userId))
       await tx.delete(session).where(eq(session.userId, userId))

@@ -1,5 +1,5 @@
 import { db } from '@/lib/db'
-import { userNotifications, schoolStaff, students, classes, teachers, user } from '@/lib/db/schema'
+import { userNotifications, schoolStaff, students, classes, teachers, user, schools } from '@/lib/db/schema'
 import { eq, and, desc, isNull, inArray, sql } from 'drizzle-orm'
 
 /**
@@ -93,6 +93,23 @@ export async function counselorsForClass(schoolId: string, classId: string): Pro
       }
     })
     .map((s) => s.userId)
+}
+
+/**
+ * The people who answer for the whole school: the owner and the quality
+ * managers. The fallback audience when something has no narrower owner — a case
+ * raised in a stage nobody has been assigned to yet.
+ */
+export async function wholeSchoolManagers(schoolId: string): Promise<string[]> {
+  const [[school], managers] = await Promise.all([
+    db.select({ adminId: schools.adminId }).from(schools).where(eq(schools.id, schoolId)).limit(1),
+    db.select({ userId: schoolStaff.userId })
+      .from(schoolStaff)
+      .where(and(eq(schoolStaff.schoolId, schoolId), eq(schoolStaff.role, 'quality_manager'))),
+  ])
+  const ids = managers.map((m) => m.userId)
+  if (school?.adminId) ids.push(school.adminId)
+  return [...new Set(ids.filter(Boolean))]
 }
 
 /** The parent account linked to a pupil, when there is one. */

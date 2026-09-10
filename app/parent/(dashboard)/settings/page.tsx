@@ -26,7 +26,8 @@ export default function ParentSettingsPage() {
       })
       if (res.error) {
         setStatus('error')
-        setMessage(res.error.message || 'تأكد من كلمة المرور الحالية وحاول مرة أخرى.')
+        // better-auth answers in English ("Invalid password"); the screen is Arabic.
+        setMessage('كلمة المرور الحالية غير صحيحة — تأكد منها وحاول مرة أخرى.')
       } else {
         setStatus('success'); setMessage('تم تغيير كلمة المرور بنجاح! ✅')
         setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')

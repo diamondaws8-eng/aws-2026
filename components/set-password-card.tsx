@@ -77,7 +77,7 @@ export function SetPasswordCard({
                 onChange={(e) => setPassword(e.target.value)}
                 dir="ltr"
                 className="w-full p-3 pl-11 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-left"
-                placeholder="6 أحرف أو أرقام على الأقل"
+                placeholder="8 أحرف أو أرقام على الأقل"
               />
               <button
                 type="button"
@@ -112,9 +112,11 @@ export function SetPasswordCard({
             </p>
           )}
 
+          {/* Eight, matching every server action behind this card — a button
+              that lit up at six only let the person submit and be refused. */}
           <button
             type="submit"
-            disabled={loading || mismatch || password.length < 6}
+            disabled={loading || mismatch || password.length < 8}
             className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 disabled:opacity-50 transition-opacity inline-flex items-center justify-center gap-2"
           >
             {loading

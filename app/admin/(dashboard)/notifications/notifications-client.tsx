@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { sendNotification, deleteNotification } from './actions-notifications'
-import { formatDateAr } from '@/lib/utils'
+import { formatDateAr, schoolDate } from '@/lib/utils'
 import { EmptyState } from '@/components/empty-state'
 import { Bell, AlertTriangle, UserX, GraduationCap, Send, Trash2, Loader2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -241,9 +241,11 @@ export default function NotificationsClient({ schoolId, userId, classes, student
                     </span>
                     <div className="flex gap-4">
                       {notif.expiresAt && (
-                        <span className="text-red-700 font-semibold dark:text-red-400">ينتهي: {formatDateAr(new Date(notif.expiresAt).toISOString().split('T')[0])}</span>
+                        <span className="text-red-700 font-semibold dark:text-red-400">ينتهي: {formatDateAr(schoolDate(new Date(notif.expiresAt)))}</span>
                       )}
-                      <span>{formatDateAr(new Date(notif.createdAt).toISOString().split('T')[0])}</span>
+                      {/* The school's day, not UTC's: a notice sent at 1 a.m.
+                          Riyadh time was dated the day before. */}
+                      <span>{formatDateAr(schoolDate(new Date(notif.createdAt)))}</span>
                     </div>
                   </div>
                 </div>

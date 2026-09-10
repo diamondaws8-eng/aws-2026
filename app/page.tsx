@@ -75,7 +75,9 @@ export default function HomePage() {
         </div>
 
         {/* Portal cards */}
-        <div className="grid gap-5 md:grid-cols-3">
+        {/* Four portals: two by two on a tablet, one row on a laptop. Three
+            columns left the parents' card alone on a second row. */}
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {portals.map(({ href, title, subtitle, icon: Icon, gradient, bg, border, badge }) => (
             <Link
               key={href}

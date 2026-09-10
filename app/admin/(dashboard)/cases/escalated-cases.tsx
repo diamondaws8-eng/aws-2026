@@ -86,6 +86,8 @@ function DecisionModal({ c, onClose }: { c: EscalatedCase; onClose: () => void }
       setBusy(true)
       try {
         setContact(await getCaseParentContact(c.id))
+      } catch {
+        setError('تعذّر جلب رقم ولي الأمر — أعد المحاولة')
       } finally {
         setBusy(false)
       }

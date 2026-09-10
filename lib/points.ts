@@ -29,7 +29,8 @@ const yearStartForSchool = cache(async (schoolId: string): Promise<string | null
   return row?.d ?? null
 })
 
-const yearStartForStudent = cache(async (studentId: string): Promise<string | null> => {
+/** Exported for the parent portal, which counts attendance for the same year the points cover. */
+export const yearStartForStudent = cache(async (studentId: string): Promise<string | null> => {
   const [row] = await db
     .select({ schoolId: students.schoolId })
     .from(students)

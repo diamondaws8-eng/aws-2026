@@ -211,6 +211,26 @@ export async function editStudent(id: string, input: any) {
       return { ok: false, error: 'غير مصرح لك بتعديل هذا الطالب' }
     }
 
+    // The same guard as adding: retyping one pupil's id onto another makes two
+    // records that the registers and the family both see twice.
+    const nid = String(input.nationalId ?? '').trim()
+    if (nid) {
+      const [clash] = await db
+        .select({ fullName: students.fullName })
+        .from(students)
+        .where(and(eq(students.schoolId, existing.schoolId), eq(students.nationalId, nid), ne(students.id, id)))
+        .limit(1)
+      if (clash) {
+        return { ok: false, error: `رقم الهوية مسجَّل بالفعل للطالب: ${clash.fullName}` }
+      }
+    }
+
+    // Only the two values the form can send. Anything else — including the
+    // undefined the form used to send when the page had not loaded the gender
+    // — keeps what is on record rather than overwriting it.
+    const gender =
+      input.gender === 'male' || input.gender === 'female' ? input.gender : existing.gender
+
     let parentUserId = null
 
     if (input.parentPhone) {
@@ -246,9 +266,9 @@ export async function editStudent(id: string, input: any) {
 
     await db.update(students).set({
       fullName:    input.fullName,
-      nationalId:  input.nationalId || null,
+      nationalId:  nid || null,
       parentPhone: input.parentPhone || null,
-      gender:      input.gender,
+      gender,
       classId:     input.classId || null,
       parentUserId,
     }).where(eq(students.id, id))

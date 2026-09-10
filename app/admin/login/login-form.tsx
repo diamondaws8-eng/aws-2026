@@ -33,7 +33,9 @@ export default function AdminLoginForm({ allowSignup }: { allowSignup: boolean }
           password
         })
         if (res.error) {
-          setError(res.error.message || 'فشل تسجيل الدخول')
+          // better-auth's own message is English ("Invalid email or password");
+          // every other portal answers in Arabic, and so should this one.
+          setError('بيانات الدخول غير صحيحة. تأكد من البريد الإلكتروني وكلمة المرور.')
           setLoading(false)
           return
         }

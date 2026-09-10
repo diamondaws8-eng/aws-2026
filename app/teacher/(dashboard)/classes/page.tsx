@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { gradeLevels, classes, students } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import { eq, and, count } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import GradeSelector from './grade-selector'
 import { requireTeacher, getTeacherVisibleClassIds } from '@/lib/teacher-access'
@@ -16,10 +16,18 @@ export default async function TeacherClassesPage() {
     redirect('/teacher/login')
   }
 
-  // Fetch grades, classes, students
+  // Fetch grades, classes, and a head-count per class. Only the count is
+  // needed here, so only the count is fetched — pulling every pupil row in the
+  // school (nine hundred of them, with phone numbers) to add them up was work
+  // the database does in one line.
   const gradesData = await db.select().from(gradeLevels).where(eq(gradeLevels.schoolId, teacher.schoolId)).orderBy(gradeLevels.orderIndex)
   const classesData = await db.select().from(classes).where(eq(classes.schoolId, teacher.schoolId))
-  const studentsData = await db.select().from(students).where(eq(students.schoolId, teacher.schoolId))
+  const countRows = await db
+    .select({ classId: students.classId, n: count() })
+    .from(students)
+    .where(and(eq(students.schoolId, teacher.schoolId), eq(students.status, 'active')))
+    .groupBy(students.classId)
+  const countByClass = new Map(countRows.map((r) => [r.classId, Number(r.n)]))
 
   // A class stays visible to everyone until the admin assigns it a subject —
   // see lib/teacher-access.ts for why this can't be unconditional yet.
@@ -36,7 +44,7 @@ export default async function TeacherClassesPage() {
         classes: gradeClasses.map(c => ({
           id: c.id,
           name: c.name,
-          studentCount: studentsData.filter(s => s.classId === c.id).length
+          studentCount: countByClass.get(c.id) ?? 0
         }))
       }
     })

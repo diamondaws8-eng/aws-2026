@@ -306,7 +306,9 @@ export default function SettingsClient({
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault()
     if (newPw !== confirmPw) { setPwMsg({ ok: false, text: 'كلمة المرور الجديدة وتأكيدها غير متطابقتين' }); return }
-    if (newPw.length < 6) { setPwMsg({ ok: false, text: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' }); return }
+    // Eight, the same as the server — a seven-letter password used to pass
+    // here and then be refused with a message that contradicted this one.
+    if (newPw.length < 8) { setPwMsg({ ok: false, text: 'كلمة المرور يجب أن تكون 8 أحرف أو أرقام على الأقل' }); return }
     setPwLoading(true)
     setPwMsg(null)
     const result = await changeAdminPassword(currentPw, newPw)
@@ -1008,7 +1010,7 @@ export default function SettingsClient({
               value={newPw}
               onChange={e => setNewPw(e.target.value)}
               className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-sm"
-              placeholder="6 أحرف على الأقل"
+              placeholder="8 أحرف أو أرقام على الأقل"
             />
           </div>
           <div>

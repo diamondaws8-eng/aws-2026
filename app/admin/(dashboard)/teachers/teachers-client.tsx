@@ -53,6 +53,13 @@ export default function TeachersClient({ teachers, schoolId, canManage = true, g
     setEditingTeacher(null)
     setFullName('')
     setPhone('')
+    // Everything, not just the name: opening "edit" on one teacher and then
+    // "add" left the previous teacher's stages ticked in the new form.
+    setAllGrades(false)
+    setGradeIds([])
+    setSubjectName('')
+    setClassIds([])
+    setSuccessInfo(null)
     setIsModalOpen(true)
   }
 

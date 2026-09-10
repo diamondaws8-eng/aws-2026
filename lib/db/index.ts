@@ -11,7 +11,16 @@ export const pool =
   globalForDb.__pool ??
   new Pool({
     connectionString: process.env.DATABASE_URL,
-    max: 15, // the dashboard fires ~14 queries in parallel
+    /**
+     * Small on purpose. On Vercel every warm function instance holds its own
+     * pool, and Supabase's transaction pooler caps the clients it will accept.
+     * Fifteen per instance was fine for one developer; the morning nine hundred
+     * families open the app after an absence notice, a dozen instances times
+     * fifteen would walk straight past that cap and the school would read
+     * "too many clients". Queries beyond eight simply queue for a moment — the
+     * dashboard's dozen parallel reads still complete, a few milliseconds later.
+     */
+    max: 8,
   })
 
 if (process.env.NODE_ENV !== 'production') globalForDb.__pool = pool

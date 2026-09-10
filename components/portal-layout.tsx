@@ -121,7 +121,10 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
   const pathname = usePathname()
   const router = useRouter()
 
-  const [isOpen, setIsOpen] = useState(true)
+  // `null` until the browser has said how wide it is. The server cannot know,
+  // and rendering "open" by default meant every full load on a phone drew the
+  // sidebar over the page and then slid it away.
+  const [isOpen, setIsOpen] = useState<boolean | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const [logoutPhrase, setLogoutPhrase] = useState('')
@@ -129,10 +132,10 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
 
   useEffect(() => {
     const handleResize = () => {
-      setIsMobile(window.innerWidth < 768)
-      if (window.innerWidth < 768) {
-        setIsOpen(false)
-      }
+      const mobile = window.innerWidth < 768
+      setIsMobile(mobile)
+      if (mobile) setIsOpen(false)
+      else setIsOpen((v) => (v === null ? true : v))
     }
     handleResize()
     window.addEventListener('resize', handleResize)
@@ -169,11 +172,16 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
         />
       )}
 
-      {/* Floating Toggle Button (visible when sidebar is closed) */}
-      {!isOpen && (
+      {/* Floating Toggle Button (visible when sidebar is closed). Before the
+          width is known it exists only on a phone-sized screen. */}
+      {isOpen !== true && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed top-4 right-4 z-30 p-2.5 bg-card border border-border shadow-md rounded-xl text-foreground hover:bg-muted transition-colors"
+          aria-label="فتح القائمة"
+          className={cn(
+            "fixed top-4 right-4 z-30 p-2.5 bg-card border border-border shadow-md rounded-xl text-foreground hover:bg-muted transition-colors",
+            isOpen === null && "md:hidden",
+          )}
         >
           <Menu className="size-5" />
         </button>
@@ -181,8 +189,10 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
 
       {/* ── Sidebar ──────────────────────────────────────────────────────── */}
       <aside className={cn(
-        "fixed right-0 top-0 z-40 flex h-full w-64 flex-col border-l border-border bg-card shadow-lg transition-transform duration-300",
-        isOpen ? "translate-x-0" : "translate-x-full"
+        "fixed right-0 top-0 z-40 flex h-full w-64 flex-col border-l border-border bg-card shadow-lg",
+        // No transition on the first paint: the phone must not see it slide.
+        isOpen !== null && "transition-transform duration-300",
+        isOpen === null ? "translate-x-full md:translate-x-0" : isOpen ? "translate-x-0" : "translate-x-full"
       )}>
         {/* Logo / Portal name */}
         <div className="border-b border-border px-5 py-5 relative">
@@ -304,8 +314,11 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
 
       {/* ── Main content ─────────────────────────────────────────────────── */}
       <main className={cn(
-        "min-h-screen w-full transition-all duration-300",
-        isOpen ? "md:mr-64 mr-0" : "mr-0"
+        // On a phone the floating menu button sits over the top-right corner —
+        // exactly where every page's title begins. Push the content below it.
+        "min-h-screen w-full max-md:pt-14",
+        isOpen !== null && "transition-all duration-300",
+        isOpen === null ? "md:mr-64" : isOpen ? "md:mr-64 mr-0" : "mr-0"
       )}>
         {children}
       </main>

@@ -2,7 +2,7 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { schoolStaff, user, account, session, gradeLevels } from '@/lib/db/schema'
+import { schoolStaff, user, account, session, gradeLevels, behaviorCases, userNotifications } from '@/lib/db/schema'
 import { eq, and, inArray } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { hashPassword } from 'better-auth/crypto'
@@ -169,14 +169,39 @@ export async function deleteStaff(staffId: string) {
     return { ok: false as const, error: 'لا يمكنك حذف حسابك الخاص' }
   }
 
+  let released = 0
   await db.transaction(async (tx) => {
+    // A case handed to this person by name would otherwise stay "escalated"
+    // with an owner who no longer exists — in nobody's inbox, forever. It goes
+    // back to the counsellor exactly as returnCaseToCounselor sends it, with a
+    // note saying why.
+    const stuck = await tx
+      .update(behaviorCases)
+      .set({
+        status: 'open',
+        ownerUserId: null,
+        escalatedToUserId: null,
+        escalatedAt: null,
+        adminNote: `أُعيدت تلقائياً: حُذف حساب ${staff.fullName} الذي كانت محالة إليه`,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(behaviorCases.schoolId, access.school.id),
+        eq(behaviorCases.escalatedToUserId, staff.userId),
+        eq(behaviorCases.status, 'escalated'),
+      ))
+      .returning({ id: behaviorCases.id })
+    released = stuck.length
+
+    // Their inbox goes with the account.
+    await tx.delete(userNotifications).where(eq(userNotifications.recipientUserId, staff.userId))
     await tx.delete(schoolStaff).where(eq(schoolStaff.id, staffId))
     await tx.delete(account).where(eq(account.userId, staff.userId))
     await tx.delete(session).where(eq(session.userId, staff.userId))
     await tx.delete(user).where(eq(user.id, staff.userId))
   })
 
-  await logAudit(access, 'staff.delete', staff.fullName, { role: staff.role })
+  await logAudit(access, 'staff.delete', staff.fullName, { role: staff.role, casesReturned: released })
 
   revalidatePath('/admin/staff')
   return { ok: true as const }

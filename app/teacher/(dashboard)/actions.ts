@@ -593,10 +593,16 @@ export async function logParentWhatsappMessage(input: {
   const { userId, schoolId } = await requireTeacherForClass(input.classId)
   if (input.type !== 'positive' && input.type !== 'negative') throw new Error('Invalid type')
 
+  // In this class, not merely in this school: the row is counted against the
+  // class it names, and raiseBehaviorCase already holds the same line.
   const [student] = await db
     .select({ id: students.id })
     .from(students)
-    .where(and(eq(students.id, input.studentId), eq(students.schoolId, schoolId)))
+    .where(and(
+      eq(students.id, input.studentId),
+      eq(students.schoolId, schoolId),
+      eq(students.classId, input.classId),
+    ))
     .limit(1)
   if (!student) throw new Error('Student not found')
 
@@ -665,18 +671,37 @@ export async function raiseBehaviorCase(input: {
   await logTeacherAudit(access, 'case.raised', student.fullName, { classId: input.classId })
 
   // Somebody has to be told, or the case sits in a queue nobody knows about.
-  const { notify, counselorsForClass } = await import('@/lib/notifications')
+  const { notify, counselorsForClass, wholeSchoolManagers } = await import('@/lib/notifications')
   const counselors = await counselorsForClass(schoolId, input.classId)
-  await notify(counselors.map((userId) => ({
-    schoolId,
-    recipientUserId: userId,
-    kind: 'case_raised' as const,
-    title: `حالة جديدة: ${student.fullName}`,
-    body: note.slice(0, 300),
-    href: '/counselor',
-    entityId: caseId,
-    actorName: access.fullName,
-  })))
+
+  if (counselors.length > 0) {
+    await notify(counselors.map((userId) => ({
+      schoolId,
+      recipientUserId: userId,
+      kind: 'case_raised' as const,
+      title: `حالة جديدة: ${student.fullName}`,
+      body: note.slice(0, 300),
+      href: '/counselor',
+      entityId: caseId,
+      actorName: access.fullName,
+    })))
+  } else {
+    // No counsellor covers this stage yet — a new building whose staff have
+    // not all been appointed. Left alone, the case would wait two days for the
+    // "stale" list to surface it. The people who can appoint a counsellor are
+    // told now instead, and told why.
+    const managers = await wholeSchoolManagers(schoolId)
+    await notify(managers.map((userId) => ({
+      schoolId,
+      recipientUserId: userId,
+      kind: 'case_raised' as const,
+      title: `حالة بلا موجه مسؤول: ${student.fullName}`,
+      body: 'لا يوجد موجه طلابي مسند لمرحلة هذا الطالب. أسنِد موجهاً من فريق الإدارة حتى تصل إليه الحالات.',
+      href: '/admin/staff',
+      entityId: caseId,
+      actorName: access.fullName,
+    })))
+  }
 
   revalidatePath(`/teacher/classes/${input.classId}`)
   return { ok: true }

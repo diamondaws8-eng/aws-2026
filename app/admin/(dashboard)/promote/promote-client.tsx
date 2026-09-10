@@ -110,14 +110,24 @@ export function PromoteClient({
   const saveRow = async (classId: string, to: string | null, terminal: boolean) => {
     setMap((m) => ({ ...m, [classId]: { to: terminal ? null : to, terminal } }))
     setSavingRow(classId)
-    const res = await setPromotionTarget(classId, terminal ? null : to, terminal)
-    setSavingRow(null)
-    if (!res.ok) {
-      setMap((m) => ({ ...m, [classId]: { to: classes.find((c) => c.id === classId)?.promotesToClassId ?? null, terminal: classes.find((c) => c.id === classId)?.isTerminal ?? false } }))
-      setNote({ ok: false, text: res.error })
-    } else {
-      setNote(null)
-      router.refresh()
+    const revert = () => {
+      const was = classes.find((c) => c.id === classId)
+      setMap((m) => ({ ...m, [classId]: { to: was?.promotesToClassId ?? null, terminal: was?.isTerminal ?? false } }))
+    }
+    try {
+      const res = await setPromotionTarget(classId, terminal ? null : to, terminal)
+      if (!res.ok) {
+        revert()
+        setNote({ ok: false, text: res.error })
+      } else {
+        setNote(null)
+        router.refresh()
+      }
+    } catch {
+      revert()
+      setNote({ ok: false, text: 'حدث خطأ غير متوقع — لم تُحفظ الوجهة' })
+    } finally {
+      setSavingRow(null)
     }
   }
 
@@ -531,11 +541,15 @@ export function PromoteClient({
                     <button
                       type="button"
                       onClick={async () => {
-                        const res = await undoGraduation(g.id)
-                        setNote(res.ok
-                          ? { ok: true, text: `أُعيد ${g.fullName} إلى فصله` }
-                          : { ok: false, text: res.error })
-                        if (res.ok) router.refresh()
+                        try {
+                          const res = await undoGraduation(g.id)
+                          setNote(res.ok
+                            ? { ok: true, text: `أُعيد ${g.fullName} إلى فصله` }
+                            : { ok: false, text: res.error })
+                          if (res.ok) router.refresh()
+                        } catch {
+                          setNote({ ok: false, text: 'حدث خطأ غير متوقع' })
+                        }
                       }}
                       className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-muted px-3 py-2 text-xs font-semibold hover:bg-muted/70"
                     >

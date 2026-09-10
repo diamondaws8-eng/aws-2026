@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { addGradeLevel, deleteGradeLevel, editGradeLevel, addClass, deleteClass, editClass, getStudentsForClass, addSubject, deleteSubject, assignTeacherToSubject } from './actions-levels'
 import { ChevronDown, ChevronUp, Plus, Trash2, BookOpen, UserCog, Edit2, Download, Layers, CheckCircle2, Eye } from 'lucide-react'
 import { EmptyState } from '@/components/empty-state'
@@ -49,6 +50,7 @@ const GRADE_ACCENTS = [
 ]
 
 export default function GradeLevelsClient({ grades, schoolId, teacherOptions, editableGradeIds, canCreateGrades }: Props) {
+  const router = useRouter()
   const canEditGrade = (gradeId: string) => editableGradeIds.includes(gradeId)
   const [expandedGrades, setExpandedGrades] = useState<Set<string>>(new Set(grades.map(g => g.id)))
   const [expandedClasses, setExpandedClasses] = useState<Set<string>>(new Set())
@@ -109,24 +111,61 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
     setLoading(subjectId, true)
     const res = await assignTeacherToSubject(subjectId, teacherUserId || null)
     setLoading(subjectId, false)
-    if (res && !res.ok) alert(res.error)
+    if (res && !res.ok) {
+      alert(res.error)
+      // The dropdown is uncontrolled: after a refusal it still shows the name
+      // that was not saved. Reload so it shows who actually holds the subject.
+      router.refresh()
+    }
   }
 
   const handleEditClass = async (classId: string) => {
     if (!editingClassName.trim()) return
     setLoading(classId, true)
-    await editClass(classId, editingClassName)
-    setEditingClassId(null)
+    const res = await editClass(classId, editingClassName)
     setLoading(classId, false)
+    if (res && !res.ok) {
+      alert(res.error)
+      return
+    }
+    setEditingClassId(null)
+  }
+
+  // The three "add" forms used to swallow every refusal — a duplicate name, a
+  // stage this account may not touch — and the field just emptied itself.
+  const handleAddGrade = async (fd: FormData) => {
+    setAddingGrade(true)
+    try {
+      const res = await addGradeLevel(fd)
+      if (!res.ok) { alert(res.error); return }
+      setNewGradeName('')
+    } finally {
+      setAddingGrade(false)
+    }
+  }
+
+  const handleAddClass = async (gradeId: string, fd: FormData) => {
+    const res = await addClass(fd)
+    if (!res.ok) { alert(res.error); return }
+    setNewClassNames(p => ({ ...p, [gradeId]: '' }))
+  }
+
+  const handleAddSubject = async (classId: string, fd: FormData) => {
+    const res = await addSubject(fd)
+    if (!res.ok) { alert(res.error); return }
+    setNewSubjectNames(p => ({ ...p, [classId]: '' }))
   }
 
   const handleDownloadExcel = async (classId: string, className: string, gradeName: string) => {
     setLoading(`dl-${classId}`, true)
     try {
       const students = await getStudentsForClass(classId, schoolId)
-      // Format similar to import sheet: الاسم الرباعي | رقم الهوية | رقم جوال ولي الأمر | الجنس | تاريخ الميلاد
+      // The same four columns as the import sheet, so a downloaded roster can
+      // be edited and imported back. A fifth "date of birth" column used to be
+      // here: nothing in the system ever writes that field and the import
+      // ignores it, so it was an empty column that promised something false.
       const wsData = [
-        ['الاسم الرباعي', 'رقم الهوية', 'رقم جوال ولي الأمر', 'الجنس', 'تاريخ الميلاد (اختياري) YYYY-MM-DD']
+        ['الاسم الرباعي', 'رقم الهوية', 'رقم جوال ولي الأمر', 'الجنس']
       ]
       students.forEach(s => {
         wsData.push([
@@ -134,7 +173,6 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
           s.nationalId || '',
           s.parentPhone || '',
           s.gender === 'male' ? 'ذكر' : s.gender === 'female' ? 'أنثى' : '',
-          s.dateOfBirth || ''
         ])
       })
       const ws = XLSX.utils.aoa_to_sheet(wsData)
@@ -167,7 +205,7 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
               </p>
             </div>
           </div>
-          <form action={async (fd) => { setAddingGrade(true); await addGradeLevel(fd); setNewGradeName(''); setAddingGrade(false) }}
+          <form action={handleAddGrade}
             className="flex gap-2 flex-1">
             <input type="hidden" name="schoolId" value={schoolId} />
             <input
@@ -268,7 +306,7 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
               <div className="border-t border-border px-5 pb-5 pt-4 space-y-4">
                 {/* Add class */}
                 {editable && (
-                <form action={async (fd) => { await addClass(fd); setNewClassNames(p => ({ ...p, [grade.id]: '' })) }}
+                <form action={(fd) => handleAddClass(grade.id, fd)}
                   className="flex gap-2">
                   <input type="hidden" name="gradeLevelId" value={grade.id} />
                   <input type="hidden" name="schoolId" value={schoolId} />
@@ -360,7 +398,7 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
 
                           {/* Add subject */}
                           {editable && (
-                          <form action={async (fd) => { await addSubject(fd); setNewSubjectNames(p => ({ ...p, [cls.id]: '' })) }}
+                          <form action={(fd) => handleAddSubject(cls.id, fd)}
                             className="flex gap-2">
                             <input type="hidden" name="classId" value={cls.id} />
                             <input type="hidden" name="schoolId" value={schoolId} />

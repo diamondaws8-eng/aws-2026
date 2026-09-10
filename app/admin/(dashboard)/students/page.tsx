@@ -18,6 +18,11 @@ export default async function StudentsPage() {
       nationalId: students.nationalId,
       parentPhone: students.parentPhone,
       parentUserId: students.parentUserId,
+      // Both were missing. The edit form fell back to «ذكر» for a gender it
+      // never received, so saving any change to a girl's record — a phone
+      // number, a class — silently re-registered her as a boy.
+      gender: students.gender,
+      dateOfBirth: students.dateOfBirth,
       className: classes.name,
       gradeName: gradeLevels.name,
       gradeLevelId: classes.gradeLevelId,

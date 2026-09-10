@@ -2,13 +2,12 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { students, dailyRecords, lessonRecords, subjects, teachers, user, classes, gradeLevels, gradeEntries, account } from '@/lib/db/schema'
-import { eq, and, sql, desc } from 'drizzle-orm'
+import { students, dailyRecords, lessonRecords, subjects, teachers, user, classes, gradeLevels, gradeEntries, account, schools } from '@/lib/db/schema'
+import { eq, and, sql, desc, gte } from 'drizzle-orm'
 import { hashPassword } from 'better-auth/crypto'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { authClient } from '@/lib/auth-client'
-import { getStudentPointsTotal, getStudentTeacherPointsTotal, getManualPoints, deriveLessonEntries } from '@/lib/points'
+import { getStudentPointsTotal, getStudentTeacherPointsTotal, getManualPoints, deriveLessonEntries, yearStartForStudent } from '@/lib/points'
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 export async function requireParent() {
@@ -34,8 +33,11 @@ export async function setOwnParentPassword(newPassword: string, confirmPassword:
   if (newPassword !== confirmPassword) {
     return { ok: false as const, error: 'كلمتا المرور غير متطابقتين' }
   }
-  if (newPassword.length < 6) {
-    return { ok: false as const, error: 'كلمة المرور يجب أن تكون 6 أحرف أو أرقام على الأقل' }
+  // Eight, like every other portal — and like the parent settings page itself,
+  // which already refused six. The starter password is eight characters, so a
+  // shorter replacement would be weaker than the one it replaced.
+  if (newPassword.length < 8) {
+    return { ok: false as const, error: 'كلمة المرور يجب أن تكون 8 أحرف أو أرقام على الأقل' }
   }
   if (newPassword === '12345678') {
     return { ok: false as const, error: 'لا يمكن استخدام كلمة المرور الافتراضية — اختر كلمة خاصة بك' }
@@ -97,6 +99,16 @@ export async function getStudentDashboard(studentId: string) {
   // Total points — each day's record plus manual awards (see lib/points.ts)
   const totalPoints = await getStudentPointsTotal(studentId)
 
+  /**
+   * The same year boundary the points use. Points were already counted from the
+   * year's start while attendance was counted since the child's first day, so
+   * the rating on the parent's screen — points divided by sessions — would have
+   * put this year's score over every year's lessons the moment a second year
+   * began. Null (no boundary set) counts everything, exactly as before.
+   */
+  const since = await yearStartForStudent(studentId)
+  const thisYear = since ? gte(dailyRecords.date, since) : undefined
+
   // Attendance summary from daily_records
   const attendanceRows = await db
     .select({
@@ -104,7 +116,7 @@ export async function getStudentDashboard(studentId: string) {
       count: sql<number>`COUNT(*)`,
     })
     .from(dailyRecords)
-    .where(eq(dailyRecords.studentId, studentId))
+    .where(and(eq(dailyRecords.studentId, studentId), thisYear))
     .groupBy(dailyRecords.attendanceStatus)
 
   const attendance = { present: 0, absent: 0, late: 0, excused: 0 }
@@ -117,7 +129,7 @@ export async function getStudentDashboard(studentId: string) {
   const recentRecords = await db
     .select()
     .from(dailyRecords)
-    .where(eq(dailyRecords.studentId, studentId))
+    .where(and(eq(dailyRecords.studentId, studentId), thisYear))
     .orderBy(desc(dailyRecords.date))
     .limit(10)
 
@@ -183,7 +195,8 @@ export async function getStudentDashboard(studentId: string) {
             and(
               eq(lessonRecords.studentId, studentId),
               eq(lessonRecords.classId, student.classId!),
-              eq(lessonRecords.teacherUserId, sub.teacherUserId)
+              eq(lessonRecords.teacherUserId, sub.teacherUserId),
+              since ? gte(lessonRecords.date, since) : undefined,
             )
           )
           .groupBy(dailyRecords.attendanceStatus)
@@ -208,7 +221,8 @@ export async function getStudentDashboard(studentId: string) {
               eq(lessonRecords.studentId, studentId),
               eq(lessonRecords.classId, student.classId!),
               eq(lessonRecords.teacherUserId, sub.teacherUserId),
-              sql`${lessonRecords.teacherNote} IS NOT NULL`
+              sql`${lessonRecords.teacherNote} IS NOT NULL`,
+              since ? gte(lessonRecords.date, since) : undefined,
             )
           )
           .orderBy(desc(lessonRecords.date))
@@ -231,56 +245,11 @@ export async function getStudentDashboard(studentId: string) {
   }
 }
 
-// ─── Get notifications ────────────────────────────────────────────────────────
-// A server action is a public endpoint: this used to answer any caller who knew
-// a student id — no session required — and hand back every notice addressed to
-// that child. The child must now belong to the signed-in parent.
-export async function getMyNotifications(studentId: string) {
-  const parentUser = await requireParent()
-
-  const { notifications, students } = await import('@/lib/db/schema')
-  const { or, isNull, gt, sql } = await import('drizzle-orm')
-
-  const [student] = await db
-    .select()
-    .from(students)
-    .where(and(eq(students.id, studentId), eq(students.parentUserId, parentUser.id)))
-    .limit(1)
-  if (!student) return []
-
-  return db
-    .select()
-    .from(notifications)
-    .where(
-      and(
-        eq(notifications.schoolId, student.schoolId),
-        or(
-          isNull(notifications.expiresAt),
-          gt(notifications.expiresAt, sql`now()`)
-        ),
-        or(
-          eq(notifications.studentId, studentId), // Specifically for this student
-          and(
-            eq(notifications.classId, student.classId || ''), 
-            isNull(notifications.studentId) // For the whole class
-          ),
-          and(
-            isNull(notifications.classId), 
-            isNull(notifications.studentId) // For the whole school
-          )
-        )
-      )
-    )
-    .orderBy(desc(notifications.createdAt))
-    .limit(20)
-}
-
-// ─── Change password ──────────────────────────────────────────────────────────
-/** @deprecated Never changed anything — it returned ok while doing nothing.
- *  The parent settings page calls authClient.changePassword directly. */
-export async function changeParentPassword(_currentPassword: string, _newPassword: string) {
-  return { ok: false as const, error: 'استخدم صفحة الإعدادات لتغيير كلمة المرور' }
-}
+// The parent's notices come from the shared bell (app/notifications-actions.ts
+// and lib/notifications.ts). An older reader of the legacy `notifications`
+// table, and a password stub that never changed anything, were both exported
+// from here with no caller left — and every export of this file is a public
+// endpoint, so a dead one is still a door. Both removed.
 
 // ─── Get Subject Details ──────────────────────────────────────────────────────
 export async function getSubjectDetails(studentId: string, subjectId: string) {
@@ -311,6 +280,10 @@ export async function getSubjectDetails(studentId: string, subjectId: string) {
     .where(eq(teachers.userId, subject.teacherUserId))
     .limit(1)
 
+  // This year only, like every figure on the parent's screens. Last year's
+  // lessons are read from the archive, not scrolled past under this year's.
+  const since = await yearStartForStudent(studentId)
+
   // This teacher's own lessons, each carrying the day's shared attendance so
   // the page can show "غاب في هذه الحصة" beside the teacher's marks.
   const lessons = await db
@@ -336,7 +309,8 @@ export async function getSubjectDetails(studentId: string, subjectId: string) {
     .where(
       and(
         eq(lessonRecords.studentId, studentId),
-        eq(lessonRecords.teacherUserId, subject.teacherUserId)
+        eq(lessonRecords.teacherUserId, subject.teacherUserId),
+        since ? gte(lessonRecords.date, since) : undefined,
       )
     )
     .orderBy(desc(lessonRecords.date))
@@ -354,14 +328,21 @@ export async function getSubjectDetails(studentId: string, subjectId: string) {
   const manual = await getManualPoints(studentId, { teacherUserId: subject.teacherUserId })
   const points = [...derived, ...manual].sort((a, b) => b.date.localeCompare(a.date))
 
-  // Get grade entries for this student in this subject
+  // Marks carry the year they were filed under, so the current year's label is
+  // the filter — a parent opening a subject sees this year's exams.
+  const [schoolRow] = await db
+    .select({ academicYear: schools.academicYear })
+    .from(schools)
+    .where(eq(schools.id, student.schoolId))
+    .limit(1)
   const grades = await db
     .select()
     .from(gradeEntries)
     .where(
       and(
         eq(gradeEntries.studentId, studentId),
-        eq(gradeEntries.subjectId, subjectId)
+        eq(gradeEntries.subjectId, subjectId),
+        schoolRow ? eq(gradeEntries.academicYear, schoolRow.academicYear) : undefined,
       )
     )
     .orderBy(desc(gradeEntries.createdAt))

@@ -53,6 +53,11 @@ export async function sendNotification(data: any) {
   if (!title || !body) return { ok: false, error: 'العنوان والنص مطلوبان' }
   const type = ['info', 'warning', 'absence', 'grade'].includes(data.type) ? data.type : 'info'
 
+  // The browser sends the expiry as an ISO string; the column wants a Date.
+  // Anything unparseable becomes "never expires" rather than a failed insert.
+  const expiresAt = data.expiresAt ? new Date(data.expiresAt) : null
+  const expiry = expiresAt && !Number.isNaN(expiresAt.getTime()) ? expiresAt : null
+
   // Who the notice is addressed to. Anything not one of the three is treated as
   // the old behaviour, so a stale browser tab still sends to families.
   const audience: Audience = AUDIENCES.includes(data.audience) ? data.audience : 'parents'
@@ -73,7 +78,7 @@ export async function sendNotification(data: any) {
     title,
     body,
     type,
-    expiresAt: data.expiresAt || null
+    expiresAt: expiry,
   }).returning({ id: notifications.id })
 
   // The announcement row records what was sent; the bell is what makes anyone

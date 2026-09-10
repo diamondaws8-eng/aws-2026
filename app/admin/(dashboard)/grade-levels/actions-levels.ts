@@ -1,8 +1,12 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { gradeLevels, classes, subjects, students, teachers, gradeEntries } from '@/lib/db/schema'
-import { eq, and } from 'drizzle-orm'
+import {
+  gradeLevels, classes, subjects, students, teachers, gradeEntries,
+  dailyRecords, lessonRecords, behaviorCases, attendance, studentPoints,
+  parentWhatsappMessages, notifications,
+} from '@/lib/db/schema'
+import { eq, and, ne, inArray, count } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { getAdminAccess, canEditGrade, canViewGrade, type AdminAccess } from '@/lib/admin-access'
 import { logAudit } from '@/lib/audit'
@@ -34,15 +38,54 @@ async function gradeIdOfClass(classId: string): Promise<{ gradeLevelId: string; 
 
 // ─── Grade levels ─────────────────────────────────────────────────────────────
 
-export async function addGradeLevel(formData: FormData) {
+type ActionResult = { ok: true } | { ok: false; error: string }
+
+/**
+ * Names are the only handle the school has on a stage, a class or a subject —
+ * two classes both called «1\1» under one stage, or two «رياضيات» rows in one
+ * class, show up as two identical lines in every list with nothing to say
+ * which is which. Every add/rename below refuses the duplicate.
+ */
+async function gradeNameTaken(schoolId: string, name: string, exceptId?: string) {
+  const [row] = await db
+    .select({ id: gradeLevels.id })
+    .from(gradeLevels)
+    .where(and(eq(gradeLevels.schoolId, schoolId), eq(gradeLevels.name, name), exceptId ? ne(gradeLevels.id, exceptId) : undefined))
+    .limit(1)
+  return !!row
+}
+
+async function classNameTaken(gradeLevelId: string, name: string, exceptId?: string) {
+  const [row] = await db
+    .select({ id: classes.id })
+    .from(classes)
+    .where(and(eq(classes.gradeLevelId, gradeLevelId), eq(classes.name, name), exceptId ? ne(classes.id, exceptId) : undefined))
+    .limit(1)
+  return !!row
+}
+
+async function subjectNameTaken(classId: string, name: string) {
+  const [row] = await db
+    .select({ id: subjects.id })
+    .from(subjects)
+    .where(and(eq(subjects.classId, classId), eq(subjects.name, name)))
+    .limit(1)
+  return !!row
+}
+
+export async function addGradeLevel(formData: FormData): Promise<ActionResult> {
   const access = await requireSchoolWideEditor()
-  if (!access) return
-  const name = formData.get('name') as string
-  if (!name) return
+  if (!access) return { ok: false, error: 'غير مصرح لك بهذا الإجراء' }
+  const name = String(formData.get('name') ?? '').trim()
+  if (!name) return { ok: false, error: 'اسم المرحلة مطلوب' }
   const schoolId = access.school.id
-  const existingCount = await db.select().from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId))
-  await db.insert(gradeLevels).values({ name, schoolId, orderIndex: existingCount.length })
+  if (await gradeNameTaken(schoolId, name)) {
+    return { ok: false, error: `توجد مرحلة بهذا الاسم بالفعل: ${name}` }
+  }
+  const [{ n }] = await db.select({ n: count() }).from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId))
+  await db.insert(gradeLevels).values({ name, schoolId, orderIndex: n })
   revalidatePath('/admin/grade-levels')
+  return { ok: true }
 }
 
 export async function editGradeLevel(id: string, name: string) {
@@ -55,6 +98,9 @@ export async function editGradeLevel(id: string, name: string) {
   const [grade] = await db.select().from(gradeLevels).where(eq(gradeLevels.id, id)).limit(1)
   if (!grade || grade.schoolId !== access.school.id) {
     return { ok: false as const, error: 'المرحلة غير موجودة' }
+  }
+  if (await gradeNameTaken(access.school.id, trimmed, id)) {
+    return { ok: false as const, error: `توجد مرحلة أخرى بهذا الاسم: ${trimmed}` }
   }
 
   await db.update(gradeLevels).set({ name: trimmed }).where(eq(gradeLevels.id, id))
@@ -89,14 +135,24 @@ export async function deleteGradeLevel(id: string) {
 
 // ─── Classes ──────────────────────────────────────────────────────────────────
 
-export async function addClass(formData: FormData) {
-  const gradeLevelId = formData.get('gradeLevelId') as string
-  const access = await requireGradeEditor(gradeLevelId)
-  if (!access) return
-  const name = formData.get('name') as string
-  if (!name || !gradeLevelId) return
+export async function addClass(formData: FormData): Promise<ActionResult> {
+  const gradeLevelId = String(formData.get('gradeLevelId') ?? '')
+  const access = await requireGradeEditor(gradeLevelId || null)
+  if (!access || !gradeLevelId) return { ok: false, error: 'غير مصرح لك بهذا الإجراء' }
+  const [grade] = await db
+    .select({ id: gradeLevels.id })
+    .from(gradeLevels)
+    .where(and(eq(gradeLevels.id, gradeLevelId), eq(gradeLevels.schoolId, access.school.id)))
+    .limit(1)
+  if (!grade) return { ok: false, error: 'المرحلة غير موجودة' }
+  const name = String(formData.get('name') ?? '').trim()
+  if (!name) return { ok: false, error: 'اسم الفصل مطلوب' }
+  if (await classNameTaken(gradeLevelId, name)) {
+    return { ok: false, error: `يوجد فصل بهذا الاسم في المرحلة نفسها: ${name}` }
+  }
   await db.insert(classes).values({ name, gradeLevelId, schoolId: access.school.id, capacity: 30 })
   revalidatePath('/admin/grade-levels')
+  return { ok: true }
 }
 
 export async function deleteClass(id: string) {
@@ -117,37 +173,82 @@ export async function deleteClass(id: string) {
     }
   }
 
-  // Subjects belong to the class and are meaningless without it.
+  // Nothing in the database ties a record to its class, so deleting the class
+  // would leave last year's registers, cases and marks pointing at nothing —
+  // the archive promises they stay readable "as the class they happened in".
+  // An empty class that was never used goes; a class with a history stays,
+  // the same way a subject with marks and a stage with classes stay.
+  const subjectIds = (await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.classId, id))).map((s) => s.id)
+  const [[reg], [lessons], [cases], [att], [pts], [msgs], [marks]] = await Promise.all([
+    db.select({ n: count() }).from(dailyRecords).where(eq(dailyRecords.classId, id)),
+    db.select({ n: count() }).from(lessonRecords).where(eq(lessonRecords.classId, id)),
+    db.select({ n: count() }).from(behaviorCases).where(eq(behaviorCases.classId, id)),
+    db.select({ n: count() }).from(attendance).where(eq(attendance.classId, id)),
+    db.select({ n: count() }).from(studentPoints).where(eq(studentPoints.classId, id)),
+    db.select({ n: count() }).from(parentWhatsappMessages).where(eq(parentWhatsappMessages.classId, id)),
+    subjectIds.length
+      ? db.select({ n: count() }).from(gradeEntries).where(inArray(gradeEntries.subjectId, subjectIds))
+      : Promise.resolve([{ n: 0 }]),
+  ])
+  const history = reg.n + lessons.n + cases.n + att.n + pts.n + msgs.n + marks.n
+  if (history > 0) {
+    return {
+      ok: false as const,
+      error: `لا يمكن حذف فصل «${classRow?.name ?? ''}» لأن له سجلاً محفوظاً (${history} سجل حضور ودرجات وحالات). أبقِه فارغاً أو أعد تسميته — السجل يُقرأ باسم الفصل.`,
+    }
+  }
+
   await db.transaction(async (tx) => {
+    // Subjects belong to the class and are meaningless without it.
     await tx.delete(subjects).where(eq(subjects.classId, id))
+    // A notice addressed to this class alone had nobody left to read it.
+    await tx.delete(notifications).where(eq(notifications.classId, id))
+    // Other classes may have named this one as where their pupils go next;
+    // left in place, the annual promotion would try to move pupils into it.
+    await tx.update(classes).set({ promotesToClassId: null }).where(eq(classes.promotesToClassId, id))
     await tx.delete(classes).where(eq(classes.id, id))
   })
 
   await logAudit(access, 'class.delete', `فصل ${classRow?.name ?? ''}`.trim())
 
   revalidatePath('/admin/grade-levels')
+  revalidatePath('/admin/promote')
   return { ok: true as const }
 }
 
-export async function editClass(id: string, name: string) {
+export async function editClass(id: string, name: string): Promise<ActionResult> {
   const cls = await gradeIdOfClass(id)
   const access = await requireGradeEditor(cls?.gradeLevelId ?? null)
-  if (!access || !cls || cls.schoolId !== access.school.id) return
-  await db.update(classes).set({ name }).where(eq(classes.id, id))
+  if (!access || !cls || cls.schoolId !== access.school.id) {
+    return { ok: false, error: 'غير مصرح لك بهذا الإجراء' }
+  }
+  const trimmed = String(name ?? '').trim()
+  if (!trimmed) return { ok: false, error: 'اسم الفصل مطلوب' }
+  if (await classNameTaken(cls.gradeLevelId, trimmed, id)) {
+    return { ok: false, error: `يوجد فصل آخر بهذا الاسم في المرحلة نفسها: ${trimmed}` }
+  }
+  await db.update(classes).set({ name: trimmed }).where(eq(classes.id, id))
   revalidatePath('/admin/grade-levels')
+  return { ok: true }
 }
 
 // ─── Subjects ─────────────────────────────────────────────────────────────────
 
-export async function addSubject(formData: FormData) {
-  const classId = formData.get('classId') as string
-  const cls = await gradeIdOfClass(classId)
+export async function addSubject(formData: FormData): Promise<ActionResult> {
+  const classId = String(formData.get('classId') ?? '')
+  const cls = classId ? await gradeIdOfClass(classId) : null
   const access = await requireGradeEditor(cls?.gradeLevelId ?? null)
-  if (!access || !cls || cls.schoolId !== access.school.id) return
-  const name = formData.get('name') as string
-  if (!name || !classId) return
+  if (!access || !cls || cls.schoolId !== access.school.id) {
+    return { ok: false, error: 'غير مصرح لك بهذا الإجراء' }
+  }
+  const name = String(formData.get('name') ?? '').trim()
+  if (!name) return { ok: false, error: 'اسم المادة مطلوب' }
+  if (await subjectNameTaken(classId, name)) {
+    return { ok: false, error: `المادة «${name}» موجودة بالفعل في هذا الفصل` }
+  }
   await db.insert(subjects).values({ name, classId, schoolId: access.school.id })
   revalidatePath('/admin/grade-levels')
+  return { ok: true }
 }
 
 export async function deleteSubject(id: string) {
@@ -212,5 +313,15 @@ export async function getStudentsForClass(classId: string, schoolId: string) {
   if (!access || access.school.id !== schoolId) return []
   const cls = await gradeIdOfClass(classId)
   if (!cls || cls.schoolId !== schoolId || !canViewGrade(access, cls.gradeLevelId)) return []
-  return await db.select().from(students).where(and(eq(students.classId, classId), eq(students.schoolId, schoolId)))
+  // Only what the sheet prints. The full row also carries the parent's login
+  // id, which has no business in a file that gets emailed around.
+  return await db
+    .select({
+      fullName: students.fullName,
+      nationalId: students.nationalId,
+      parentPhone: students.parentPhone,
+      gender: students.gender,
+    })
+    .from(students)
+    .where(and(eq(students.classId, classId), eq(students.schoolId, schoolId), eq(students.status, 'active')))
 }

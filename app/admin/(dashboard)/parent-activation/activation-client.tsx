@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
+import { schoolDate } from '@/lib/utils'
 import { NotificationBell } from '@/components/notification-bell'
 import { StatCard } from '@/components/stat-card'
 import { saveActivationMessage, logActivationOutreach } from './actions'
@@ -94,7 +95,13 @@ export function ActivationClient({
   // Built in the browser from the address the admin is actually on, so the link
   // is right on the deployed site and on a laptop testing it, with no env var
   // to keep in step.
-  const link = typeof window === 'undefined' ? '' : `${window.location.origin}/parent/login`
+  //
+  // Set after mount, not during render. The server renders this page with no
+  // window, so every WhatsApp href was first written with an empty {link};
+  // React does not repair attribute mismatches on hydration, and a family
+  // could be sent an invitation with no address in it.
+  const [link, setLink] = useState('')
+  useEffect(() => { setLink(`${window.location.origin}/parent/login`) }, [])
 
   const textFor = (f: Family) =>
     applyActivationMessage(message, {
@@ -168,13 +175,13 @@ export function ActivationClient({
         f.loginEmail,
         f.activated ? 'فعّل' : 'لم يفعّل',
         f.timesContacted + (justSent.has(f.parentUserId) ? 1 : 0),
-        f.lastContactedAt ? new Date(f.lastContactedAt).toISOString().slice(0, 10) : '',
+        f.lastContactedAt ? schoolDate(new Date(f.lastContactedAt)) : '',
       ]),
     ]
     const ws = XLSX.utils.aoa_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'تفعيل أولياء الأمور')
-    XLSX.writeFile(wb, `تفعيل_حسابات_أولياء_الأمور_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    XLSX.writeFile(wb, `تفعيل_حسابات_أولياء_الأمور_${schoolDate()}.xlsx`)
   }
 
   const submitMessage = async () => {
@@ -415,7 +422,7 @@ export function ActivationClient({
 
                   {!f.activated && (
                     <div className="flex flex-wrap gap-2 mt-3">
-                      {href ? (
+                      {href && link ? (
                         <a
                           href={href}
                           target="_blank"
@@ -425,6 +432,10 @@ export function ActivationClient({
                         >
                           <Send className="size-4" /> افتح واتساب
                         </a>
+                      ) : !link ? (
+                        <span className="flex-1 min-w-40 text-center text-xs py-2.5 rounded-xl bg-muted text-muted-foreground">
+                          ...
+                        </span>
                       ) : (
                         <span className="flex-1 min-w-40 text-center text-xs py-2.5 rounded-xl bg-red-50 text-red-700 border border-red-200">
                           لا يمكن المراسلة — لا يوجد رقم جوال مسجّل

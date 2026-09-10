@@ -11,7 +11,7 @@ import {
   staffCoveringGrade,
 } from '@/lib/counselor-access'
 import { logCounselorAudit } from '@/lib/audit'
-import { today as schoolToday } from '@/lib/utils'
+import { today as schoolToday, schoolDate } from '@/lib/utils'
 
 /** A rejected input comes back as a value: a production build strips thrown messages. */
 export type CaseResult = { ok: true } | { ok: false; error: string }
@@ -302,7 +302,7 @@ export async function getCaseContext(caseId: string) {
 
   const since = new Date()
   since.setDate(since.getDate() - 30)
-  const sinceStr = since.toISOString().slice(0, 10)
+  const sinceStr = schoolDate(since)
 
   const [student] = await db
     .select({ id: students.id, fullName: students.fullName, classId: students.classId })

@@ -126,8 +126,10 @@ function calcPoints(att: AttStatus, beh: Behavior, hw: Homework, mat: Materials,
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() + days)
+  // Whole thing in UTC: the string parses as UTC midnight, so stepping the
+  // local date and reading back UTC could straddle a day on some machines.
+  const d = new Date(`${dateStr}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
   return d.toISOString().split('T')[0]
 }
 

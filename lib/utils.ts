@@ -102,10 +102,9 @@ export const EXAM_TYPE_LABELS: Record<string, string> = {
   oral: 'شفهي',
 }
 
-export const SEMESTER_LABELS: Record<string, string> = {
-  first: 'الفصل الأول',
-  second: 'الفصل الثاني',
-}
+// Term labels live in lib/academic.ts, which knows about a third term. The
+// two-entry copy that used to sit here had no caller left and would have
+// rendered a third term blank.
 
 /** Calculate percentage score */
 export function scorePercent(score: number, max: number): number {

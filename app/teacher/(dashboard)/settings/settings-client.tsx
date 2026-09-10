@@ -37,7 +37,7 @@ export function TeacherSettingsClient({
       const res = await authClient.changeEmail({ newEmail })
       if (res.error) {
         setStatus('error')
-        setMessage(res.error.message || 'حدث خطأ أثناء تغيير البريد الإلكتروني.')
+        setMessage('تعذّر تغيير البريد الإلكتروني — قد يكون مستخدماً بحساب آخر.')
       } else {
         setStatus('success'); setMessage('تم تغيير البريد الإلكتروني لتسجيل الدخول بنجاح! ✅')
         setNewEmail('')
@@ -62,7 +62,7 @@ export function TeacherSettingsClient({
       })
       if (res.error) {
         setStatus('error')
-        setMessage(res.error.message || 'تأكد من كلمة المرور الحالية وحاول مرة أخرى.')
+        setMessage('كلمة المرور الحالية غير صحيحة — تأكد منها وحاول مرة أخرى.')
       } else {
         setStatus('success'); setMessage('تم تغيير كلمة المرور بنجاح! ✅')
         setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')

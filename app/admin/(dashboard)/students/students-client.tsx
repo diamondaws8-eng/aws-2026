@@ -176,7 +176,10 @@ export default function StudentsClient({
       const rawName   = String(row[0] || '').trim()
       const rawNid    = String(row[1] || '').trim()
       const rawPhone  = String(row[2] || '').trim()
-      const rawGender = String(row[3] || 'ذكر').trim()
+      // No default. Filling a blank cell with «ذكر» here would hand the server a
+      // confident boy for every girl whose column was left empty — the exact
+      // thing the server-side normaliser now refuses to guess at.
+      const rawGender = String(row[3] ?? '').trim()
 
       const valid = rawName.length >= 2
       const error = !valid ? 'الاسم فارغ أو قصير جداً' : undefined

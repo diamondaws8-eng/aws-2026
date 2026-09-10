@@ -149,7 +149,7 @@ export function CounselorSettingsClient({
         currentPassword,
         revokeOtherSessions: true,
       })
-      if (res.error) say('password', false, res.error.message || 'تأكد من كلمة المرور الحالية وحاول مرة أخرى')
+      if (res.error) say('password', false, 'كلمة المرور الحالية غير صحيحة — تأكد منها وحاول مرة أخرى')
       else {
         say('password', true, 'تم تغيير كلمة المرور، وأُغلقت أي جلسة أخرى مفتوحة بحسابك ✅')
         setCurrentPassword('')
@@ -170,7 +170,7 @@ export function CounselorSettingsClient({
     setBusy('email')
     try {
       const res = await authClient.changeEmail({ newEmail })
-      if (res.error) say('email', false, res.error.message || 'تعذّر تغيير البريد الإلكتروني')
+      if (res.error) say('email', false, 'تعذّر تغيير البريد الإلكتروني — قد يكون مستخدماً بحساب آخر')
       else {
         say('email', true, 'تم تغيير بريد الدخول ✅')
         setNewEmail('')
