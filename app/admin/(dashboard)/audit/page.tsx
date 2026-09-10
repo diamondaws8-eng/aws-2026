@@ -51,6 +51,7 @@ const DETAIL_LABELS: Record<string, string> = {
   students: 'عدد الطلاب',
   points: 'النقاط',
   reason: 'السبب',
+  changes: 'التغييرات',
   replaced: 'درجات مستبدلة',
   maxScore: 'الدرجة القصوى',
   examType: 'نوع الاختبار',
