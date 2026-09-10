@@ -12,17 +12,51 @@ import { ParentMessagesToday } from './parent-messages-today'
 import { DailyPerformanceCards } from './daily-performance-cards'
 import { HeroStats } from './hero-stats'
 import { RecentNotifications } from './recent-notifications'
+import { StageFilter } from './stage-filter'
 import { getSchoolSettings } from './settings/actions-settings'
 import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
-export default async function AdminDashboardPage() {
+export default async function AdminDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ stage?: string | string[] }>
+}) {
   const access = await requireAdminAccess()
   const school = access.school
 
-  // A deputy only sees the grades assigned to them.
-  const scopedGradeIds = access.viewAllGrades ? null : access.gradeIds
+  // Every stage this account is permitted to see. A quality manager or the
+  // owner sees the school; everyone else sees only what was assigned to them.
+  const allGradeRows = await db
+    .select({ id: gradeLevels.id, name: gradeLevels.name })
+    .from(gradeLevels)
+    .where(eq(gradeLevels.schoolId, school.id))
+    .orderBy(asc(gradeLevels.orderIndex))
+  const permittedGrades = access.viewAllGrades
+    ? allGradeRows
+    : allGradeRows.filter((g) => access.gradeIds.includes(g.id))
+
+  /**
+   * The stage picker narrows what is on screen; it can never widen it.
+   *
+   * The ids arrive in the URL, where anyone can type anything, so they are
+   * intersected with the permitted list above before they are used. A deputy
+   * who pastes another stage's id gets their own stages back, not that one's —
+   * the filter is a convenience for reading, never a way in.
+   */
+  const raw = (await searchParams).stage
+  const requestedIds = (Array.isArray(raw) ? raw : raw ? [raw] : [])
+    .flatMap((v) => v.split(','))
+    .map((v) => v.trim())
+    .filter(Boolean)
+  const selectedGradeIds = requestedIds.filter((id) => permittedGrades.some((g) => g.id === id))
+
+  // No selection = everything this account may see, exactly as before.
+  const scopedGradeIds = selectedGradeIds.length
+    ? selectedGradeIds
+    : access.viewAllGrades ? null : access.gradeIds
+
   const scopedClassRows = scopedGradeIds
     ? await db.select({ id: classes.id }).from(classes).where(
         and(eq(classes.schoolId, school.id), scopedGradeIds.length ? inArray(classes.gradeLevelId, scopedGradeIds) : sql`false`)
@@ -271,7 +305,23 @@ export default async function AdminDashboardPage() {
       .from(notifications)
       .where(and(
         eq(notifications.schoolId, school.id),
-        or(isNull(notifications.expiresAt), gt(notifications.expiresAt, sql`now()`))
+        or(isNull(notifications.expiresAt), gt(notifications.expiresAt, sql`now()`)),
+        /**
+         * The only query on this page that was not narrowed to the reader's own
+         * classes — and it renders each notice's title and body. A notice aimed
+         * at one class, or at a single pupil, would have been readable by a
+         * deputy of another stage entirely. School-wide notices (no class) stay
+         * visible to everyone, which is what they are for.
+         *
+         * The table is empty today, so nothing has leaked; it would have, the
+         * first time somebody sent a notice to one class.
+         */
+        scopedClassIds
+          ? or(
+              isNull(notifications.classId),
+              scopedClassIds.length ? inArray(notifications.classId, scopedClassIds) : sql`false`,
+            )
+          : undefined,
       ))
       .orderBy(desc(notifications.createdAt))
       .limit(5),
@@ -447,6 +497,8 @@ export default async function AdminDashboardPage() {
         </div>
         <NotificationBell />
       </div>
+
+      <StageFilter stages={permittedGrades} selected={selectedGradeIds} />
 
       <HeroStats
         studentCount={studentCount.value}
