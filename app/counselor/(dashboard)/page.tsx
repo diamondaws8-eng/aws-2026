@@ -105,6 +105,7 @@ export default async function CounselorInboxPage() {
             subjectName: c.subjectName,
             teacherName: c.teacherName,
             teacherNote: c.teacherNote,
+            adminNote: c.adminNote,
             date: c.date,
             createdAt: c.createdAt.toISOString(),
             isStale: c.createdAt.getTime() < staleCutoff,

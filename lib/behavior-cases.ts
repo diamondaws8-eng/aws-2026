@@ -27,6 +27,8 @@ export type CaseRow = {
   subjectName: string | null
   teacherName: string
   teacherNote: string
+  /** The administration's note — written when it handled the case or sent it back. */
+  adminNote: string | null
   date: string
   status: CaseStatus
   createdAt: Date
@@ -67,6 +69,7 @@ export async function listCases(opts: {
       subjectName: subjects.name,
       teacherName: teachers.fullName,
       teacherNote: behaviorCases.teacherNote,
+      adminNote: behaviorCases.adminNote,
       date: behaviorCases.date,
       status: behaviorCases.status,
       createdAt: behaviorCases.createdAt,

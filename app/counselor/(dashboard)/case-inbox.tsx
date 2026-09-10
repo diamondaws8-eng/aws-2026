@@ -24,6 +24,8 @@ export type InboxCase = {
   subjectName: string | null
   teacherName: string
   teacherNote: string
+  /** What the administration wrote when it sent the case back — the reason it is open again. */
+  adminNote: string | null
   date: string
   createdAt: string
   isStale: boolean
@@ -96,6 +98,14 @@ export function CaseInbox({
                   )}
                 </div>
                 <p className="text-sm text-foreground/90 mt-2 line-clamp-2">{c.teacherNote}</p>
+                {/* A case the administration sent back arrives with a reason.
+                    It used to live only in the bell; here it is where the
+                    decision is made. */}
+                {c.adminNote && (
+                  <p className="text-xs mt-1.5 text-indigo-700 line-clamp-2">
+                    <span className="font-bold">أعادتها الإدارة:</span> {c.adminNote}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground mt-1.5">
                   رفعها {c.teacherName}
                   {c.subjectName ? ` · ${c.subjectName}` : ''} · {c.date}
@@ -262,6 +272,12 @@ function CaseDecision({
           <div className="rounded-2xl bg-muted/50 border border-border p-4">
             <p className="text-xs font-bold text-muted-foreground mb-1.5">ما كتبه المعلم</p>
             <p className="text-sm leading-7 whitespace-pre-wrap">{c.teacherNote}</p>
+            {c.adminNote && (
+              <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+                <p className="text-xs font-bold text-indigo-800 mb-1">أعادتها الإدارة إليك — السبب</p>
+                <p className="text-sm leading-7 whitespace-pre-wrap text-indigo-900">{c.adminNote}</p>
+              </div>
+            )}
           </div>
 
           {c.repeatCount > 1 && (

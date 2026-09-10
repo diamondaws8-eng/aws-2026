@@ -78,6 +78,10 @@ const DETAIL_LABELS: Record<string, string> = {
   graduated: 'تخرّجوا',
   heldBack: 'استُثنوا',
   untouched: 'بقوا مكانهم',
+  created: 'أُضيفوا',
+  failed: 'فشلوا',
+  skippedDuplicates: 'مكرّرون تُخطّوا',
+  unknownGender: 'بلا جنس محدد',
 }
 
 function readDetails(raw: string | null): string {

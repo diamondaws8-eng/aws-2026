@@ -4,7 +4,8 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import {
   schools, gradeLevels, classes, teachers, students, subjects, attendance,
-  gradeEntries, notifications, dailyRecords, lessonRecords, studentPoints, user, schoolStaff, account
+  gradeEntries, notifications, dailyRecords, lessonRecords, studentPoints, user, schoolStaff, account,
+  behaviorCases, schoolHolidays, schoolYears, parentWhatsappMessages, parentActivationLog, auditLog,
 } from '@/lib/db/schema'
 import { eq, inArray, and, ne } from 'drizzle-orm'
 import { getAdminAccess } from '@/lib/admin-access'
@@ -199,6 +200,10 @@ export async function exportFullBackup(schoolId: string) {
         schoolRows, gradeLevelRows, classRows, teacherRows, studentRows,
         subjectRows, attendanceRows, gradeEntryRows, notificationRows,
         dailyRecordRows, lessonRecordRows, studentPointRows,
+        // The file said "everything" while leaving these out. They are kept
+        // here for the record; restore rebuilds the academic tables only and
+        // the settings screen says so.
+        behaviorCaseRows, staffRows, holidayRows, yearRows, parentMessageRows, activationLogRows, auditRows,
       ] = await Promise.all([
         db.select().from(schools).where(eq(schools.id, schoolId)),
         db.select().from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)),
@@ -212,6 +217,13 @@ export async function exportFullBackup(schoolId: string) {
         db.select().from(dailyRecords).where(eq(dailyRecords.schoolId, schoolId)),
         db.select().from(lessonRecords).where(eq(lessonRecords.schoolId, schoolId)),
         db.select().from(studentPoints).where(eq(studentPoints.schoolId, schoolId)),
+        db.select().from(behaviorCases).where(eq(behaviorCases.schoolId, schoolId)),
+        db.select().from(schoolStaff).where(eq(schoolStaff.schoolId, schoolId)),
+        db.select().from(schoolHolidays).where(eq(schoolHolidays.schoolId, schoolId)),
+        db.select().from(schoolYears).where(eq(schoolYears.schoolId, schoolId)),
+        db.select().from(parentWhatsappMessages).where(eq(parentWhatsappMessages.schoolId, schoolId)),
+        db.select().from(parentActivationLog).where(eq(parentActivationLog.schoolId, schoolId)),
+        db.select().from(auditLog).where(eq(auditLog.schoolId, schoolId)),
       ])
 
       await logAudit(access, 'backup.export', access.school.name, { scope: 'full', students: studentRows.length })
@@ -221,7 +233,7 @@ export async function exportFullBackup(schoolId: string) {
         data: {
           timestamp: new Date().toISOString(),
           schoolId,
-          version: '1.1',
+          version: '1.2',
           scope: { type: 'full' as const, gradeIds: [] as string[], gradeNames: [] as string[] },
           data: {
             schools: schoolRows, gradeLevels: gradeLevelRows, classes: classRows,
@@ -230,6 +242,10 @@ export async function exportFullBackup(schoolId: string) {
             notifications: notificationRows, dailyRecords: dailyRecordRows,
             lessonRecords: lessonRecordRows,
             studentPoints: studentPointRows,
+            behaviorCases: behaviorCaseRows, schoolStaff: staffRows,
+            schoolHolidays: holidayRows, schoolYears: yearRows,
+            parentWhatsappMessages: parentMessageRows, parentActivationLog: activationLogRows,
+            auditLog: auditRows,
           },
         },
       }

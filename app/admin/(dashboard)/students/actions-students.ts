@@ -405,6 +405,15 @@ export async function importStudents(
     }
   }
 
+  // A bulk import is the single biggest change a roll ever gets; the audit
+  // log used to show nothing for it while showing every one-pupil delete.
+  if (created + failed + skippedDuplicates > 0) {
+    await logAudit(access, 'students.import', `${created} طالباً`, {
+      created, failed, skippedDuplicates, unknownGender,
+      classes: importClassIds.length,
+    })
+  }
+
   revalidatePath('/admin/students')
   // Said out loud rather than buried: a school importing its girls' side
   // needs to know how many rows arrived without a readable gender.

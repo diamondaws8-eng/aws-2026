@@ -62,7 +62,7 @@ export function HonorBoard({
             key={p.key}
             type="button"
             onClick={() => setPeriod(p.key)}
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+            className={`rounded-full px-3 py-2.5 sm:py-1.5 min-h-10 sm:min-h-0 text-xs font-semibold transition-colors ${
               period === p.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/70'
             }`}
           >
