@@ -340,7 +340,9 @@ function TrendChart({
           </span>
         ))}
         {(() => {
-          const blank = trend.filter((t) => !t.hasAttendance && !t.hasHomework && !t.hasParticipation).length
+          const blank = trend.filter((t) =>
+            !t.hasAttendance && !t.hasHomework && !t.hasMaterials && !t.hasParticipation && !t.hasBehavior,
+          ).length
           if (blank === 0) return null
           return (
             <span className="text-xs text-muted-foreground">

@@ -89,7 +89,7 @@ const PART_BTNS: { key: Participation; label: string; cls: string }[] = [
 ]
 
 // ── Points calculation ─────────────────────────────────────────────────────────
-function calcPoints(att: AttStatus, beh: Behavior, hw: Homework, mat: Materials, part: Participation, settings: any): number {
+function calcPoints(att: AttStatus, beh: Behavior | null, hw: Homework, mat: Materials, part: Participation, settings: any): number {
   let total = 0
   const f = settings?.features || {}
   const p = settings?.points || {}
@@ -307,7 +307,10 @@ export default function ClassRoster({
       const records: DailyStudentRecord[] = students.map(s => ({
         studentId: s.id,
         attendanceStatus: attendance[s.id] || 'present',
-        behavior: behavior[s.id] || 'good',
+        // Unrated stays unrated. Filling the gap with 'good' handed every pupil
+        // a behaviour point per lesson the teacher never decided to give, and
+        // the school's "good behaviour" figure was mostly that default.
+        behavior: behavior[s.id] ?? null,
         homeworkStatus: homework[s.id] || 'done',
         materialsStatus: materials[s.id] || 'brought',
         participationStatus: participation[s.id] || 'active',
@@ -537,7 +540,7 @@ export default function ClassRoster({
                   <tbody className="divide-y divide-border">
                     {students.map((student, idx) => {
                       const att = attendance[student.id] || 'present'
-                      const beh = behavior[student.id] || 'good'
+                      const beh: Behavior | null = behavior[student.id] ?? null
                       const hw = homework[student.id] || 'done'
                       const mat = materials[student.id] || 'brought'
                       const part = participation[student.id] || 'active'

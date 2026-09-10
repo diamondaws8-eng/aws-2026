@@ -175,7 +175,7 @@ export function ParentMessagesToday({
                   </div>
                   <p className="mt-2 text-3xl font-bold text-emerald-700">{todayPositive}</p>
                   <p className="mt-1 text-xs text-emerald-700/80">
-                    {schoolTotal === 0 ? 'لا رسائل اليوم' : `${posShare}% من رسائل اليوم`}
+                    {schoolTotal === 0 ? 'لا رسائل اليوم' : `${posShare}% من الطلاب المراسَلين اليوم`}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-rose-200/70 bg-rose-50/70 p-4">
@@ -185,7 +185,7 @@ export function ParentMessagesToday({
                   </div>
                   <p className="mt-2 text-3xl font-bold text-rose-700">{todayNegative}</p>
                   <p className="mt-1 text-xs text-rose-700/80">
-                    {schoolTotal === 0 ? 'لا رسائل اليوم' : `${negShare}% من رسائل اليوم`}
+                    {schoolTotal === 0 ? 'لا رسائل اليوم' : `${negShare}% من الطلاب المراسَلين اليوم`}
                   </p>
                 </div>
               </div>

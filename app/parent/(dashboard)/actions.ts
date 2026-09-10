@@ -7,7 +7,7 @@ import { eq, and, sql, desc, gte } from 'drizzle-orm'
 import { hashPassword } from 'better-auth/crypto'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { getStudentPointsTotal, getStudentTeacherPointsTotal, getManualPoints, deriveLessonEntries, yearStartForStudent } from '@/lib/points'
+import { getStudentPointsTotal, getStudentTeacherPointsTotal, getManualPoints, deriveLessonEntries, yearStartForStudent, maxPossiblePoints } from '@/lib/points'
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 export async function requireParent() {
@@ -125,6 +125,21 @@ export async function getStudentDashboard(studentId: string) {
     if (k in attendance) attendance[k] = Number(r.count)
   })
 
+  // What the child COULD have earned in the same period — the rating on the
+  // parent's screen is points over this, not points per day. See
+  // maxPossiblePoints for why per-day misled.
+  const [{ lessons }] = await db
+    .select({ lessons: sql<number>`COUNT(*)`.mapWith(Number) })
+    .from(lessonRecords)
+    .where(and(eq(lessonRecords.studentId, studentId), since ? gte(lessonRecords.date, since) : undefined))
+  const { getSchoolSettings } = await import('@/app/admin/(dashboard)/settings/actions-settings')
+  const settings = await getSchoolSettings(student.schoolId)
+  const possiblePoints = maxPossiblePoints(
+    settings,
+    attendance.present + attendance.absent + attendance.late + attendance.excused,
+    lessons,
+  )
+
   // Recent daily records (last 10)
   const recentRecords = await db
     .select()
@@ -141,6 +156,8 @@ export async function getStudentDashboard(studentId: string) {
     points: number
     presentCount: number
     absentCount: number
+    /** Days the child was away with permission — an absence, but not a fault. */
+    excusedCount: number
     latestNote: string | null
   }[] = []
 
@@ -173,7 +190,7 @@ export async function getStudentDashboard(studentId: string) {
       }
 
       // Attendance per teacher's records
-      let presentCount = 0, absentCount = 0
+      let presentCount = 0, absentCount = 0, excusedCount = 0
       if (sub.teacherUserId) {
         // Attendance belongs to the whole day, not to one subject — so what a
         // subject reports is how many of ITS lessons the child attended, taken
@@ -204,9 +221,13 @@ export async function getStudentDashboard(studentId: string) {
         // Same definition the admin dashboard uses: a latecomer attended, and
         // إذن is an excused absence. Counting only 'present' dropped both from
         // the parent's totals, so the two portals disagreed about the same day.
+        // A latecomer attended. An excused day is kept apart from a plain
+        // absence: folding it into "غياب" told a family their child was
+        // absent on the day they themselves had asked permission for.
         attRows.forEach(r => {
           if (r.status === 'present' || r.status === 'late') presentCount += Number(r.count)
-          if (r.status === 'absent' || r.status === 'excused') absentCount += Number(r.count)
+          else if (r.status === 'absent') absentCount += Number(r.count)
+          else if (r.status === 'excused') excusedCount += Number(r.count)
         })
       }
 
@@ -230,7 +251,7 @@ export async function getStudentDashboard(studentId: string) {
         latestNote = noteRow?.note ?? null
       }
 
-      subjectCards.push({ id: sub.id, name: sub.name, teacherName, points: subjectPoints, presentCount, absentCount, latestNote })
+      subjectCards.push({ id: sub.id, name: sub.name, teacherName, points: subjectPoints, presentCount, absentCount, excusedCount, latestNote })
     }
   }
 
@@ -239,6 +260,7 @@ export async function getStudentDashboard(studentId: string) {
     classInfo,
     gradeName,
     totalPoints,
+    possiblePoints,
     attendance,
     recentRecords,
     subjectCards,

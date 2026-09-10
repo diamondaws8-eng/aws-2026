@@ -56,6 +56,15 @@ export function LeaderboardClient({
         </select>
       </div>
 
+      {/* Lesson points scale with how many teachers record a class: a pupil
+          with eight subjects can out-score a better pupil with one. A
+          school-wide list is still wanted, but it must say what it compares. */}
+      {selectedClass === 'all' && (
+        <p className="relative -mt-3 mb-3 text-[11px] text-muted-foreground">
+          الترتيب على مستوى المدرسة يتأثر بعدد المواد المسجَّلة لكل فصل — للمقارنة العادلة اختر فصلاً واحداً.
+        </p>
+      )}
+
       {filteredStudents.length > 0 ? (
         <div className="relative space-y-2.5 flex-1 overflow-y-auto pr-2">
           {filteredStudents.map((student, idx) => {

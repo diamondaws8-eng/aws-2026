@@ -3,16 +3,22 @@ import Link from 'next/link'
 import { getMyChildren, getStudentDashboard } from './actions'
 import { NotificationBell } from '@/components/notification-bell'
 
-function getPerformanceRating(points: number, totalSessions: number) {
-  if (totalSessions === 0) {
+/**
+ * Points earned as a share of the points that were possible. It used to be an
+ * average per register day with fixed cut-offs — but lesson points come once
+ * per teacher, so the same child rated "ممتاز" in a class with six teachers and
+ * "جيد" in a class with two, and the bar never moved between the five steps.
+ */
+function getPerformanceRating(points: number, possible: number) {
+  if (possible <= 0) {
     return { label: 'لا توجد بيانات', color: 'text-muted-foreground', bg: 'bg-muted', border: 'border-border', bar: 'bg-muted', pct: 0 }
   }
-  const avg = points / totalSessions
-  if (avg >= 2.5) return { label: 'ممتاز 🌟',        color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', bar: 'bg-emerald-500', pct: 100 }
-  if (avg >= 1.5) return { label: 'جيد جداً ✅',     color: 'text-blue-600',   bg: 'bg-blue-50',   border: 'border-blue-200',   bar: 'bg-blue-500',   pct: 80  }
-  if (avg >= 0.5) return { label: 'جيد 👍',           color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-200',  bar: 'bg-amber-500',  pct: 60  }
-  if (avg >= -0.5)return { label: 'يحتاج متابعة ⚠️', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', bar: 'bg-orange-500', pct: 40  }
-  return            { label: 'يحتاج اهتماماً 🔴',    color: 'text-red-600',    bg: 'bg-red-50',    border: 'border-red-200',    bar: 'bg-red-400',    pct: 20  }
+  const pct = Math.max(0, Math.min(100, Math.round((points / possible) * 100)))
+  if (pct >= 85) return { label: 'ممتاز 🌟',        color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', bar: 'bg-emerald-500', pct }
+  if (pct >= 70) return { label: 'جيد جداً ✅',     color: 'text-blue-600',   bg: 'bg-blue-50',   border: 'border-blue-200',   bar: 'bg-blue-500',   pct }
+  if (pct >= 50) return { label: 'جيد 👍',           color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-200',  bar: 'bg-amber-500',  pct }
+  if (pct >= 30) return { label: 'يحتاج متابعة ⚠️', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', bar: 'bg-orange-500', pct }
+  return            { label: 'يحتاج اهتماماً 🔴',    color: 'text-red-600',    bg: 'bg-red-50',    border: 'border-red-200',    bar: 'bg-red-400',    pct }
 }
 
 const SUBJECT_ICONS: Record<string, string> = {
@@ -54,9 +60,9 @@ export default async function ParentDashboardPage({
   const dashboard     = await getStudentDashboard(activeChildId)
   if (!dashboard) redirect('/parent/login')
 
-  const { student, classInfo, gradeName, totalPoints, attendance, subjectCards } = dashboard
+  const { student, classInfo, gradeName, totalPoints, attendance, subjectCards, possiblePoints } = dashboard
   const totalSessions = attendance.present + attendance.absent + attendance.late + attendance.excused
-  const perf = getPerformanceRating(totalPoints, totalSessions)
+  const perf = getPerformanceRating(totalPoints, possiblePoints)
 
   return (
     <div className="px-4 py-8 max-w-4xl mx-auto space-y-6">
@@ -106,6 +112,11 @@ export default async function ParentDashboardPage({
           <div className="text-3xl font-black text-primary">
             {totalPoints > 0 ? '+' : ''}{totalPoints}
             <span className="text-sm font-normal text-muted-foreground mr-1">نقطة</span>
+            {possiblePoints > 0 && (
+              <span className="block text-xs font-normal text-muted-foreground text-left">
+                من {possiblePoints} ممكنة ({perf.pct}%)
+              </span>
+            )}
           </div>
         </div>
 
@@ -123,10 +134,13 @@ export default async function ParentDashboardPage({
             Parents read this on a phone almost exclusively. */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: 'حضور حصة', value: attendance.present,  emoji: '✅', color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
-            { label: 'غياب حصة', value: attendance.absent,   emoji: '❌', color: 'text-red-600 bg-red-50 border-red-100' },
-            { label: 'تأخر',     value: attendance.late,     emoji: '⏰', color: 'text-amber-600 bg-amber-50 border-amber-100' },
-            { label: 'إذن',      value: attendance.excused,  emoji: '📋', color: 'text-blue-600 bg-blue-50 border-blue-100' },
+            // Days, not lessons: the register is one row per pupil per day,
+            // shared by every teacher. "حصة" here made a parent with three
+            // teachers a day ask why only two lessons were counted.
+            { label: 'أيام حضور', value: attendance.present,  emoji: '✅', color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
+            { label: 'أيام غياب', value: attendance.absent,   emoji: '❌', color: 'text-red-600 bg-red-50 border-red-100' },
+            { label: 'أيام تأخر', value: attendance.late,     emoji: '⏰', color: 'text-amber-600 bg-amber-50 border-amber-100' },
+            { label: 'أيام إذن',  value: attendance.excused,  emoji: '📋', color: 'text-blue-600 bg-blue-50 border-blue-100' },
           ].map(stat => (
             <div key={stat.label} className={`rounded-2xl border p-3 text-center ${stat.color}`}>
               <div className="text-lg">{stat.emoji}</div>
@@ -138,7 +152,7 @@ export default async function ParentDashboardPage({
 
         {totalSessions > 0 && (
           <p className="text-xs text-muted-foreground text-center mt-3">
-            إجمالي الحصص المسجّلة: {totalSessions} حصة
+            أيام مسجَّلة في الحضور: {totalSessions} يوم
           </p>
         )}
       </div>
@@ -160,7 +174,7 @@ export default async function ParentDashboardPage({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {subjectCards.map(sub => {
               const subPts = sub.points
-              const hasData = sub.presentCount > 0 || sub.absentCount > 0 || subPts !== 0
+              const hasData = sub.presentCount > 0 || sub.absentCount > 0 || sub.excusedCount > 0 || subPts !== 0
               return (
                 <Link
                   key={sub.id}
@@ -192,7 +206,7 @@ export default async function ParentDashboardPage({
 
                   {/* Stats */}
                   {hasData ? (
-                    <div className="flex gap-4 mb-3">
+                    <div className="flex flex-wrap gap-4 mb-3">
                       <div className="flex items-center gap-1 text-xs text-emerald-600">
                         <span>✅</span>
                         <span className="font-semibold">{sub.presentCount} حضور</span>
@@ -201,6 +215,12 @@ export default async function ParentDashboardPage({
                         <span>❌</span>
                         <span className="font-semibold">{sub.absentCount} غياب</span>
                       </div>
+                      {sub.excusedCount > 0 && (
+                        <div className="flex items-center gap-1 text-xs text-blue-600">
+                          <span>📋</span>
+                          <span className="font-semibold">{sub.excusedCount} إذن</span>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground mb-3">لا توجد بيانات مسجّلة بعد</p>

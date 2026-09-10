@@ -147,6 +147,26 @@ export function deriveLessonEntries(rec: DailyStatuses, settings: SchoolSettings
   return out
 }
 
+/**
+ * The most a pupil could have earned over `days` register days and `lessons`
+ * teacher records — the denominator for any "how well is my child doing"
+ * figure. A raw average per day is not one: lesson points arrive once per
+ * teacher, so a class with six teachers reads twice as good as a class with
+ * three for the same pupil.
+ */
+export function maxPossiblePoints(settings: SchoolSettings, days: number, lessons: number): number {
+  const f = settings.features
+  const p = settings.points
+  const best = (...vals: (number | undefined)[]) => Math.max(0, ...vals.map((v) => v ?? 0))
+  const perDay = f.attendance !== false ? best(p.attendance_present, p.attendance_late) : 0
+  const perLesson =
+    (f.behavior !== false ? best(p.behavior_excellent, p.behavior_good) : 0) +
+    (f.homework !== false ? best(p.homework_done) : 0) +
+    (f.materials !== false ? best(p.materials_brought) : 0) +
+    (f.participation !== false ? best(p.participation_active, p.participation_inactive) : 0)
+  return days * perDay + lessons * perLesson
+}
+
 /** Total points a day's record is worth — what gets stored in `pointsEarned`. */
 export function totalPointsFor(rec: DailyStatuses, settings: SchoolSettings): number {
   return derivePointEntries(rec, settings).reduce((sum, e) => sum + e.points, 0)

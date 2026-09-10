@@ -222,7 +222,10 @@ export default async function AdminDashboardPage({
         participationActive: sql<number>`COUNT(*) FILTER (WHERE ${lessonRecords.participationStatus} = 'active')`.mapWith(Number),
         participationInactive: sql<number>`COUNT(*) FILTER (WHERE ${lessonRecords.participationStatus} = 'inactive')`.mapWith(Number),
         behaviorGood: sql<number>`COUNT(*) FILTER (WHERE ${lessonRecords.behavior} IN ('excellent','good'))`.mapWith(Number),
-        behaviorIssue: sql<number>`COUNT(*) FILTER (WHERE ${lessonRecords.behavior} = 'issue')`.mapWith(Number),
+        // Everything below "good", so the percentage is good-or-better out of
+        // every rating given. Counting only 'issue' dropped the 😐 middle
+        // rating from the denominator: twenty 😐 and one 😊 read as 100%.
+        behaviorIssue: sql<number>`COUNT(*) FILTER (WHERE ${lessonRecords.behavior} IN ('normal','issue'))`.mapWith(Number),
       })
       .from(lessonRecords)
       .where(and(
@@ -248,7 +251,10 @@ export default async function AdminDashboardPage({
         participationActive: sql<number>`COUNT(*) FILTER (WHERE ${lessonRecords.participationStatus} = 'active')`.mapWith(Number),
         participationInactive: sql<number>`COUNT(*) FILTER (WHERE ${lessonRecords.participationStatus} = 'inactive')`.mapWith(Number),
         behaviorGood: sql<number>`COUNT(*) FILTER (WHERE ${lessonRecords.behavior} IN ('excellent','good'))`.mapWith(Number),
-        behaviorIssue: sql<number>`COUNT(*) FILTER (WHERE ${lessonRecords.behavior} = 'issue')`.mapWith(Number),
+        // Everything below "good", so the percentage is good-or-better out of
+        // every rating given. Counting only 'issue' dropped the 😐 middle
+        // rating from the denominator: twenty 😐 and one 😊 read as 100%.
+        behaviorIssue: sql<number>`COUNT(*) FILTER (WHERE ${lessonRecords.behavior} IN ('normal','issue'))`.mapWith(Number),
       })
       .from(lessonRecords)
       .leftJoin(subjects, eq(subjects.id, lessonRecords.subjectId))
