@@ -268,7 +268,7 @@ export function PromoteClient({
                             type="button"
                             disabled={savingRow === c.id}
                             onClick={() => saveRow(c.id, null, !m.terminal)}
-                            className="inline-flex items-center justify-center"
+                            className="inline-flex items-center justify-center min-h-10 min-w-10 sm:min-h-0 sm:min-w-0"
                             aria-label="تعليم الفصل كآخر صف"
                           >
                             {m.terminal

@@ -70,6 +70,7 @@ const DETAIL_LABELS: Record<string, string> = {
   removedParentAccount: 'حُذف حساب ولي الأمر معه',
   casesReturned: 'حالات أُعيدت للموجه',
   count: 'العدد',
+  names: 'الطلاب',
   classId: 'معرّف الفصل',
   subjectId: 'معرّف المادة',
   closedYear: 'العام المُقفل',

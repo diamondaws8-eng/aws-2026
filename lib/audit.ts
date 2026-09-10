@@ -20,6 +20,7 @@ export type AuditAction =
   | 'teacher.create'
   | 'teacher.delete'
   | 'teacher.passwordReset'
+  | 'teacher.update'
   | 'staff.create'
   | 'staff.update'
   | 'staff.delete'
@@ -29,6 +30,7 @@ export type AuditAction =
   | 'backup.restore'
   | 'parents.requirePasswordChange'
   | 'teacher.dailyRecords.backdated'
+  | 'teacher.attendance.lateArrival'
   | 'teacher.points.manual'
   | 'teacher.grades.save'
   | 'case.raised'
@@ -55,6 +57,7 @@ export const AUDIT_LABELS: Record<AuditAction, string> = {
   'teacher.create': 'إضافة معلم',
   'teacher.delete': 'حذف معلم',
   'teacher.passwordReset': 'إعادة تعيين كلمة مرور معلم',
+  'teacher.update': 'تعديل بيانات معلم ومراحله',
   'staff.create': 'إضافة عضو إداري',
   'staff.update': 'تعديل صلاحيات عضو إداري',
   'staff.delete': 'حذف عضو إداري',
@@ -64,6 +67,7 @@ export const AUDIT_LABELS: Record<AuditAction, string> = {
   'backup.restore': 'استعادة نسخة احتياطية',
   'parents.requirePasswordChange': 'إلزام أولياء الأمور بتغيير كلمة المرور',
   'teacher.dailyRecords.backdated': 'تعديل سجل يوم سابق',
+  'teacher.attendance.lateArrival': 'تسجيل وصول متأخر بدل غياب سجّله معلم آخر',
   'teacher.points.manual': 'منح نقاط يدوية',
   'teacher.grades.save': 'حفظ درجات اختبار',
   'case.raised': 'رفع حالة سلوكية',

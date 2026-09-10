@@ -267,14 +267,14 @@ export default function StaffClient({
                   <button
                     onClick={() => handleResetPassword(row)}
                     disabled={busyId === row.id}
-                    className="inline-flex items-center gap-1.5 text-amber-600 hover:bg-amber-50 px-3 py-1 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 text-amber-600 hover:bg-amber-50 px-3 py-2.5 sm:py-1 min-h-10 sm:min-h-0 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
                   >
                     {busyId === row.id ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
                     كلمة المرور
                   </button>
                   <button
                     onClick={() => openEdit(row)}
-                    className="inline-flex items-center gap-1.5 text-blue-600 hover:bg-blue-50 px-3 py-1 rounded-lg text-sm font-semibold transition-colors"
+                    className="inline-flex items-center gap-1.5 text-blue-600 hover:bg-blue-50 px-3 py-2.5 sm:py-1 min-h-10 sm:min-h-0 rounded-lg text-sm font-semibold transition-colors"
                   >
                     <Pencil className="size-3.5" /> تعديل الصلاحيات
                   </button>
@@ -282,7 +282,7 @@ export default function StaffClient({
                     <button
                       onClick={() => handleDelete(row)}
                       disabled={busyId === row.id}
-                      className="inline-flex items-center gap-1.5 text-destructive hover:bg-destructive/10 px-3 py-1 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 text-destructive hover:bg-destructive/10 px-3 py-2.5 sm:py-1 min-h-10 sm:min-h-0 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
                     >
                       <Trash2 className="size-3.5" /> حذف
                     </button>

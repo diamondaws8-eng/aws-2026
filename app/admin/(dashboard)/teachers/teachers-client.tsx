@@ -188,7 +188,7 @@ export default function TeachersClient({ teachers, schoolId, canManage = true, g
                       <button
                         onClick={() => handleResetPassword(teacher)}
                         disabled={resettingId === teacher.id}
-                        className="inline-flex items-center gap-1.5 text-amber-600 hover:bg-amber-50 px-3 py-1 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 text-amber-600 hover:bg-amber-50 px-3 py-2.5 sm:py-1 min-h-10 sm:min-h-0 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
                         title="إعادة تعيين كلمة المرور"
                       >
                         {resettingId === teacher.id ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
@@ -196,7 +196,7 @@ export default function TeachersClient({ teachers, schoolId, canManage = true, g
                       </button>
                       <button
                         onClick={() => openEditModal(teacher)}
-                        className="inline-flex items-center gap-1.5 text-blue-600 hover:bg-blue-50 px-3 py-1 rounded-lg text-sm font-semibold transition-colors"
+                        className="inline-flex items-center gap-1.5 text-blue-600 hover:bg-blue-50 px-3 py-2.5 sm:py-1 min-h-10 sm:min-h-0 rounded-lg text-sm font-semibold transition-colors"
                       >
                         <Pencil className="size-3.5" /> تعديل
                       </button>
@@ -206,7 +206,7 @@ export default function TeachersClient({ teachers, schoolId, canManage = true, g
                           const res = await deleteTeacher(teacher.id, teacher.userId)
                           if (res && !res.ok) alert(res.error)
                         }}
-                        className="inline-flex items-center gap-1.5 text-destructive hover:bg-destructive/10 px-3 py-1 rounded-lg text-sm font-semibold transition-colors"
+                        className="inline-flex items-center gap-1.5 text-destructive hover:bg-destructive/10 px-3 py-2.5 sm:py-1 min-h-10 sm:min-h-0 rounded-lg text-sm font-semibold transition-colors"
                       >
                         <Trash2 className="size-3.5" /> حذف
                       </button>

@@ -43,6 +43,14 @@ export type DailyStudentRecord = {
   materialsStatus: 'brought' | 'missing' | 'na' | null
   participationStatus: 'active' | 'inactive' | 'na' | null
   teacherNote?: string
+  /**
+   * The teacher personally saw this pupil in class after a colleague had
+   * marked them out of school. Set only by the deliberate "he is here now"
+   * button on the lock card — never by a default — and honoured only with
+   * status 'late', because a pupil who missed the first period was not present
+   * for the whole day, whatever a later teacher sees.
+   */
+  arrivedLate?: boolean
 }
 
 export async function saveDailyRecords(
@@ -89,6 +97,16 @@ export async function saveDailyRecords(
   // Families are told about an absence once — by whoever first writes it. See
   // the notify block after the register is saved.
   const newlyAbsentIds: string[] = []
+  /**
+   * Pupils a colleague had marked out of school whom this teacher now sees in
+   * class and deliberately records as arrived late. The first-period teacher
+   * cannot tell "not here yet" from "not coming today", so the register must
+   * let the teacher who actually sees the pupil correct it — otherwise a child
+   * who walked in during the third period stays absent all day, the family
+   * keeps a false absence notice, and only a teacher who has since moved on
+   * to another class could fix it.
+   */
+  const lateArrivalIds: string[] = []
 
   // ── 1. The register: one shared row a day, whoever writes it ───────────────
   const attendanceRows = records.map((rec) => {
@@ -100,14 +118,22 @@ export async function saveDailyRecords(
     const alreadyOut = !!prev && isOutOfSchool(prev.attendanceStatus)
     if (rec.attendanceStatus === 'absent' && !alreadyOut) newlyAbsentIds.push(rec.studentId)
 
+    const lockedByOther = standingAbsence && prev!.absenceMarkedBy !== userId
+    // Only the explicit flag with exactly 'late' opens the lock: a stale roster
+    // that still shows yesterday's default, or 'present' with the flag, stays
+    // refused. The pupil was not in school for the whole day.
+    const lateArrival = lockedByOther && rec.arrivedLate === true && rec.attendanceStatus === 'late'
+    if (lateArrival) lateArrivalIds.push(rec.studentId)
+
     let attendanceStatus = rec.attendanceStatus
     let absenceMarkedBy: string | null = null
     let absenceMarkedAt: Date | null = null
 
-    if (standingAbsence && prev!.absenceMarkedBy !== userId) {
+    if (lockedByOther && !lateArrival) {
       // A student who left the school is gone for every later period too, so the
       // record stands exactly as it was written — no other teacher may mark them
-      // present, late, or change the excuse. Only its author can.
+      // present or change the excuse. Only its author can, or a later teacher who
+      // sees the pupil and records the late arrival above.
       attendanceStatus = prev!.attendanceStatus as typeof attendanceStatus
       absenceMarkedBy = prev!.absenceMarkedBy
       absenceMarkedAt = prev!.absenceMarkedAt
@@ -146,7 +172,15 @@ export async function saveDailyRecords(
    * database itself refuses the write unless the row is unlocked or the lock is
    * already this teacher's. Milliseconds wide, but a bell rings and nineteen
    * teachers save at once, every period of every day.
+   *
+   * The one exception is a late arrival this teacher explicitly recorded: that
+   * is allowed through the lock, but only as 'late' and only for the pupils
+   * named — a stale roster row can never ride in on it.
    */
+  const lockOpen = lateArrivalIds.length > 0
+    ? sql`${dailyRecords.absenceMarkedBy} IS NULL OR ${dailyRecords.absenceMarkedBy} = excluded.teacher_user_id OR (excluded.attendance_status = 'late' AND ${inArray(dailyRecords.studentId, lateArrivalIds)})`
+    : sql`${dailyRecords.absenceMarkedBy} IS NULL OR ${dailyRecords.absenceMarkedBy} = excluded.teacher_user_id`
+
   await db
     .insert(dailyRecords)
     .values(attendanceRows)
@@ -160,7 +194,7 @@ export async function saveDailyRecords(
         absenceMarkedAt: sql`excluded.absence_marked_at`,
         updatedAt: new Date(),
       },
-      setWhere: sql`${dailyRecords.absenceMarkedBy} IS NULL OR ${dailyRecords.absenceMarkedBy} = excluded.teacher_user_id`,
+      setWhere: lockOpen,
     })
 
   /**
@@ -252,6 +286,50 @@ export async function saveDailyRecords(
           actorName: access.fullName,
         })),
     )
+  }
+
+  // ── 4. A colleague's absence turned into a late arrival ───────────────────
+  // What actually went through — a lock that changed hands between the read
+  // and the write is reported as blocked above, not announced here.
+  const arrivedIds = lateArrivalIds.filter((id) => stored.get(id) === 'late')
+  if (arrivedIds.length > 0) {
+    const arrived = await db
+      .select({ id: students.id, fullName: students.fullName, parentUserId: students.parentUserId })
+      .from(students)
+      .where(and(eq(students.classId, classId), inArray(students.id, arrivedIds)))
+
+    // Overriding another teacher's register entry is the one attendance write
+    // that changes what a colleague recorded, so it leaves a trail every time.
+    const [cls] = await db.select({ name: classes.name }).from(classes).where(eq(classes.id, classId)).limit(1)
+    await logTeacherAudit(access, 'teacher.attendance.lateArrival', `فصل ${cls?.name ?? ''} — ${date}`, {
+      classId,
+      date,
+      count: arrived.length,
+      names: arrived.map((s) => s.fullName).join('، '),
+    })
+
+    // The family that was told "absent" this morning must hear the correction
+    // from the school too, or the false notice is what they act on. A home that
+    // was never told (an authorised leave, or an earlier day) is not disturbed.
+    if (date === schoolToday()) {
+      const { notify, notifiedTodayFor } = await import('@/lib/notifications')
+      const told = await notifiedTodayFor(schoolId, 'absence', arrivedIds)
+      const corrected = await notifiedTodayFor(schoolId, 'late_arrival', arrivedIds)
+      await notify(
+        arrived
+          .filter((s) => !!s.parentUserId && told.has(s.id) && !corrected.has(s.id))
+          .map((s) => ({
+            schoolId,
+            recipientUserId: s.parentUserId!,
+            kind: 'late_arrival' as const,
+            title: `وصول متأخر: ${s.fullName}`,
+            body: `وصل ${s.fullName} إلى المدرسة اليوم ${formatDateAr(date)} متأخراً، وعُدِّل تسجيل الغياب السابق إلى «حاضر (متأخر)».`,
+            href: '/parent',
+            entityId: s.id,
+            actorName: access.fullName,
+          })),
+      )
+    }
   }
 
   // Saving an earlier day overwrites values nobody kept a copy of, so it leaves

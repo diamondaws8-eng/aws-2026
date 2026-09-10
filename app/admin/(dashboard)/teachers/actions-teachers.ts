@@ -237,6 +237,14 @@ export async function editTeacher(
     updatedAt: new Date(),
   }).where(eq(user.id, userId))
 
+  // Which stages a teacher may open is a permission; changing it is logged
+  // the same way a deputy's scope is.
+  await logAudit(access, 'teacher.update', fullName, {
+    from: teacher.fullName !== fullName ? teacher.fullName : undefined,
+    allGrades: scope ? scope.allGrades : undefined,
+    grades: scope && !scope.allGrades ? JSON.parse(scope.gradeLevelIds).length : undefined,
+  })
+
   revalidatePath('/admin/teachers')
   return { ok: true as const }
 }

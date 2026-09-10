@@ -225,6 +225,10 @@ export default function ClassRoster({
 
   const [lockCard, setLockCard] = useState<{ student: Student; lock: AbsenceLock } | null>(null)
   const [blockedNotice, setBlockedNotice] = useState<BlockedAbsence[]>([])
+  // Locked pupils this teacher has seen walk in. Chosen from the lock card,
+  // never by default, and saved only as «حاضر (متأخر)» — the server refuses
+  // anything else for them.
+  const [lateArrivals, setLateArrivals] = useState<Set<string>>(new Set())
 
   /**
    * Every row opens on حاضر/جيد/أنجز, so one press of حفظ can award a full day
@@ -252,12 +256,15 @@ export default function ClassRoster({
     const mat: Record<string, Materials> = {}
     const part: Record<string, Participation> = {}
     const nt: Record<string, string> = {}
+    // Behaviour has no default on purpose: a pupil nobody rated stays unrated
+    // (see handleSaveDay). Pre-filling 'good' here was what quietly awarded a
+    // behaviour point per lesson to every untouched row.
     students.forEach(s => {
-      att[s.id] = 'present'; beh[s.id] = 'good'; hw[s.id] = 'done'; mat[s.id] = 'brought'; part[s.id] = 'active'
+      att[s.id] = 'present'; hw[s.id] = 'done'; mat[s.id] = 'brought'; part[s.id] = 'active'
     })
     recs.forEach(r => {
       att[r.studentId] = r.attendanceStatus as AttStatus
-      beh[r.studentId] = (r.behavior || 'good') as Behavior
+      if (r.behavior) beh[r.studentId] = r.behavior as Behavior
       hw[r.studentId] = (r.homeworkStatus || 'done') as Homework
       mat[r.studentId] = (r.materialsStatus || 'brought') as Materials
       part[r.studentId] = (r.participationStatus || 'active') as Participation
@@ -285,6 +292,7 @@ export default function ClassRoster({
       const data = await res.json()
       initFromRecords(data.records || [])
       setLocks(Object.fromEntries(((data.absenceLocks ?? []) as AbsenceLock[]).map(l => [l.studentId, l])))
+      setLateArrivals(new Set())
       setSelectedDate(newDate)
     } catch {
       // fallback: reset to defaults
@@ -293,9 +301,10 @@ export default function ClassRoster({
       const hw: Record<string, Homework> = {}
       const mat: Record<string, Materials> = {}
       const part: Record<string, Participation> = {}
-      students.forEach(s => { att[s.id] = 'present'; beh[s.id] = 'good'; hw[s.id] = 'done'; mat[s.id] = 'brought'; part[s.id] = 'active' })
+      students.forEach(s => { att[s.id] = 'present'; hw[s.id] = 'done'; mat[s.id] = 'brought'; part[s.id] = 'active' })
       setAttendance(att); setBehavior(beh); setHomework(hw); setMaterials(mat); setParticipation(part); setNotes({})
       setLocks({})
+      setLateArrivals(new Set())
       setSelectedDate(newDate)
     } finally {
       setLoadingDate(false)
@@ -316,6 +325,7 @@ export default function ClassRoster({
         materialsStatus: materials[s.id] || 'brought',
         participationStatus: participation[s.id] || 'active',
         teacherNote: notes[s.id] || undefined,
+        ...(lateArrivals.has(s.id) ? { attendanceStatus: 'late' as const, arrivedLate: true } : {}),
       }))
       const saved = await saveDailyRecords(classInfo.id, classInfo.schoolId, selectedDate, records)
       if (!saved.ok) {
@@ -324,6 +334,7 @@ export default function ClassRoster({
         return
       }
       setSavedMsg('✓ تم حفظ اليوم بنجاح')
+      setLateArrivals(new Set())
       // An absence another teacher recorded stands: show exactly whose it was.
       setBlockedNotice(saved.blocked)
       if (saved.blocked.length) {
@@ -546,14 +557,15 @@ export default function ClassRoster({
                       const mat = materials[student.id] || 'brought'
                       const part = participation[student.id] || 'active'
                       const lock = locks[student.id]
-                      const previewPts = calcPoints(lock ? (lock.status as AttStatus) : att, beh, hw, mat, part, schoolSettings)
+                      const arrived = !!lock && lateArrivals.has(student.id)
+                      const previewPts = calcPoints(lock && !arrived ? (lock.status as AttStatus) : arrived ? 'late' : att, beh, hw, mat, part, schoolSettings)
                       const totalPts = points[student.id] ?? 0
                       const phone = student.parentPhone?.replace(/\D/g, '') || ''
 
                       return (
                         <tr key={student.id} className={`hover:bg-muted/20 transition-colors ${
-                          lock || att === 'absent' ? 'bg-red-50/30'
-                          : att === 'late' ? 'bg-amber-50/30'
+                          (lock && !arrived) || att === 'absent' ? 'bg-red-50/30'
+                          : arrived || att === 'late' ? 'bg-amber-50/30'
                           : !reviewed.has(student.id) ? 'bg-amber-50/20' : ''
                         }`}>
                           <td className="hidden sm:table-cell px-3 py-3 text-center text-xs text-muted-foreground">{idx + 1}</td>
@@ -581,7 +593,22 @@ export default function ClassRoster({
                           {/* Attendance */}
                           {schoolSettings?.features?.attendance !== false && (
                             <td className="px-2 py-2">
-                              {lock ? (
+                              {lock && arrived ? (
+                                // Seen in class after a colleague marked them out:
+                                // saved as late, and only as late, on the next حفظ.
+                                <div className="mx-auto flex flex-col items-center gap-1">
+                                  <span className="flex items-center gap-1.5 rounded-lg border border-amber-400 bg-amber-100 px-3 py-2 sm:py-1 min-h-10 sm:min-h-0 text-xs font-semibold text-amber-700">
+                                    🕒 وصل متأخراً — بدل الغياب
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      setLateArrivals(prev => { const n = new Set(prev); n.delete(student.id); return n })
+                                      setAttendance(a => ({ ...a, [student.id]: lock.status as AttStatus }))
+                                    }}
+                                    className="text-[11px] text-muted-foreground underline underline-offset-2 min-h-8 sm:min-h-0"
+                                  >تراجع</button>
+                                </div>
+                              ) : lock ? (
                                 // Locked: the student is out of school for the whole
                                 // day, so the buttons explain instead of pretending.
                                 <button
@@ -1087,13 +1114,27 @@ export default function ClassRoster({
                   : ''}.
               </p>
               <div className="rounded-xl bg-muted/50 border border-border p-3 text-xs leading-6 text-muted-foreground">
-                الطالب الذي خرج من المدرسة يبقى غائباً في <span className="font-semibold text-foreground">جميع الحصص</span> لبقية اليوم،
-                فلا يمكن تحضيره من هنا ولا تغيير حالته. إن كان التسجيل خطأً فالمعلم الذي سجّله هو وحده من يستطيع تعديله.
+                الغياب حالة واحدة لليوم كله يتشاركها كل المعلمين، فلا يمكن تحضير الطالب «حاضراً» من هنا؛
+                المعلم الذي سجّله هو وحده من يستطيع إلغاءه.
+                <br />
+                أما إن كان الطالب <span className="font-semibold text-foreground">أمامك الآن في الفصل</span> فسجّله
+                «حاضر (متأخر)»: يُحسب له اليوم تأخراً لا غياباً، ويصل ولي الأمر تصحيح لإشعار الغياب،
+                ويُدوَّن في سجل الإدارة أنك أنت من عدّله.
               </div>
               <button
+                onClick={() => {
+                  const id = lockCard.student.id
+                  setLateArrivals(prev => new Set(prev).add(id))
+                  setAttendance(a => ({ ...a, [id]: 'late' }))
+                  touch(id)
+                  setLockCard(null)
+                }}
+                className="w-full py-2.5 min-h-11 bg-amber-500 text-white rounded-xl font-bold hover:opacity-90"
+              >🕒 الطالب موجود الآن — سجّله حاضراً (متأخراً)</button>
+              <button
                 onClick={() => setLockCard(null)}
-                className="w-full py-2.5 bg-primary text-primary-foreground rounded-xl font-bold hover:opacity-90"
-              >حسناً</button>
+                className="w-full py-2.5 bg-muted rounded-xl font-bold hover:opacity-90"
+              >إغلاق دون تغيير</button>
             </div>
           </div>
         </div>

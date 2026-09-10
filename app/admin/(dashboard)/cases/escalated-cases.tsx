@@ -53,7 +53,7 @@ export function EscalatedCases({ cases }: { cases: EscalatedCase[] }) {
               </p>
               <button
                 onClick={() => setActive(c)}
-                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-primary text-primary-foreground"
+                className="text-xs font-bold px-3 py-2.5 sm:py-1.5 min-h-10 sm:min-h-0 rounded-lg bg-primary text-primary-foreground"
               >
                 اتخذ قراراً
               </button>

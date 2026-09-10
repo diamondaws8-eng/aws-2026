@@ -277,7 +277,7 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
                       <button
                         onClick={e => { e.stopPropagation(); setEditingGradeId(grade.id); setEditingGradeName(grade.name) }}
                         title="تعديل اسم المرحلة"
-                        className="text-muted-foreground hover:text-primary transition-colors"
+                        className="p-2.5 -m-2.5 sm:p-0 sm:m-0 text-muted-foreground hover:text-primary transition-colors"
                       >
                         <Edit2 className="size-3.5" />
                       </button>
@@ -296,7 +296,7 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
               </div>
               {canCreateGrades && (
                 <button onClick={e => { e.stopPropagation(); handleDeleteGrade(grade.id, grade.name) }}
-                  className="p-1.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                  className="p-2.5 sm:p-1.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
                   <Trash2 className="size-4" />
                 </button>
               )}
@@ -359,7 +359,7 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
                               </span>
                               فصل {cls.name}
                               {editable && (
-                                <button onClick={e => { e.stopPropagation(); setEditingClassId(cls.id); setEditingClassName(cls.name) }} className="text-muted-foreground hover:text-primary transition-colors">
+                                <button onClick={e => { e.stopPropagation(); setEditingClassId(cls.id); setEditingClassName(cls.name) }} className="p-2.5 -m-2.5 sm:p-0 sm:m-0 text-muted-foreground hover:text-primary transition-colors">
                                   <Edit2 className="size-3" />
                                 </button>
                               )}
@@ -375,14 +375,14 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
                           <button onClick={e => { e.stopPropagation(); handleDownloadExcel(cls.id, cls.name, grade.name) }}
                             disabled={loadingActions.has(`dl-${cls.id}`)}
                             title="تحميل قائمة الطلاب (Excel)"
-                            className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 text-xs font-semibold">
+                            className="p-2.5 sm:p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 text-xs font-semibold">
                             <Download className="size-3.5" />
                             {loadingActions.has(`dl-${cls.id}`) ? 'جاري التحميل...' : 'إكسيل'}
                           </button>
                           {editable && (
                             <button onClick={e => { e.stopPropagation(); handleDeleteClass(cls.id, cls.name) }}
                               title="حذف الفصل"
-                              className="p-1.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                              className="p-2.5 sm:p-1.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
                               <Trash2 className="size-3.5" />
                             </button>
                           )}
@@ -456,7 +456,7 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
 
                                   {editable && (
                                     <button onClick={() => handleDeleteSubject(sub.id, sub.name)}
-                                      className="p-1 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0">
+                                      className="p-2.5 sm:p-1 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0">
                                       <Trash2 className="size-3.5" />
                                     </button>
                                   )}

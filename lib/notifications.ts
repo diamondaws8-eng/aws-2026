@@ -18,6 +18,7 @@ export const NOTIFICATION_KINDS = {
   case_returned: { label: 'حالة أُعيدت إليك', icon: 'undo', tone: 'amber' },
   parent_informed: { label: 'ملاحظة بخصوص ابنك', icon: 'message', tone: 'rose' },
   absence: { label: 'غياب', icon: 'userx', tone: 'red' },
+  late_arrival: { label: 'وصول متأخر', icon: 'clock', tone: 'amber' },
 } as const
 
 export type NotificationKind = keyof typeof NOTIFICATION_KINDS
