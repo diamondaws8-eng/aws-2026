@@ -2,12 +2,12 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { students, dailyRecords, lessonRecords, subjects, teachers, user, classes, gradeLevels, gradeEntries, account, schools } from '@/lib/db/schema'
-import { eq, and, sql, desc, gte } from 'drizzle-orm'
+import { students, dailyRecords, lessonRecords, subjects, teachers, user, classes, gradeLevels, gradeEntries, account, schools, studentPoints } from '@/lib/db/schema'
+import { eq, and, sql, desc, gte, inArray } from 'drizzle-orm'
 import { hashPassword } from 'better-auth/crypto'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { getStudentPointsTotal, getStudentTeacherPointsTotal, getManualPoints, deriveLessonEntries, yearStartForStudent, maxPossiblePoints } from '@/lib/points'
+import { getStudentPointsTotal, getManualPoints, deriveLessonEntries, yearStartForStudent, maxPossiblePoints } from '@/lib/points'
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 export async function requireParent() {
@@ -176,88 +176,98 @@ export async function getStudentDashboard(studentId: string) {
       .from(subjects)
       .where(eq(subjects.classId, student.classId))
 
-    for (const sub of subjectList) {
-      // Teacher name
-      let teacherName: string | null = null
-      if (sub.teacherUserId) {
-        const [t] = await db
-          .select({ fullName: teachers.fullName })
-          .from(teachers)
-          .where(eq(teachers.userId, sub.teacherUserId))
-          .limit(1)
-        teacherName = t?.fullName ?? null
-      }
+    /**
+     * One round trip per fact, not four per subject. A child with eight
+     * subjects used to cost thirty-two queries on every open of this page —
+     * and parents are the largest group in the school. Everything below is
+     * grouped by the teacher who wrote it, because a subject's figures are
+     * that teacher's records for this child.
+     */
+    const classId = student.classId
+    const teacherIds = [...new Set(subjectList.map((s) => s.teacherUserId).filter((v): v is string => !!v))]
+    const yearFilter = since ? gte(lessonRecords.date, since) : undefined
 
-      // Points per subject (from records where this teacher recorded)
-      let subjectPoints = 0
-      if (sub.teacherUserId) {
-        subjectPoints = await getStudentTeacherPointsTotal(studentId, student.classId!, sub.teacherUserId)
-      }
-
-      // Attendance per teacher's records
-      let presentCount = 0, absentCount = 0, excusedCount = 0
-      if (sub.teacherUserId) {
-        // Attendance belongs to the whole day, not to one subject — so what a
-        // subject reports is how many of ITS lessons the child attended, taken
-        // from the register on the days this teacher assessed them.
-        const attRows = await db
-          .select({
-            status: dailyRecords.attendanceStatus,
-            count: sql<number>`COUNT(*)`,
-          })
-          .from(lessonRecords)
-          .innerJoin(
-            dailyRecords,
-            and(
-              eq(dailyRecords.studentId, lessonRecords.studentId),
-              eq(dailyRecords.date, lessonRecords.date),
+    const [teacherRows, lessonPointRows, manualPointRows, attRows, noteRows] = teacherIds.length === 0
+      ? [[], [], [], [], []]
+      : await Promise.all([
+          db
+            .select({ userId: teachers.userId, fullName: teachers.fullName })
+            .from(teachers)
+            .where(inArray(teachers.userId, teacherIds)),
+          db
+            .select({
+              teacherUserId: lessonRecords.teacherUserId,
+              v: sql<number>`COALESCE(SUM(${lessonRecords.pointsEarned}), 0)`.mapWith(Number),
+            })
+            .from(lessonRecords)
+            .where(and(eq(lessonRecords.studentId, studentId), eq(lessonRecords.classId, classId), inArray(lessonRecords.teacherUserId, teacherIds), yearFilter))
+            .groupBy(lessonRecords.teacherUserId),
+          db
+            .select({
+              teacherUserId: studentPoints.teacherUserId,
+              v: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`.mapWith(Number),
+            })
+            .from(studentPoints)
+            .where(and(eq(studentPoints.studentId, studentId), eq(studentPoints.classId, classId), inArray(studentPoints.teacherUserId, teacherIds), since ? gte(studentPoints.date, since) : undefined))
+            .groupBy(studentPoints.teacherUserId),
+          // Attendance belongs to the whole day, not to one subject — so what a
+          // subject reports is how many of ITS lessons the child attended, taken
+          // from the register on the days this teacher assessed them.
+          db
+            .select({
+              teacherUserId: lessonRecords.teacherUserId,
+              status: dailyRecords.attendanceStatus,
+              count: sql<number>`COUNT(*)`.mapWith(Number),
+            })
+            .from(lessonRecords)
+            .innerJoin(
+              dailyRecords,
+              and(eq(dailyRecords.studentId, lessonRecords.studentId), eq(dailyRecords.date, lessonRecords.date)),
             )
-          )
-          .where(
-            and(
-              eq(lessonRecords.studentId, studentId),
-              eq(lessonRecords.classId, student.classId!),
-              eq(lessonRecords.teacherUserId, sub.teacherUserId),
-              since ? gte(lessonRecords.date, since) : undefined,
-            )
-          )
-          .groupBy(dailyRecords.attendanceStatus)
+            .where(and(eq(lessonRecords.studentId, studentId), eq(lessonRecords.classId, classId), inArray(lessonRecords.teacherUserId, teacherIds), yearFilter))
+            .groupBy(lessonRecords.teacherUserId, dailyRecords.attendanceStatus),
+          // Notes are rare; newest first, and the first per teacher wins below.
+          db
+            .select({ teacherUserId: lessonRecords.teacherUserId, note: lessonRecords.teacherNote })
+            .from(lessonRecords)
+            .where(and(eq(lessonRecords.studentId, studentId), eq(lessonRecords.classId, classId), inArray(lessonRecords.teacherUserId, teacherIds), sql`${lessonRecords.teacherNote} IS NOT NULL`, yearFilter))
+            .orderBy(desc(lessonRecords.date), desc(lessonRecords.updatedAt))
+            .limit(200),
+        ])
 
-        // Same definition the admin dashboard uses: a latecomer attended, and
-        // إذن is an excused absence. Counting only 'present' dropped both from
-        // the parent's totals, so the two portals disagreed about the same day.
-        // A latecomer attended. An excused day is kept apart from a plain
-        // absence: folding it into "غياب" told a family their child was
-        // absent on the day they themselves had asked permission for.
-        attRows.forEach(r => {
-          if (r.status === 'present' || r.status === 'late') presentCount += Number(r.count)
-          else if (r.status === 'absent') absentCount += Number(r.count)
-          else if (r.status === 'excused') excusedCount += Number(r.count)
-        })
-      }
-
-      // Latest teacher note
-      let latestNote: string | null = null
-      if (sub.teacherUserId) {
-        const [noteRow] = await db
-          .select({ note: lessonRecords.teacherNote, date: lessonRecords.date })
-          .from(lessonRecords)
-          .where(
-            and(
-              eq(lessonRecords.studentId, studentId),
-              eq(lessonRecords.classId, student.classId!),
-              eq(lessonRecords.teacherUserId, sub.teacherUserId),
-              sql`${lessonRecords.teacherNote} IS NOT NULL`,
-              since ? gte(lessonRecords.date, since) : undefined,
-            )
-          )
-          .orderBy(desc(lessonRecords.date))
-          .limit(1)
-        latestNote = noteRow?.note ?? null
-      }
-
-      subjectCards.push({ id: sub.id, name: sub.name, teacherName, points: subjectPoints, presentCount, absentCount, excusedCount, latestNote })
+    const nameOf = new Map(teacherRows.map((t) => [t.userId, t.fullName]))
+    const pointsOf = new Map<string, number>()
+    for (const r of lessonPointRows) pointsOf.set(r.teacherUserId, (pointsOf.get(r.teacherUserId) ?? 0) + r.v)
+    for (const r of manualPointRows) pointsOf.set(r.teacherUserId, (pointsOf.get(r.teacherUserId) ?? 0) + r.v)
+    // Same definition the admin dashboard uses: a latecomer attended, and
+    // إذن is an excused absence kept apart from a plain one — folding it into
+    // "غياب" told a family their child was absent on the day they themselves
+    // had asked permission for.
+    const attOf = new Map<string, { present: number; absent: number; excused: number }>()
+    for (const r of attRows) {
+      const a = attOf.get(r.teacherUserId) ?? { present: 0, absent: 0, excused: 0 }
+      if (r.status === 'present' || r.status === 'late') a.present += r.count
+      else if (r.status === 'absent') a.absent += r.count
+      else if (r.status === 'excused') a.excused += r.count
+      attOf.set(r.teacherUserId, a)
     }
+    const noteOf = new Map<string, string>()
+    for (const r of noteRows) if (r.note && !noteOf.has(r.teacherUserId)) noteOf.set(r.teacherUserId, r.note)
+
+    subjectCards = subjectList.map((sub) => {
+      const t = sub.teacherUserId
+      const a = t ? attOf.get(t) : undefined
+      return {
+        id: sub.id,
+        name: sub.name,
+        teacherName: t ? nameOf.get(t) ?? null : null,
+        points: t ? pointsOf.get(t) ?? 0 : 0,
+        presentCount: a?.present ?? 0,
+        absentCount: a?.absent ?? 0,
+        excusedCount: a?.excused ?? 0,
+        latestNote: t ? noteOf.get(t) ?? null : null,
+      }
+    })
   }
 
   return {

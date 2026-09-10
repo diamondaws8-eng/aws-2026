@@ -12,6 +12,7 @@ import { getAdminAccess } from '@/lib/admin-access'
 import { logAudit } from '@/lib/audit'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
+import { cache } from 'react'
 import type { SchoolSettings } from './settings-types'
 import { DEFAULT_SETTINGS } from './settings-types'
 
@@ -33,6 +34,15 @@ export async function getSchoolSettings(schoolId: string): Promise<SchoolSetting
   const { isMemberOfSchool } = await import('@/lib/school-membership')
   if (!(await isMemberOfSchool(session.user.id, schoolId))) return DEFAULT_SETTINGS
 
+  return readSchoolSettings(schoolId)
+}
+
+/**
+ * The settings row itself, read once per request however many callers ask —
+ * a teacher's save, the points it computes and the roster it re-renders all
+ * want the same values, and each used to fetch them again.
+ */
+const readSchoolSettings = cache(async (schoolId: string): Promise<SchoolSettings> => {
   const [school] = await db
     .select({ settings: schools.settings })
     .from(schools)
@@ -53,7 +63,7 @@ export async function getSchoolSettings(schoolId: string): Promise<SchoolSetting
   } catch {
     return DEFAULT_SETTINGS
   }
-}
+})
 
 // ── Save school settings ──────────────────────────────────────────────────────
 export async function saveSchoolSettings(schoolId: string, settings: SchoolSettings) {

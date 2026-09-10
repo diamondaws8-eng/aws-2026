@@ -88,8 +88,15 @@ export const getAdminAccess = cache(async (): Promise<AdminAccess | null> => {
 
   const base = { userId: session.user.id, name: session.user.name, email: session.user.email }
 
+  // Owner and staff are looked up together: they are two round trips to a
+  // database that answers in a hundred milliseconds, and every admin page
+  // starts here. One of the two is always empty; both are cheap.
+  const [[ownedSchool], [staff]] = await Promise.all([
+    db.select().from(schools).where(eq(schools.adminId, session.user.id)).limit(1),
+    db.select().from(schoolStaff).where(eq(schoolStaff.userId, session.user.id)).limit(1),
+  ])
+
   // 1) Owner — the account the school was created with
-  const [ownedSchool] = await db.select().from(schools).where(eq(schools.adminId, session.user.id)).limit(1)
   if (ownedSchool) {
     return {
       ...base,
@@ -112,7 +119,6 @@ export const getAdminAccess = cache(async (): Promise<AdminAccess | null> => {
   }
 
   // 2) Staff — quality manager, principal or deputy
-  const [staff] = await db.select().from(schoolStaff).where(eq(schoolStaff.userId, session.user.id)).limit(1)
   if (!staff) return null
 
   // The counsellor sits in the same staff table but is not an administrator:

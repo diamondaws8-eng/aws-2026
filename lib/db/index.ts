@@ -21,6 +21,20 @@ export const pool =
      * dashboard's dozen parallel reads still complete, a few milliseconds later.
      */
     max: 8,
+    /**
+     * Opening a connection to the pooler costs about a second (TCP + TLS +
+     * auth); a query on an open one costs a hundred milliseconds. The default
+     * closed idle connections after ten seconds, so a school's bursty morning —
+     * a teacher saves, thirty seconds pass, a parent opens the app — paid that
+     * second again and again. Measured: the same request took 1.3 s after a
+     * short pause and 0.25 s right after another. Connections now stay open
+     * for five minutes and are kept alive, and one is always ready.
+     */
+    min: 1,
+    idleTimeoutMillis: 5 * 60_000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
+    connectionTimeoutMillis: 15_000,
   })
 
 if (process.env.NODE_ENV !== 'production') globalForDb.__pool = pool

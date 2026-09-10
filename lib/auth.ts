@@ -30,7 +30,21 @@ export const auth = betterAuth({
         ].filter(Boolean)
       : []),
   ],
-  session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
+  session: {
+    expiresIn: 60 * 60 * 24 * 7,
+    updateAge: 60 * 60 * 24,
+    /**
+     * Every page and every server action starts by asking "who is this?", and
+     * that used to be a database round trip each time — on some pages five or
+     * six times. The answer is now kept in a signed cookie for five minutes,
+     * so the question costs nothing in between. What the cookie cannot know
+     * for those five minutes is a revoked session; the portals do not rely on
+     * it for that — a deleted teacher or staff member fails the role lookup
+     * that follows, and a parent whose account is gone has no children left
+     * to read.
+     */
+    cookieCache: { enabled: true, maxAge: 5 * 60 },
+  },
 
   /**
    * Rate limiting is on by default in production, but it can only tell callers

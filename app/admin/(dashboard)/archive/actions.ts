@@ -2,7 +2,7 @@
 
 import { db } from '@/lib/db'
 import { schools, schoolYears } from '@/lib/db/schema'
-import { eq, and, isNull, desc } from 'drizzle-orm'
+import { eq, and, isNull, desc, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { getAdminAccess } from '@/lib/admin-access'
 import { logAudit } from '@/lib/audit'
@@ -142,6 +142,11 @@ export async function closeYearAndOpenNext(input: {
         yearStartDate: nextStartDate,
         currentSemester: 'first',
       }).where(eq(schools.id, access.school.id))
+
+      // Housekeeping nobody else does: sign-in sessions expire after a week
+      // but their rows never left the table. A year of three hundred people
+      // signing in is thousands of dead rows — swept once, here.
+      await tx.execute(sql`DELETE FROM "session" WHERE "expiresAt" < now()`)
     })
 
     await logAudit(access, 'year.close', `${open.label} ← ${nextLabel}`, {

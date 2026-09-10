@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { addGradeLevel, deleteGradeLevel, editGradeLevel, addClass, deleteClass, editClass, getStudentsForClass, addSubject, deleteSubject, assignTeacherToSubject } from './actions-levels'
 import { ChevronDown, ChevronUp, Plus, Trash2, BookOpen, UserCog, Edit2, Download, Layers, CheckCircle2, Eye } from 'lucide-react'
 import { EmptyState } from '@/components/empty-state'
-import * as XLSX from 'xlsx'
 
 type SubjectData = {
   id: string
@@ -175,6 +174,9 @@ export default function GradeLevelsClient({ grades, schoolId, teacherOptions, ed
           s.gender === 'male' ? 'ذكر' : s.gender === 'female' ? 'أنثى' : '',
         ])
       })
+      // The spreadsheet library is a third of a megabyte; it is fetched the
+      // first time somebody actually asks for a sheet, not on every visit.
+      const XLSX = await import('xlsx')
       const ws = XLSX.utils.aoa_to_sheet(wsData)
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'الطلاب')

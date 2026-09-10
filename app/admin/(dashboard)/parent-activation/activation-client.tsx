@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import * as XLSX from 'xlsx'
 import { schoolDate } from '@/lib/utils'
 import { NotificationBell } from '@/components/notification-bell'
 import { StatCard } from '@/components/stat-card'
@@ -164,7 +163,9 @@ export function ActivationClient({
     copy('numbers', numbers.join('\n'))
   }
 
-  const exportExcel = () => {
+  const exportExcel = async () => {
+    // Loaded on demand — the library is heavier than the whole page.
+    const XLSX = await import('xlsx')
     const rows = [
       ['الطلاب', 'المرحلة', 'الفصل', 'جوال ولي الأمر', 'بريد الدخول', 'الحالة', 'عدد المراسلات', 'آخر مراسلة'],
       ...families.map((f) => [
