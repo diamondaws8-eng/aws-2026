@@ -11,7 +11,7 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'مدارس الأوس الأهلية | نظام إدارة المدرسة',
   description: 'منصة عربية ذكية لإدارة المدرسة ومتابعة أداء الطلاب.',
-  generator: 'v0.app',
+  applicationName: 'مدارس الأوس الأهلية',
   icons: {
     icon: [{ url: '/logo.jpg' }],
     apple: '/logo.jpg',
@@ -20,9 +20,10 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   colorScheme: 'light dark',
+  // The browser chrome on a phone matches the page's own background tokens.
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
+    { media: '(prefers-color-scheme: light)', color: '#f6f7fb' },
+    { media: '(prefers-color-scheme: dark)', color: '#151824' },
   ],
 }
 

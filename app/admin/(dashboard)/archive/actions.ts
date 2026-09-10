@@ -147,6 +147,11 @@ export async function closeYearAndOpenNext(input: {
       // but their rows never left the table. A year of three hundred people
       // signing in is thousands of dead rows — swept once, here.
       await tx.execute(sql`DELETE FROM "session" WHERE "expiresAt" < now()`)
+      // Announcements that already expired are filtered out of every screen
+      // but were never removed, and a family's bell keeps every read notice
+      // forever. A year is long enough for both.
+      await tx.execute(sql`DELETE FROM notifications WHERE expires_at IS NOT NULL AND expires_at < now() - interval '30 days'`)
+      await tx.execute(sql`DELETE FROM user_notifications WHERE read_at IS NOT NULL AND created_at < now() - interval '365 days'`)
     })
 
     await logAudit(access, 'year.close', `${open.label} ← ${nextLabel}`, {
