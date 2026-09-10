@@ -147,7 +147,11 @@ function useCountUp(target: number, duration = 1100): number {
       if (progress < 1) raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
+    // A tab opened in the background gets no animation frames, so the figure
+    // would sit at 0% until the tab is looked at. The number must be right
+    // whether or not the animation ran.
+    const settle = setTimeout(() => setValue(target), duration + 100)
+    return () => { cancelAnimationFrame(raf); clearTimeout(settle) }
   }, [target, duration])
   return value
 }

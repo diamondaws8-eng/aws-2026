@@ -294,7 +294,7 @@ export async function saveDailyRecords(
   const arrivedIds = lateArrivalIds.filter((id) => stored.get(id) === 'late')
   if (arrivedIds.length > 0) {
     const arrived = await db
-      .select({ id: students.id, fullName: students.fullName, parentUserId: students.parentUserId })
+      .select({ id: students.id, fullName: students.fullName })
       .from(students)
       .where(and(eq(students.classId, classId), inArray(students.id, arrivedIds)))
 
@@ -307,29 +307,49 @@ export async function saveDailyRecords(
       count: arrived.length,
       names: arrived.map((s) => s.fullName).join('، '),
     })
+  }
 
-    // The family that was told "absent" this morning must hear the correction
-    // from the school too, or the false notice is what they act on. A home that
-    // was never told (an authorised leave, or an earlier day) is not disturbed.
-    if (date === schoolToday()) {
-      const { notify, notifiedTodayFor } = await import('@/lib/notifications')
-      const told = await notifiedTodayFor(schoolId, 'absence', arrivedIds)
-      const corrected = await notifiedTodayFor(schoolId, 'late_arrival', arrivedIds)
-      await notify(
-        arrived
-          .filter((s) => !!s.parentUserId && told.has(s.id) && !corrected.has(s.id))
-          .map((s) => ({
+  // ── 5. The family hears the correction too ─────────────────────────────────
+  // A pupil the register had out of school and now has in — whether the owner
+  // undid a slip or a colleague recorded the late arrival. The absence notice
+  // went out the moment it was written, so a home that heard it must hear the
+  // correction from the school as well, or the false notice is what they act
+  // on. A home that was never told (an authorised leave, an earlier day) is
+  // not disturbed. Read from the register, not predicted.
+  const backInIds = records
+    .filter((r) => {
+      const prev = previous.get(r.studentId)
+      const now = stored.get(r.studentId)
+      return !!prev && isOutOfSchool(prev.attendanceStatus) && !!now && !isOutOfSchool(now)
+    })
+    .map((r) => r.studentId)
+  if (backInIds.length > 0 && date === schoolToday()) {
+    const { notify, notifiedTodayFor } = await import('@/lib/notifications')
+    const told = await notifiedTodayFor(schoolId, 'absence', backInIds)
+    const corrected = await notifiedTodayFor(schoolId, 'attendance_corrected', backInIds)
+    const pupils = await db
+      .select({ id: students.id, fullName: students.fullName, parentUserId: students.parentUserId })
+      .from(students)
+      .where(and(eq(students.classId, classId), inArray(students.id, backInIds)))
+    await notify(
+      pupils
+        .filter((s) => !!s.parentUserId && told.has(s.id) && !corrected.has(s.id))
+        .map((s) => {
+          const late = stored.get(s.id) === 'late'
+          return {
             schoolId,
             recipientUserId: s.parentUserId!,
-            kind: 'late_arrival' as const,
-            title: `وصول متأخر: ${s.fullName}`,
-            body: `وصل ${s.fullName} إلى المدرسة اليوم ${formatDateAr(date)} متأخراً، وعُدِّل تسجيل الغياب السابق إلى «حاضر (متأخر)».`,
+            kind: 'attendance_corrected' as const,
+            title: late ? `وصول متأخر: ${s.fullName}` : `تصحيح: ${s.fullName} حاضر اليوم`,
+            body: late
+              ? `وصل ${s.fullName} إلى المدرسة اليوم ${formatDateAr(date)} متأخراً، وعُدِّل تسجيل الغياب السابق إلى «حاضر (متأخر)».`
+              : `عُدِّل تسجيل غياب ${s.fullName} اليوم ${formatDateAr(date)}: الطالب حاضر، ونعتذر عن الإشعار السابق.`,
             href: '/parent',
             entityId: s.id,
             actorName: access.fullName,
-          })),
-      )
-    }
+          }
+        }),
+    )
   }
 
   // Saving an earlier day overwrites values nobody kept a copy of, so it leaves

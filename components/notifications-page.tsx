@@ -21,6 +21,7 @@ const KIND_META: Record<string, { icon: LucideIcon; className: string; label: st
   case_returned: { icon: Undo2, className: 'bg-amber-50 text-amber-600 border-amber-100', label: 'حالة أُعيدت' },
   parent_informed: { icon: MessageSquare, className: 'bg-rose-50 text-rose-600 border-rose-100', label: 'ملاحظة بخصوص ابنك' },
   absence: { icon: UserX, className: 'bg-red-50 text-red-600 border-red-100', label: 'غياب' },
+  attendance_corrected: { icon: Clock, className: 'bg-amber-50 text-amber-600 border-amber-100', label: 'تصحيح الحضور' },
   late_arrival: { icon: Clock, className: 'bg-amber-50 text-amber-600 border-amber-100', label: 'وصول متأخر' },
 }
 

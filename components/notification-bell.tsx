@@ -19,6 +19,7 @@ const KIND_META: Record<string, { icon: LucideIcon; className: string }> = {
   case_returned: { icon: Undo2, className: 'bg-amber-50 text-amber-600 border-amber-100' },
   parent_informed: { icon: MessageSquare, className: 'bg-rose-50 text-rose-600 border-rose-100' },
   absence: { icon: UserX, className: 'bg-red-50 text-red-600 border-red-100' },
+  attendance_corrected: { icon: Clock, className: 'bg-amber-50 text-amber-600 border-amber-100' },
   late_arrival: { icon: Clock, className: 'bg-amber-50 text-amber-600 border-amber-100' },
 }
 

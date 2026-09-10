@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { NotificationBell } from '@/components/notification-bell'
@@ -237,7 +237,18 @@ export default function ClassRoster({
    * record yet is marked, and the count sits next to the save button.
    */
   const [reviewed, setReviewed] = useState<Set<string>>(new Set())
-  const touch = (id: string) => setReviewed(r => (r.has(id) ? r : new Set(r).add(id)))
+  /**
+   * Rows this teacher actually pressed since the screen loaded. A roster left
+   * open since the first period still shows the register as it was then; a
+   * colleague may have marked a pupil absent — or recorded a late arrival —
+   * in the meantime. On save, rows the teacher never touched follow the live
+   * register instead of overwriting it with a stale default.
+   */
+  const dirtyRef = useRef<Set<string>>(new Set())
+  const touch = (id: string) => {
+    dirtyRef.current.add(id)
+    setReviewed(r => (r.has(id) ? r : new Set(r).add(id)))
+  }
 
   // Grades Tab State
   const [selectedSubject, setSelectedSubject] = useState<string>(subjects[0]?.id || '')
@@ -293,6 +304,7 @@ export default function ClassRoster({
       initFromRecords(data.records || [])
       setLocks(Object.fromEntries(((data.absenceLocks ?? []) as AbsenceLock[]).map(l => [l.studentId, l])))
       setLateArrivals(new Set())
+      dirtyRef.current = new Set()
       setSelectedDate(newDate)
     } catch {
       // fallback: reset to defaults
@@ -314,9 +326,31 @@ export default function ClassRoster({
   const handleSaveDay = async () => {
     setSaving(true)
     try {
+      // What the register says right now, for every row this teacher did not
+      // touch. Attendance is shared: sending the value this screen loaded an
+      // hour ago would overwrite what a colleague wrote since.
+      let liveAtt: Record<string, AttStatus> = { ...attendance }
+      let refreshed = 0
+      try {
+        const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${selectedDate}`)
+        const data = await res.json()
+        const freshLocks = Object.fromEntries(((data.absenceLocks ?? []) as AbsenceLock[]).map(l => [l.studentId, l]))
+        for (const r of (data.records ?? []) as DailyRecord[]) {
+          if (dirtyRef.current.has(r.studentId)) continue
+          const status = r.attendanceStatus as AttStatus
+          if (liveAtt[r.studentId] !== status) { liveAtt[r.studentId] = status; refreshed++ }
+        }
+        setLocks(freshLocks)
+        if (refreshed > 0) setAttendance(liveAtt)
+      } catch {
+        // Offline or slow: save what is on screen, the server still refuses to
+        // overwrite a colleague's absence.
+        liveAtt = { ...attendance }
+      }
+
       const records: DailyStudentRecord[] = students.map(s => ({
         studentId: s.id,
-        attendanceStatus: attendance[s.id] || 'present',
+        attendanceStatus: liveAtt[s.id] || 'present',
         // Unrated stays unrated. Filling the gap with 'good' handed every pupil
         // a behaviour point per lesson the teacher never decided to give, and
         // the school's "good behaviour" figure was mostly that default.
@@ -333,8 +367,9 @@ export default function ClassRoster({
         setTimeout(() => setSavedMsg(''), 4000)
         return
       }
-      setSavedMsg('✓ تم حفظ اليوم بنجاح')
+      setSavedMsg(refreshed > 0 ? `✓ تم حفظ اليوم بنجاح — وحُدّثت حالة حضور ${refreshed} من السجل المشترك` : '✓ تم حفظ اليوم بنجاح')
       setLateArrivals(new Set())
+      dirtyRef.current = new Set()
       // An absence another teacher recorded stands: show exactly whose it was.
       setBlockedNotice(saved.blocked)
       if (saved.blocked.length) {

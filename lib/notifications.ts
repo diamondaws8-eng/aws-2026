@@ -18,6 +18,8 @@ export const NOTIFICATION_KINDS = {
   case_returned: { label: 'حالة أُعيدت إليك', icon: 'undo', tone: 'amber' },
   parent_informed: { label: 'ملاحظة بخصوص ابنك', icon: 'message', tone: 'rose' },
   absence: { label: 'غياب', icon: 'userx', tone: 'red' },
+  attendance_corrected: { label: 'تصحيح الحضور', icon: 'clock', tone: 'amber' },
+  /** Written once, before the kind above replaced it. Kept so that row still renders. */
   late_arrival: { label: 'وصول متأخر', icon: 'clock', tone: 'amber' },
 } as const
 
