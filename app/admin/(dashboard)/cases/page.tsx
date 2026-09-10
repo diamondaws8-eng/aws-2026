@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { classes } from '@/lib/db/schema'
 import { eq, and, inArray, sql } from 'drizzle-orm'
 import {
-  listCases, countCasesByStatus, countCasesByTeacher, countCasesByStudent,
+  listCases, listCaseHeads, countCasesByStatus, countCasesByTeacher, countCasesByStudent,
   CASE_STATUS, STALE_AFTER_DAYS,
 } from '@/lib/behavior-cases'
 import { StatCard } from '@/components/stat-card'
@@ -40,7 +40,10 @@ export default async function AdminCasesPage() {
     listCases({ schoolId: school.id, classIds, statuses: ['escalated'], limit: 50 }),
     countCasesByTeacher(school.id, classIds),
     countCasesByStudent(school.id, classIds, 3),
-    listCases({ schoolId: school.id, classIds, statuses: ['open'], limit: 200 }),
+    // Heads only: the administration watches for neglect, and that needs a
+    // name and a date. What the child did is the counsellor's to read until
+    // they hand the case over.
+    listCaseHeads({ schoolId: school.id, classIds, statuses: ['open'], limit: 200 }),
   ])
 
   const staleCutoff = Date.now() - STALE_AFTER_DAYS * 24 * 60 * 60 * 1000
@@ -53,7 +56,9 @@ export default async function AdminCasesPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">الحالات السلوكية</h1>
           <p className="text-muted-foreground mt-1">
-            متابعة إدارية — الأعداد والأنماط والحالات المحالة إليك. ملاحظات الموجه السرّية لا تظهر هنا.
+            متابعة إدارية — الأعداد والأنماط والحالات المحالة إليك. تقرأ رواية المعلم في الحالة التي
+            أُحيلت إليك؛ أما الحالة التي لم يقرر فيها الموجه بعد فتُتابَع بالاسم والتاريخ فقط.
+            وملاحظات الموجه السرّية لا تظهر هنا إطلاقاً.
           </p>
         </div>
         <NotificationBell />

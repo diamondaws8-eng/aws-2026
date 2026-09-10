@@ -93,6 +93,69 @@ export async function listCases(opts: {
   }))
 }
 
+/**
+ * The head of a case: who, which class, which teacher, when — and no note.
+ *
+ * The administration watches for cases the counsellor has left sitting, and
+ * that watching needs a name and a date, not the account of what the child did.
+ * Selecting the note and simply not rendering it was not enough: it still left
+ * the server inside the page payload, readable by anyone who looked. A case's
+ * story stays with the counsellor until they hand it over.
+ */
+export type CaseHead = {
+  id: string
+  studentId: string
+  studentName: string
+  className: string | null
+  gradeName: string | null
+  teacherName: string
+  date: string
+  status: CaseStatus
+  createdAt: Date
+}
+
+export async function listCaseHeads(opts: {
+  schoolId: string
+  classIds?: string[] | null
+  statuses?: CaseStatus[]
+  limit?: number
+}): Promise<CaseHead[]> {
+  const filters = [eq(behaviorCases.schoolId, opts.schoolId)]
+  if (opts.classIds) {
+    if (opts.classIds.length === 0) return []
+    filters.push(inArray(behaviorCases.classId, opts.classIds))
+  }
+  if (opts.statuses?.length) filters.push(inArray(behaviorCases.status, opts.statuses))
+
+  const rows = await db
+    .select({
+      id: behaviorCases.id,
+      studentId: behaviorCases.studentId,
+      studentName: students.fullName,
+      className: classes.name,
+      gradeName: gradeLevels.name,
+      teacherName: teachers.fullName,
+      date: behaviorCases.date,
+      status: behaviorCases.status,
+      createdAt: behaviorCases.createdAt,
+    })
+    .from(behaviorCases)
+    .leftJoin(students, eq(students.id, behaviorCases.studentId))
+    .leftJoin(classes, eq(classes.id, behaviorCases.classId))
+    .leftJoin(gradeLevels, eq(gradeLevels.id, classes.gradeLevelId))
+    .leftJoin(teachers, eq(teachers.userId, behaviorCases.raisedByUserId))
+    .where(and(...filters))
+    .orderBy(desc(behaviorCases.createdAt))
+    .limit(opts.limit ?? 100)
+
+  return rows.map((r) => ({
+    ...r,
+    studentName: r.studentName ?? 'طالب محذوف',
+    teacherName: r.teacherName ?? 'معلم محذوف',
+    status: (isCaseStatus(r.status) ? r.status : 'open') as CaseStatus,
+  }))
+}
+
 /** Counts by status, for the deputy's overview — numbers, never contents. */
 export async function countCasesByStatus(schoolId: string, classIds?: string[] | null) {
   const filters = [eq(behaviorCases.schoolId, schoolId)]
