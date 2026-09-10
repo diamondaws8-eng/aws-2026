@@ -86,20 +86,32 @@ export default async function ParentDashboardPage({
       {/* ── Child Switcher ───────────────────────────────────────────────────── */}
       {children.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-          {children.map(child => (
-            <a
-              key={child.id}
-              href={`/parent?child=${child.id}`}
-              className={`flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-all border ${
-                child.id === activeChildId
-                  ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                  : 'bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
-              }`}
-            >
-              <span>{child.gender === 'female' ? '👧' : '👦'}</span>
-              {child.fullName.split(' ')[0]}
-            </a>
-          ))}
+          {children.map(child => {
+            // First name, unless another child shares it — then the father's
+            // name too. Two chips both reading «طالب» told a family nothing.
+            const first = child.fullName.split(' ')[0]
+            const clash = children.some((o) => o.id !== child.id && o.fullName.split(' ')[0] === first)
+            const label = clash ? child.fullName.split(' ').slice(0, 2).join(' ') : first
+            return (
+              <a
+                key={child.id}
+                href={`/parent?child=${child.id}`}
+                className={`flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-all border ${
+                  child.id === activeChildId
+                    ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                    : 'bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
+                }`}
+              >
+                <span>{child.gender === 'female' ? '👧' : '👦'}</span>
+                {label}
+                {child.className && (
+                  <span className={`text-[11px] font-normal ${child.id === activeChildId ? 'opacity-80' : 'text-muted-foreground'}`}>
+                    · {child.className}
+                  </span>
+                )}
+              </a>
+            )
+          })}
         </div>
       )}
 

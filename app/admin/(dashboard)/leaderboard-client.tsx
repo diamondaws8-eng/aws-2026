@@ -139,7 +139,7 @@ export function LeaderboardClient({
                       </div>
                       {schoolWide && student.className && (
                         <div className="text-xs text-muted-foreground mt-0.5">
-                          {student.className}
+                          {student.gradeName ? `${student.gradeName} — ` : ''}{student.className}
                         </div>
                       )}
                     </div>

@@ -60,15 +60,20 @@ export async function setOwnParentPassword(newPassword: string, confirmPassword:
 // ─── Get all children for this parent ────────────────────────────────────────
 export async function getMyChildren() {
   const user = await requireParent()
+  // The class comes along so the switcher can tell two children apart —
+  // by first name alone, siblings in two buildings both read as «محمد».
   return db
     .select({
       id: students.id,
       fullName: students.fullName,
       classId: students.classId,
+      className: classes.name,
       gender: students.gender,
     })
     .from(students)
+    .leftJoin(classes, eq(students.classId, classes.id))
     .where(eq(students.parentUserId, user.id))
+    .orderBy(students.fullName)
 }
 
 // ─── Get comprehensive student data ──────────────────────────────────────────

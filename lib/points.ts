@@ -1,6 +1,6 @@
 import { cache } from 'react'
 import { db } from '@/lib/db'
-import { dailyRecords, lessonRecords, studentPoints, students, classes, schools } from '@/lib/db/schema'
+import { dailyRecords, lessonRecords, studentPoints, students, classes, gradeLevels, schools } from '@/lib/db/schema'
 import { eq, and, gte, inArray, sql, type SQL } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import type { SchoolSettings } from '@/app/admin/(dashboard)/settings/settings-types'
@@ -360,6 +360,8 @@ export type LeaderboardRow = {
   name: string
   classId: string | null
   className: string | null
+  /** The stage the class belongs to. Two buildings can both have a «1\1». */
+  gradeName: string | null
   /** Points since the year started — the plain total every board used before. */
   totalPoints: number
   periods: Record<LeaderboardPeriod, PeriodStat>
@@ -408,9 +410,11 @@ export async function getLeaderboard(schoolId: string, classIds?: string[] | nul
         name: students.fullName,
         classId: students.classId,
         className: classes.name,
+        gradeName: gradeLevels.name,
       })
       .from(students)
       .leftJoin(classes, eq(students.classId, classes.id))
+      .leftJoin(gradeLevels, eq(classes.gradeLevelId, gradeLevels.id))
       // A pupil who has left does not compete on this year's board.
       .where(and(eq(students.schoolId, schoolId), eq(students.status, 'active'), classFilter)),
 

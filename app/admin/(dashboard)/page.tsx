@@ -121,9 +121,17 @@ export default async function AdminDashboardPage({
         scopedGradeIds ? (scopedGradeIds.length ? inArray(gradeLevels.id, scopedGradeIds) : sql`false`) : undefined
       )),
 
-    db.select({ id: classes.id, name: classes.name })
+    // Labelled with the stage: once a second building exists there are two
+    // classes called «1\1», and a picker showing the bare name cannot tell
+    // the deputy which one they are about to open.
+    db.select({
+        id: classes.id,
+        name: sql<string>`COALESCE(${gradeLevels.name} || ' — ', '') || ${classes.name}`,
+      })
       .from(classes)
-      .where(and(eq(classes.schoolId, school.id), inScopeClasses(classes.id))),
+      .leftJoin(gradeLevels, eq(classes.gradeLevelId, gradeLevels.id))
+      .where(and(eq(classes.schoolId, school.id), inScopeClasses(classes.id)))
+      .orderBy(gradeLevels.orderIndex, classes.name),
 
     db.select({
         id: classes.id,

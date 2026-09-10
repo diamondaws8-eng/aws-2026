@@ -1,5 +1,5 @@
 import { db } from '@/lib/db'
-import { classes, students, notifications } from '@/lib/db/schema'
+import { classes, students, notifications, gradeLevels } from '@/lib/db/schema'
 import { eq, desc, and, or, isNull, gt, sql } from 'drizzle-orm'
 import NotificationsClient from './notifications-client'
 import { requireAdminAccess, canViewGrade } from '@/lib/admin-access'
@@ -18,9 +18,20 @@ export default async function NotificationsPage() {
   // and never read. Say so before the message is written, not after.
   const reach = await parentActivation(school.id)
 
-  const allClasses = await db.select().from(classes).where(eq(classes.schoolId, school.id))
+  const [allClasses, gradeRows] = await Promise.all([
+    db.select().from(classes).where(eq(classes.schoolId, school.id)),
+    db.select({ id: gradeLevels.id, name: gradeLevels.name, order: gradeLevels.orderIndex })
+      .from(gradeLevels).where(eq(gradeLevels.schoolId, school.id)),
+  ])
   const classesList = allClasses.filter((c) => canViewGrade(access, c.gradeLevelId))
   const visibleClassIds = new Set(classesList.map((c) => c.id))
+  // The picker names the stage too: two buildings can both have a «1\1».
+  const gradeById = new Map(gradeRows.map((g) => [g.id, g]))
+  const classOptions = [...classesList]
+    .sort((a, b) =>
+      (gradeById.get(a.gradeLevelId)?.order ?? 0) - (gradeById.get(b.gradeLevelId)?.order ?? 0) ||
+      a.name.localeCompare(b.name))
+    .map((c) => ({ id: c.id, name: `${gradeById.get(c.gradeLevelId)?.name ?? ''} — ${c.name}` }))
 
   const allStudents = await db
     .select({ id: students.id, fullName: students.fullName, classId: students.classId })
@@ -85,7 +96,7 @@ export default async function NotificationsPage() {
       <NotificationsClient
         schoolId={school.id}
         userId={access.userId}
-        classes={classesList}
+        classes={classOptions}
         students={studentsList}
         notifications={notifs}
         canSend={access.canEdit}

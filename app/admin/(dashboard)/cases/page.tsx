@@ -175,7 +175,7 @@ export default async function AdminCasesPage() {
             {stale.map((c) => (
               <div key={c.id} className="rounded-xl border border-red-200 bg-card p-3 text-sm">
                 <span className="font-bold">{c.studentName}</span>
-                {c.className ? ` · فصل ${c.className}` : ''} — رفعها {c.teacherName} في {c.date}
+                {c.className ? ` · ${c.gradeName ? `${c.gradeName} — ` : ''}فصل ${c.className}` : ''} — رفعها {c.teacherName} في {c.date}
               </div>
             ))}
           </div>
