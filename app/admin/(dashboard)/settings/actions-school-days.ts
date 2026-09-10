@@ -81,7 +81,7 @@ export async function addSchoolHoliday(input: {
   endDate: string
   /** Null closes the whole school; a stage id closes only that stage. */
   gradeLevelId?: string | null
-}): Promise<DaysResult> {
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const { error, access } = await requireDaysManager()
   if (!access) return { ok: false, error }
 
@@ -119,17 +119,20 @@ export async function addSchoolHoliday(input: {
       gradeLevelId = stage.id
     }
 
-    await db.insert(schoolHolidays).values({
+    // The real id goes back to the browser. The list used to show the new row
+    // under a made-up id until the next full load, so "delete" on a holiday
+    // added a moment ago sent that made-up id here and was refused.
+    const [inserted] = await db.insert(schoolHolidays).values({
       schoolId: access.school.id,
       gradeLevelId,
       name,
       startDate,
       endDate,
-    })
+    }).returning({ id: schoolHolidays.id })
 
     await logAudit(access, 'settings.update', `إضافة إجازة: ${name}`, { startDate, endDate, gradeLevelId })
     revalidatePath('/admin', 'layout')
-    return { ok: true }
+    return { ok: true, id: inserted.id }
   } catch (e) {
     console.error('Add Holiday Error:', e)
     return { ok: false, error: 'تعذّر إضافة الإجازة' }

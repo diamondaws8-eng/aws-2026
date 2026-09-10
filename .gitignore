@@ -21,3 +21,8 @@ app/api/devcheck/
 
 # One-off maintenance scripts — never commit
 cleanup-duplicates.mjs
+
+# temp login-verification helpers
+verify-login-set.mjs
+verify-login-restore.mjs
+verify-saved-hashes.json

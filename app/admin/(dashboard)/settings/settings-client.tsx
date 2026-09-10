@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { saveSchoolSettings, changeAdminPassword, exportFullBackup, restoreFullBackup, updateAdminProfile, saveAcademicCalendar } from './actions-settings'
 import { requireAllParentsToChangePassword } from '../students/actions-students'
@@ -162,6 +162,9 @@ export default function SettingsClient({
   const [calScope, setCalScope] = useState<string>('')
   const [stages, setStages] = useState(initialStages)
   const [holidays, setHolidays] = useState(initialHolidays)
+  // router.refresh() brings a fresh list from the server; without this the
+  // local copy kept whatever it had and the two drifted apart.
+  useEffect(() => { setHolidays(initialHolidays) }, [initialHolidays])
   const [holidayName, setHolidayName] = useState('')
   const [holidayStart, setHolidayStart] = useState('')
   const [holidayEnd, setHolidayEnd] = useState('')
@@ -179,8 +182,9 @@ export default function SettingsClient({
       const end = holidayEnd || holidayStart
       const res = await addSchoolHoliday({ name: holidayName.trim(), startDate: holidayStart, endDate: end, gradeLevelId: calScope || null })
       if (res.ok) {
-        // Shown immediately; the refresh below replaces it with the stored row.
-        setHolidays(prev => [...prev, { id: `pending-${Date.now()}`, name: holidayName.trim(), startDate: holidayStart, endDate: end, gradeLevelId: calScope || null }]
+        // Shown immediately under its real id. A made-up id here meant that
+        // deleting the holiday you had just added was refused until a reload.
+        setHolidays(prev => [...prev, { id: res.id, name: holidayName.trim(), startDate: holidayStart, endDate: end, gradeLevelId: calScope || null }]
           .sort((a, b) => a.startDate.localeCompare(b.startDate)))
         setHolidayName(''); setHolidayStart(''); setHolidayEnd('')
         setDaysMsg({ ok: true, text: 'أُضيفت الإجازة' })

@@ -582,7 +582,7 @@ export default function ClassRoster({
                                 // day, so the buttons explain instead of pretending.
                                 <button
                                   onClick={() => setLockCard({ student, lock })}
-                                  className="mx-auto flex items-center gap-1.5 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors"
+                                  className="mx-auto flex items-center gap-1.5 rounded-lg border border-red-300 bg-red-50 px-3 py-2.5 sm:py-1.5 min-h-11 sm:min-h-0 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors"
                                   title="اضغط لمعرفة من سجّل الغياب"
                                 >
                                   <span>🔒</span>
@@ -594,7 +594,7 @@ export default function ClassRoster({
                                     {/* Pressing the group the student is already in keeps the detail. */}
                                     <button
                                       onClick={() => { touch(student.id); setAttendance(a => ({ ...a, [student.id]: isInSchool(att) ? att : 'present' })) }}
-                                      className={`px-4 py-2.5 sm:py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                      className={`px-4 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all ${
                                         isInSchool(att)
                                           ? 'bg-emerald-100 text-emerald-700 border-emerald-400'
                                           : 'bg-card text-muted-foreground border-border hover:bg-muted'
@@ -602,7 +602,7 @@ export default function ClassRoster({
                                     >حاضر</button>
                                     <button
                                       onClick={() => { touch(student.id); setAttendance(a => ({ ...a, [student.id]: isInSchool(att) ? 'absent' : att })) }}
-                                      className={`px-4 py-2.5 sm:py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                      className={`px-4 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all ${
                                         !isInSchool(att)
                                           ? 'bg-red-100 text-red-700 border-red-400'
                                           : 'bg-card text-muted-foreground border-border hover:bg-muted'
@@ -616,7 +616,9 @@ export default function ClassRoster({
                                         ? (att === 'late' ? 'present' : 'late')
                                         : (att === 'excused' ? 'absent' : 'excused'),
                                     })) }}
-                                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border transition-all ${
+                                    // 22px tall on a phone was the smallest thing a teacher
+                                    // had to hit 28 times a morning. Measured, not guessed.
+                                    className={`px-3 py-2 sm:py-0.5 min-h-10 sm:min-h-0 rounded-full text-[11px] font-semibold border transition-all ${
                                       att === 'late'
                                         ? 'bg-amber-100 text-amber-700 border-amber-400'
                                         : att === 'excused'
@@ -643,7 +645,7 @@ export default function ClassRoster({
                                       key={btn.key}
                                       onClick={() => { touch(student.id); setBehavior(b => ({ ...b, [student.id]: btn.key })) }}
                                       title={btn.label}
-                                      className={`w-9 h-9 rounded-xl text-lg transition-all border flex-shrink-0 ${
+                                      className={`w-11 h-11 sm:w-9 sm:h-9 rounded-xl text-lg transition-all border flex-shrink-0 ${
                                         beh === btn.key ? 'bg-primary/10 border-primary scale-110' : 'bg-card border-border hover:scale-105'
                                       }`}
                                     >{btn.emoji}</button>
@@ -670,7 +672,7 @@ export default function ClassRoster({
                                   <button
                                     key={btn.key}
                                     onClick={() => { touch(student.id); setHomework(h => ({ ...h, [student.id]: btn.key })) }}
-                                    className={`px-2 py-2.5 sm:py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                    className={`px-2 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all ${
                                       hw === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
                                   >{btn.label}</button>
@@ -687,7 +689,7 @@ export default function ClassRoster({
                                   <button
                                     key={btn.key}
                                     onClick={() => { touch(student.id); setMaterials(m => ({ ...m, [student.id]: btn.key })) }}
-                                    className={`px-2 py-2.5 sm:py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                    className={`px-2 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all ${
                                       mat === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
                                   >{btn.label}</button>
@@ -704,7 +706,7 @@ export default function ClassRoster({
                                   <button
                                     key={btn.key}
                                     onClick={() => { touch(student.id); setParticipation(p => ({ ...p, [student.id]: btn.key })) }}
-                                    className={`px-2 py-2.5 sm:py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                    className={`px-2 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all ${
                                       part === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
                                   >{btn.label}</button>
@@ -732,12 +734,12 @@ export default function ClassRoster({
                                 <button
                                   onClick={() => setCaseModal(student)}
                                   title="رفع حالة للموجه الطلابي"
-                                  className="w-9 h-9 flex items-center justify-center rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition-colors text-base"
+                                  className="w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition-colors text-base"
                                 >⚠</button>
                                 <button
                                   onClick={() => setWhatsappModal({ student, type: 'positive' })}
                                   title="رسالة شكر / إيجابية"
-                                  className="w-9 h-9 flex items-center justify-center rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200 transition-colors text-base"
+                                  className="w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200 transition-colors text-base"
                                 >🏅</button>
                               </div>
                             ) : (

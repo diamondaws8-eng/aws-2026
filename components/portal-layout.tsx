@@ -316,7 +316,11 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
       <main className={cn(
         // On a phone the floating menu button sits over the top-right corner —
         // exactly where every page's title begins. Push the content below it.
-        "min-h-screen w-full max-md:pt-14",
+        // min-w-0: this is a flex item, and without it a wide table inside
+        // (the class register) stopped it shrinking to the space left beside
+        // the sidebar — every desktop page then overflowed 256px to the left,
+        // grew a horizontal scrollbar, and cut off the bell in the header.
+        "min-h-screen w-full min-w-0 max-md:pt-14",
         isOpen !== null && "transition-all duration-300",
         isOpen === null ? "md:mr-64" : isOpen ? "md:mr-64 mr-0" : "mr-0"
       )}>

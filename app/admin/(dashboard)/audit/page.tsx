@@ -65,6 +65,19 @@ const DETAIL_LABELS: Record<string, string> = {
   parentPhone: 'جوال ولي الأمر',
   studentPointsSkipped: 'نقاط قديمة متجاهَلة',
   pointsRecomputed: 'صفوف أُعيد حسابها',
+  // Seen raw in the live log ("removedParentAccount: نعم") — every key the
+  // actions write has to have a name here, or the table speaks English.
+  removedParentAccount: 'حُذف حساب ولي الأمر معه',
+  casesReturned: 'حالات أُعيدت للموجه',
+  count: 'العدد',
+  classId: 'معرّف الفصل',
+  subjectId: 'معرّف المادة',
+  closedYear: 'العام المُقفل',
+  range: 'المدة',
+  moved: 'انتقلوا',
+  graduated: 'تخرّجوا',
+  heldBack: 'استُثنوا',
+  untouched: 'بقوا مكانهم',
 }
 
 function readDetails(raw: string | null): string {
