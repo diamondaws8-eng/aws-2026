@@ -9,6 +9,8 @@ export type AuditAction =
   | 'student.delete'
   | 'student.transfer'
   | 'students.annualPromotion'
+  | 'year.open'
+  | 'year.close'
   | 'student.parentPasswordReset'
   | 'class.delete'
   | 'gradeLevel.delete'
@@ -41,6 +43,8 @@ export const AUDIT_LABELS: Record<AuditAction, string> = {
   'student.delete': 'حذف طالب',
   'student.transfer': 'ترحيل طلاب بين الفصول',
   'students.annualPromotion': 'ترحيل سنوي وتخريج',
+  'year.open': 'فتح عام دراسي',
+  'year.close': 'إقفال عام دراسي',
   'student.parentPasswordReset': 'إعادة تعيين كلمة مرور ولي أمر',
   'class.delete': 'حذف فصل',
   'gradeLevel.delete': 'حذف مرحلة دراسية',

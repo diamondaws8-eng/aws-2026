@@ -585,6 +585,45 @@ export const parentActivationLog = pgTable('parent_activation_log', {
   index('parent_activation_parent_idx').on(t.parentUserId),
 ])
 
+// ─── School years (الأعوام الدراسية) ─────────────────────────────────────────
+/**
+ * One row per academic year the school has lived through.
+ *
+ * This is what makes an archive possible without moving a single record. Every
+ * register entry, mark, behaviour case and message already carries its own
+ * date; what was missing was a statement of which dates belonged to which year.
+ * With that written down, "show me 1448" is a date range — and last year's
+ * numbers are read, not relocated.
+ *
+ * Moving the rows into parallel archive tables was the obvious alternative and
+ * the wrong one: inside the same database it frees no space at all, it doubles
+ * every table, and it forces every question a parent asks about their child's
+ * past to be asked twice, in two places, forever.
+ */
+export const schoolYears = pgTable('school_years', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  schoolId: uuid('school_id').notNull(),
+  /** As the school writes it — '1448'. */
+  label: text('label').notNull(),
+  startDate: text('start_date').notNull(),   // YYYY-MM-DD
+  /** Null while the year is still running. */
+  endDate: text('end_date'),
+  closedAt: timestamp('closed_at', { withTimezone: true }),
+  closedByUserId: text('closed_by_user_id'),
+  closedByName: text('closed_by_name'),
+  /**
+   * What the year held on the day it was closed, counted once and kept.
+   *
+   * Records can still be deleted afterwards — a pupil removed, a class tidied
+   * up — and then a recount would quietly disagree with the report the school
+   * already filed. The figure taken at closing is the one that was true then.
+   */
+  summary: text('summary'), // JSON
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('school_years_school_idx').on(t.schoolId, t.startDate),
+])
+
 // ─── School holidays (إجازات المدرسة) ────────────────────────────────────────
 /**
  * Days the school is closed, beyond the weekly rest.

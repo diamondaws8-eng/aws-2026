@@ -30,6 +30,7 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
     { href: '/admin/notifications', label: 'إرسال تنبيه', icon: 'Bell' },
     { href: '/admin/parent-activation', label: 'تفعيل أولياء الأمور', icon: 'CheckSquare' },
     { href: '/admin/my-notifications', label: 'إشعاراتي', icon: 'Bell' },
+    { href: '/admin/archive', label: 'أرشيف الأعوام', icon: 'ScrollText' },
     ...(access.canManageStaff
       ? [
           { href: '/admin/staff', label: 'فريق الإدارة', icon: 'ClipboardList' as const },
