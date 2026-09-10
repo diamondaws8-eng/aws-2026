@@ -86,7 +86,6 @@ export async function saveDailyRecords(
     .where(and(eq(dailyRecords.classId, classId), eq(dailyRecords.date, date)))
   const previous = new Map(existing.map((r) => [r.studentId, r]))
 
-  const blockedIds: string[] = []
   // Families are told about an absence once — by whoever first writes it. See
   // the notify block after the register is saved.
   const newlyAbsentIds: string[] = []
@@ -109,7 +108,6 @@ export async function saveDailyRecords(
       // A student who left the school is gone for every later period too, so the
       // record stands exactly as it was written — no other teacher may mark them
       // present, late, or change the excuse. Only its author can.
-      if (attendanceStatus !== prev!.attendanceStatus) blockedIds.push(rec.studentId)
       attendanceStatus = prev!.attendanceStatus as typeof attendanceStatus
       absenceMarkedBy = prev!.absenceMarkedBy
       absenceMarkedAt = prev!.absenceMarkedAt
@@ -135,9 +133,20 @@ export async function saveDailyRecords(
     }
   })
 
-  // One statement for the whole class: the unique index on
-  // (student, class, date) decides insert vs. update, so two teachers saving at
-  // the same moment can never create a second row for the same day.
+  /**
+   * One statement for the whole class: the unique index on
+   * (student, class, date) decides insert vs. update, so two teachers saving at
+   * the same moment can never create a second row for the same day.
+   *
+   * The condition on the update is what makes the absence lock survive that
+   * same moment. The check above reads the register first and then writes, and
+   * between those two steps a colleague can mark a pupil absent: this save was
+   * built from a register that no longer exists, and an unconditional overwrite
+   * would erase their lock — the one guarantee the whole flow rests on. So the
+   * database itself refuses the write unless the row is unlocked or the lock is
+   * already this teacher's. Milliseconds wide, but a bell rings and nineteen
+   * teachers save at once, every period of every day.
+   */
   await db
     .insert(dailyRecords)
     .values(attendanceRows)
@@ -151,7 +160,28 @@ export async function saveDailyRecords(
         absenceMarkedAt: sql`excluded.absence_marked_at`,
         updatedAt: new Date(),
       },
+      setWhere: sql`${dailyRecords.absenceMarkedBy} IS NULL OR ${dailyRecords.absenceMarkedBy} = excluded.teacher_user_id`,
     })
+
+  /**
+   * What the register actually says now — not what we predicted it would say.
+   *
+   * The blocked list used to be built from the read taken before the write, so
+   * it could only report locks that already existed when this save began. Read
+   * back instead: anything that did not end up as the teacher asked was
+   * refused, whether the lock was there a minute ago or arrived a moment ago.
+   */
+  const after = await db
+    .select({ studentId: dailyRecords.studentId, attendanceStatus: dailyRecords.attendanceStatus })
+    .from(dailyRecords)
+    .where(and(eq(dailyRecords.classId, classId), eq(dailyRecords.date, date)))
+  const stored = new Map(after.map((r) => [r.studentId, r.attendanceStatus]))
+  const blockedIds = records
+    .filter((r) => {
+      const now = stored.get(r.studentId)
+      return !!now && now !== r.attendanceStatus
+    })
+    .map((r) => r.studentId)
 
   // ── 2. This teacher's own assessment, untouched by anyone else ─────────────
   // Which subject the row belongs to, when the admin has assigned one.
