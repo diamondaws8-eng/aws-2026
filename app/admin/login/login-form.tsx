@@ -3,9 +3,8 @@
 import { useState } from 'react'
 import { authClient } from '@/lib/auth-client'
 import { useRouter } from 'next/navigation'
-import { ThemeToggle } from '@/components/theme-toggle'
-import { BackToPortals } from '@/components/back-to-portals'
-import { BrandLogo } from '@/components/brand-logo'
+import { School } from 'lucide-react'
+import { AuthShell } from '@/components/auth-shell'
 
 /**
  * Self-signup is only offered while no school exists yet (first-time setup).
@@ -74,21 +73,17 @@ export default function AdminLoginForm({ allowSignup }: { allowSignup: boolean }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4 dir-rtl relative">
-      <div className="absolute top-6 left-6">
-        <ThemeToggle />
-      </div>
-      <div className="absolute top-6 right-6">
-        <BackToPortals />
-      </div>
-      <div className="w-full max-w-md bg-card p-6 rounded-3xl border border-border shadow-sm">
-        <div className="text-center mb-8">
-          <BrandLogo size={88} />
-          <h1 className="text-xl font-bold mt-4 text-foreground">بوابة الإدارة</h1>
-          <p className="text-muted-foreground mt-2">
-            {allowSignup ? 'قم بتسجيل الدخول أو إنشاء حساب جديد لإدارة النظام' : 'سجّل الدخول بحسابك الإداري'}
-          </p>
-        </div>
+    <AuthShell
+      portal="admin"
+      title="بوابة الإدارة"
+      subtitle={allowSignup ? 'قم بتسجيل الدخول أو إنشاء حساب جديد لإدارة النظام' : 'سجّل الدخول بحسابك الإداري'}
+      icon={School}
+      points={[
+        'المراحل والفصول والطلاب والمعلمون في شاشة واحدة',
+        'لوحة يومية مباشرة: الحضور والواجبات والسلوك لكل فصل',
+        'سجل تدقيق يذكر من فعل ماذا ومتى — لكل قرار',
+      ]}
+    >
 
         {allowSignup && (
         <div className="flex rounded-xl bg-muted p-1 mb-6">
@@ -160,7 +155,6 @@ export default function AdminLoginForm({ allowSignup }: { allowSignup: boolean }
             {loading ? 'الرجاء الانتظار...' : tab === 'signin' ? 'دخول' : 'إنشاء حساب'}
           </button>
         </form>
-      </div>
-    </div>
+    </AuthShell>
   )
 }

@@ -4,9 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { authClient } from '@/lib/auth-client'
-import { ThemeToggle } from '@/components/theme-toggle'
-import { BackToPortals } from '@/components/back-to-portals'
-import { BrandLogo } from '@/components/brand-logo'
+import { GraduationCap } from 'lucide-react'
+import { AuthShell } from '@/components/auth-shell'
 
 export default function TeacherLogin() {
   const [email, setEmail] = useState('')
@@ -40,19 +39,17 @@ export default function TeacherLogin() {
   }
 
   return (
-    <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4 relative">
-      <div className="absolute top-6 left-6">
-        <ThemeToggle />
-      </div>
-      <div className="absolute top-6 right-6">
-        <BackToPortals />
-      </div>
-      <div className="max-w-md w-full bg-card border border-border rounded-2xl p-6 sm:p-8 shadow-sm">
-        <div className="text-center mb-8">
-          <BrandLogo size={88} />
-          <h1 className="text-2xl font-bold text-foreground mt-4 mb-2">بوابة المعلمين</h1>
-          <p className="text-muted-foreground">قم بتسجيل الدخول للوصول إلى فصولك</p>
-        </div>
+    <AuthShell
+      portal="teacher"
+      title="بوابة المعلمين"
+      subtitle="قم بتسجيل الدخول للوصول إلى فصولك"
+      icon={GraduationCap}
+      points={[
+        'سجّل الحضور والسلوك والواجب لفصلك في دقيقة واحدة',
+        'الغياب يصل ولي الأمر من المدرسة أولاً — تلقائياً',
+        'درجاتك ونقاطك تظهر لولي الأمر في اللحظة نفسها',
+      ]}
+    >
 
         {error && (
           <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl text-sm border border-red-100">
@@ -104,7 +101,6 @@ export default function TeacherLogin() {
             &rarr; العودة إلى بوابات المدرسة
           </Link>
         </div>
-      </div>
-    </div>
+    </AuthShell>
   )
 }

@@ -4,9 +4,8 @@ import { useState } from 'react'
 import { authClient } from '@/lib/auth-client'
 import { parentEmailCandidates } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
-import { ThemeToggle } from '@/components/theme-toggle'
-import { BackToPortals } from '@/components/back-to-portals'
-import { BrandLogo } from '@/components/brand-logo'
+import { UsersRound } from 'lucide-react'
+import { AuthShell } from '@/components/auth-shell'
 
 export default function ParentLoginPage() {
   const [phone, setPhone] = useState('')
@@ -48,21 +47,17 @@ export default function ParentLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4 relative">
-      <div className="absolute top-6 left-6">
-        <ThemeToggle />
-      </div>
-      <div className="absolute top-6 right-6">
-        <BackToPortals />
-      </div>
-      <div className="max-w-md w-full bg-card p-8 rounded-3xl shadow-sm border border-border">
-        <div className="text-center mb-8">
-          <BrandLogo size={88} />
-          <h1 className="text-xl font-bold text-foreground mt-4">تسجيل دخول ولي الأمر</h1>
-          <p className="text-muted-foreground text-sm mt-2">
-            أدخل رقم جوالك المسجل في المدرسة
-          </p>
-        </div>
+    <AuthShell
+      portal="parent"
+      title="بوابة ولي الأمر"
+      subtitle="أدخل رقم جوالك المسجل في المدرسة"
+      icon={UsersRound}
+      points={[
+        'حضور ابنك اليوم، وغيابه يصلك فور تسجيله',
+        'درجاته ونقاطه وملاحظات كل معلم في مكان واحد',
+        'تنبيهات المدرسة تصلك هنا لا في مجموعات الواتساب',
+      ]}
+    >
 
         {error && (
           <div className="bg-destructive/10 text-destructive p-3 rounded-xl mb-6 text-sm">
@@ -109,8 +104,6 @@ export default function ParentLoginPage() {
             {loading ? 'جاري تسجيل الدخول...' : 'دخول'}
           </button>
         </form>
-
-      </div>
-    </div>
+    </AuthShell>
   )
 }

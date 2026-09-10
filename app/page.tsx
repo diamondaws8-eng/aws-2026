@@ -1,6 +1,7 @@
 import Link from 'next/link'
-import { ArrowLeft, GraduationCap, School, UsersRound, Sparkles, HeartHandshake } from 'lucide-react'
+import { ArrowLeft, GraduationCap, School, UsersRound, Sparkles, HeartHandshake, ShieldCheck, BellRing, LineChart } from 'lucide-react'
 import { BrandLogo } from '@/components/brand-logo'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 const portals = [
   {
@@ -8,9 +9,8 @@ const portals = [
     title: 'بوابة الإدارة',
     subtitle: 'إدارة المراحل والفصول والطلاب والمعلمين بالكامل',
     icon: School,
-    gradient: 'from-blue-500 to-blue-700',
-    bg: 'bg-blue-50 dark:bg-blue-950/30',
-    border: 'border-blue-100 dark:border-blue-900 hover:border-blue-300',
+    from: '#4f46e5',
+    to: '#7c3aed',
     badge: 'للمديرين',
   },
   {
@@ -18,9 +18,8 @@ const portals = [
     title: 'بوابة المعلم',
     subtitle: 'افتح أي فصل وسجّل الحضور وأدخل الدرجات بسهولة',
     icon: GraduationCap,
-    gradient: 'from-emerald-500 to-emerald-700',
-    bg: 'bg-emerald-50 dark:bg-emerald-950/30',
-    border: 'border-emerald-100 dark:border-emerald-900 hover:border-emerald-300',
+    from: '#059669',
+    to: '#0d9488',
     badge: 'للمعلمين',
   },
   {
@@ -28,9 +27,8 @@ const portals = [
     title: 'بوابة الموجه الطلابي',
     subtitle: 'الحالات السلوكية: تُقرأ هنا قبل أن تصل إلى أي بيت',
     icon: HeartHandshake,
-    gradient: 'from-teal-500 to-teal-700',
-    bg: 'bg-teal-50 dark:bg-teal-950/30',
-    border: 'border-teal-100 dark:border-teal-900 hover:border-teal-300',
+    from: '#0891b2',
+    to: '#0d9488',
     badge: 'للموجهين',
   },
   {
@@ -38,78 +36,98 @@ const portals = [
     title: 'بوابة ولي الأمر',
     subtitle: 'تابع حضور أبنائك ودرجاتهم وتنبيهات المدرسة',
     icon: UsersRound,
-    gradient: 'from-violet-500 to-violet-700',
-    bg: 'bg-violet-50 dark:bg-violet-950/30',
-    border: 'border-violet-100 dark:border-violet-900 hover:border-violet-300',
+    from: '#7c3aed',
+    to: '#db2777',
     badge: 'لأولياء الأمور',
   },
 ]
 
-import { ThemeToggle } from '@/components/theme-toggle'
+const promises = [
+  { icon: BellRing, text: 'الغياب يصل ولي الأمر من المدرسة أولاً' },
+  { icon: ShieldCheck, text: 'لا شيء يصل إلى بيت قبل أن يقرأه موجه' },
+  { icon: LineChart, text: 'نقاط ودرجات وحضور بأرقام لا تتناقض' },
+]
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-background px-5 py-12 lg:px-12 relative">
+    <main data-portal="admin" className="portal-shell relative min-h-screen overflow-hidden px-5 py-12 lg:px-12">
+      {/* Coloured light behind the hero */}
+      <div className="pointer-events-none absolute -top-40 right-1/4 size-[520px] rounded-full bg-indigo-500/15 blur-3xl dark:bg-indigo-400/10" />
+      <div className="pointer-events-none absolute -bottom-48 left-1/4 size-[560px] rounded-full bg-fuchsia-500/10 blur-3xl dark:bg-fuchsia-400/10" />
+
       <div className="absolute top-6 left-6">
         <ThemeToggle />
       </div>
-      <div className="mx-auto flex min-h-[85vh] max-w-5xl flex-col justify-center">
 
+      <div className="relative mx-auto flex min-h-[85vh] max-w-6xl flex-col justify-center">
         {/* Header */}
-        <div className="mb-14">
-          <div className="mb-6 flex items-center gap-4">
-            <BrandLogo size={72} />
+        <div className="mb-12">
+          <div className="mb-8 flex items-center gap-4">
+            <BrandLogo size={72} className="ring-4 ring-white/70 dark:ring-white/10" />
             <div>
-              <p className="text-xl font-bold tracking-tight">مدارس الأوس الأهلية</p>
+              <p className="font-kufi text-2xl font-semibold tracking-tight">مدارس الأوس الأهلية</p>
               <p className="text-sm text-muted-foreground">نظام إدارة المدرسة الموحد</p>
             </div>
           </div>
 
-          <h1 className="text-balance text-4xl font-bold tracking-tight text-foreground lg:text-5xl">
-            اختر بوابتك
+          <h1 className="text-balance text-4xl font-black tracking-tight text-foreground lg:text-6xl">
+            <span className="text-gradient">اختر بوابتك</span>
           </h1>
-          <p className="mt-4 max-w-lg text-pretty text-lg leading-8 text-muted-foreground">
+          <p className="mt-4 max-w-xl text-pretty text-lg leading-8 text-muted-foreground">
             نظام متكامل يربط الإدارة بالمعلمين وأولياء الأمور — كل ما يحدث في الفصل
             يصل فوراً لولي الأمر.
           </p>
+
+          <ul className="mt-6 flex flex-wrap gap-2.5">
+            {promises.map(({ icon: Icon, text }) => (
+              <li key={text} className="inline-flex items-center gap-2 rounded-full border border-border bg-card/80 px-3.5 py-1.5 text-xs font-semibold text-muted-foreground shadow-[var(--shadow-card)] backdrop-blur">
+                <Icon className="size-3.5 text-primary" />
+                {text}
+              </li>
+            ))}
+          </ul>
         </div>
 
-        {/* Portal cards */}
-        {/* Four portals: two by two on a tablet, one row on a laptop. Three
-            columns left the parents' card alone on a second row. */}
+        {/* Portal cards — two by two on a tablet, one row on a laptop */}
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {portals.map(({ href, title, subtitle, icon: Icon, gradient, bg, border, badge }) => (
+          {portals.map(({ href, title, subtitle, icon: Icon, from, to, badge }) => (
             <Link
               key={href}
               href={href}
-              className={`group relative flex flex-col rounded-3xl border ${border} ${bg} p-7 transition-all duration-200 hover:-translate-y-1 hover:shadow-xl`}
+              className="group relative flex flex-col overflow-hidden rounded-3xl border border-border bg-card/85 p-7 shadow-[var(--shadow-card)] backdrop-blur transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[var(--shadow-card-hover)]"
             >
-              {/* Badge */}
-              <span className="mb-5 inline-flex w-fit items-center rounded-full bg-background/80 px-3 py-1 text-xs font-semibold text-muted-foreground shadow-sm backdrop-blur-sm">
+              {/* Colour edge along the top */}
+              <span className="absolute inset-x-0 top-0 h-1.5" style={{ backgroundImage: `linear-gradient(90deg, ${from}, ${to})` }} />
+              {/* Glow that grows on hover */}
+              <span
+                className="pointer-events-none absolute -top-16 -left-16 size-44 rounded-full opacity-25 blur-3xl transition-opacity duration-300 group-hover:opacity-50"
+                style={{ backgroundColor: from }}
+              />
+
+              <span className="relative mb-5 inline-flex w-fit items-center rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">
                 {badge}
               </span>
 
-              {/* Icon */}
-              <div className={`mb-8 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br ${gradient} text-white shadow-md`}>
+              <div
+                className="relative mb-8 flex size-14 items-center justify-center rounded-2xl text-white shadow-lg transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3"
+                style={{ backgroundImage: `linear-gradient(135deg, ${from}, ${to})`, boxShadow: `0 14px 28px -12px ${from}` }}
+              >
                 <Icon className="size-7" />
               </div>
 
-              {/* Text */}
-              <h2 className="text-xl font-bold text-foreground">{title}</h2>
-              <p className="mt-2 flex-1 text-sm leading-6 text-muted-foreground">{subtitle}</p>
+              <h2 className="relative text-xl font-extrabold text-foreground">{title}</h2>
+              <p className="relative mt-2 flex-1 text-sm leading-6 text-muted-foreground">{subtitle}</p>
 
-              {/* CTA */}
-              <span className="mt-6 flex items-center gap-2 text-sm font-bold text-primary">
+              <span className="relative mt-6 flex items-center gap-2 text-sm font-bold" style={{ color: from }}>
                 الدخول إلى البوابة
-                <ArrowLeft className="size-4 transition-transform group-hover:-translate-x-1" />
+                <ArrowLeft className="size-4 transition-transform group-hover:-translate-x-1.5" />
               </span>
             </Link>
           ))}
         </div>
 
-        {/* Footer note */}
-        <p className="mt-10 text-center text-xs text-muted-foreground">
-          <Sparkles className="mb-0.5 ml-1 inline size-3" />
+        <p className="mt-12 text-center text-xs text-muted-foreground">
+          <Sparkles className="mb-0.5 ml-1 inline size-3 text-primary" />
           مدارس الأوس الأهلية — نظام مدرسي عربي متكامل لإدارة الطلاب والمعلمين وأولياء الأمور
         </p>
       </div>

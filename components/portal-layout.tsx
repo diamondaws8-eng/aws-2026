@@ -164,7 +164,7 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
   const logoutConfirmed = logoutPhrase.trim().toLowerCase() === 'aws'
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div data-portal={role} className="portal-shell flex min-h-screen">
       {/* Mobile Overlay */}
       {isOpen && isMobile && (
         <div 
@@ -180,7 +180,7 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
           onClick={() => setIsOpen(true)}
           aria-label="فتح القائمة"
           className={cn(
-            "fixed top-4 right-4 z-30 p-2.5 bg-card border border-border shadow-md rounded-xl text-foreground hover:bg-muted transition-colors",
+            "fixed top-4 right-4 z-30 p-2.5 bg-card/90 backdrop-blur border border-border shadow-[var(--shadow-card)] rounded-xl text-foreground hover:bg-muted transition-colors",
             isOpen === null && "md:hidden",
           )}
         >
@@ -190,30 +190,38 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
 
       {/* ── Sidebar ──────────────────────────────────────────────────────── */}
       <aside className={cn(
-        "fixed right-0 top-0 z-40 flex h-full w-64 flex-col border-l border-border bg-card shadow-lg",
+        "fixed right-0 top-0 z-40 flex h-full w-64 flex-col border-l border-border bg-sidebar backdrop-blur-xl shadow-[var(--shadow-card)]",
         // No transition on the first paint: the phone must not see it slide.
         isOpen !== null && "transition-transform duration-300",
         isOpen === null ? "translate-x-full md:translate-x-0" : isOpen ? "translate-x-0" : "translate-x-full"
       )}>
-        {/* Logo / Portal name */}
-        <div className="border-b border-border px-5 py-5 relative">
-          <div className="flex items-center justify-between">
-            <BrandLogo size={40} rounded="rounded-xl" href={null} />
-            <div className="flex items-center gap-2">
-              <ThemeToggle />
-              <button 
-                onClick={() => setIsOpen(false)}
-                className="p-1.5 hover:bg-muted text-muted-foreground rounded-lg transition-colors"
-              >
-                <PanelRightClose className="size-5" />
-              </button>
+        {/* Brand block: the school in the portal's own colours */}
+        <div className="px-3 pt-3">
+          <div
+            className="relative overflow-hidden rounded-2xl p-4 text-white shadow-[0_14px_28px_-14px_var(--glow)]"
+            style={{ backgroundImage: 'linear-gradient(135deg, var(--portal-a), var(--portal-b))' }}
+          >
+            <div className="pointer-events-none absolute -top-10 -left-10 size-32 rounded-full bg-white/15 blur-2xl" />
+            <div className="pointer-events-none absolute inset-0 opacity-[0.14] [background-image:radial-gradient(white_1px,transparent_1px)] [background-size:18px_18px]" />
+            <div className="relative flex items-center justify-between">
+              <BrandLogo size={40} rounded="rounded-xl" href={null} className="ring-2 ring-white/40" />
+              <div className="flex items-center gap-1">
+                <ThemeToggle />
+                <button
+                  onClick={() => setIsOpen(false)}
+                  aria-label="إغلاق القائمة"
+                  className="p-1.5 rounded-lg text-white/80 hover:bg-white/15 hover:text-white transition-colors"
+                >
+                  <PanelRightClose className="size-5" />
+                </button>
+              </div>
             </div>
+            {/* The school's name, shown once, on its own line as the brand mark */}
+            <p className="font-kufi relative mt-3 text-lg leading-snug font-semibold">
+              {schoolName ?? 'مدارس الأوس الأهلية'}
+            </p>
+            <p className="relative mt-0.5 text-[11px] font-medium text-white/80">{nav.label}</p>
           </div>
-
-          {/* The school's name, shown once, on its own line as the brand mark */}
-          <p className="font-kufi mt-3 text-lg leading-snug font-semibold text-foreground">
-            {schoolName ?? 'مدارس الأوس الأهلية'}
-          </p>
         </div>
 
         {/* Nav links */}
@@ -229,13 +237,18 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
                   <Link
                     href={link.href}
                     className={cn(
-                      'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                      'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all',
                       isActive
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                        ? 'bg-primary text-primary-foreground shadow-[0_10px_22px_-10px_var(--glow)]'
+                        : 'text-muted-foreground hover:bg-primary/8 hover:text-foreground hover:translate-x-[-2px]',
                     )}
                   >
-                    <Icon className="size-4 shrink-0" />
+                    <span className={cn(
+                      'flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors',
+                      isActive ? 'bg-white/20' : 'bg-muted/70 group-hover:bg-primary/12 group-hover:text-primary',
+                    )}>
+                      <Icon className="size-4" />
+                    </span>
                     {link.label}
                   </Link>
                 </li>
@@ -247,8 +260,11 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
         {/* User info + logout */}
         <div className="border-t border-border px-4 py-4">
           <div className="mb-3 flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-full bg-muted text-sm font-bold text-foreground">
-              {user.name.slice(0, 1)}
+            <div
+              className="flex size-10 shrink-0 items-center justify-center rounded-xl text-sm font-black text-white shadow-[0_8px_16px_-8px_var(--glow)]"
+              style={{ backgroundImage: 'linear-gradient(135deg, var(--portal-a), var(--portal-b))' }}
+            >
+              {user.name.replace(/^[أا]\s*[\\/]\s*|^د\s*[\\/]\s*/, '').trim().slice(0, 1) || user.name.slice(0, 1)}
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{user.name}</p>

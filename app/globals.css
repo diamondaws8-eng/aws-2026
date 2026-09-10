@@ -26,6 +26,7 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -49,119 +50,446 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+   Design tokens
+   One calm, cool base for the whole system; each portal then sets its own
+   accent (`--primary`) and a two-stop gradient (`--portal-a` / `--portal-b`)
+   so a teacher, a parent and the office each recognise their place at a
+   glance, while every control keeps the same shape.
+   ────────────────────────────────────────────────────────────────────────── */
 :root {
   color-scheme: light;
-  --background: oklch(0.985 0.008 220);
-  --foreground: oklch(0.22 0.03 230);
+  --background: oklch(0.975 0.009 245);
+  --foreground: oklch(0.21 0.03 255);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.21 0.03 255);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.21 0.03 255);
+  --primary: oklch(0.5 0.2 268);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.955 0.012 250);
+  --secondary-foreground: oklch(0.26 0.03 255);
+  --muted: oklch(0.955 0.012 250);
+  --muted-foreground: oklch(0.5 0.03 255);
+  --accent: oklch(0.94 0.03 265);
+  --accent-foreground: oklch(0.26 0.03 255);
+  --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.905 0.014 250);
+  --input: oklch(0.905 0.014 250);
+  --ring: var(--primary);
+  --chart-1: oklch(0.6 0.2 268);
+  --chart-2: oklch(0.65 0.16 160);
+  --chart-3: oklch(0.75 0.16 75);
+  --chart-4: oklch(0.6 0.2 300);
+  --chart-5: oklch(0.6 0.2 25);
+  --radius: 0.75rem;
+  --sidebar: oklch(1 0 0 / 82%);
+  --sidebar-foreground: oklch(0.21 0.03 255);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.955 0.012 250);
+  --sidebar-accent-foreground: oklch(0.26 0.03 255);
+  --sidebar-border: oklch(0.905 0.014 250);
+  --sidebar-ring: var(--primary);
+
+  /* Portal gradient stops (defaults = admin) */
+  --portal-a: #4f46e5;
+  --portal-b: #7c3aed;
+  --glow: color-mix(in oklch, var(--primary) 38%, transparent);
+  --shadow-card: 0 1px 2px oklch(0.21 0.03 255 / 0.04), 0 12px 32px -18px oklch(0.21 0.03 255 / 0.18);
+  --shadow-card-hover: 0 2px 4px oklch(0.21 0.03 255 / 0.05), 0 22px 44px -20px oklch(0.21 0.03 255 / 0.26);
 }
 
 .dark {
   color-scheme: dark;
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
+  --background: oklch(0.16 0.02 262);
+  --foreground: oklch(0.96 0.01 250);
+  --card: oklch(0.215 0.022 262);
+  --card-foreground: oklch(0.96 0.01 250);
+  --popover: oklch(0.215 0.022 262);
+  --popover-foreground: oklch(0.96 0.01 250);
+  --primary: oklch(0.74 0.15 268);
+  --primary-foreground: oklch(0.15 0.03 262);
+  --secondary: oklch(0.27 0.022 262);
+  --secondary-foreground: oklch(0.96 0.01 250);
+  --muted: oklch(0.27 0.022 262);
+  --muted-foreground: oklch(0.72 0.02 250);
+  --accent: oklch(0.3 0.04 268);
+  --accent-foreground: oklch(0.96 0.01 250);
+  --destructive: oklch(0.7 0.19 22);
+  --destructive-foreground: oklch(0.15 0.03 262);
   --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --input: oklch(1 0 0 / 14%);
+  --ring: var(--primary);
+  --chart-1: oklch(0.74 0.15 268);
+  --chart-2: oklch(0.75 0.15 160);
+  --chart-3: oklch(0.8 0.15 75);
+  --chart-4: oklch(0.72 0.17 300);
+  --chart-5: oklch(0.7 0.19 25);
+  --sidebar: oklch(0.2 0.022 262 / 85%);
+  --sidebar-foreground: oklch(0.96 0.01 250);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: oklch(0.15 0.03 262);
+  --sidebar-accent: oklch(0.27 0.022 262);
+  --sidebar-accent-foreground: oklch(0.96 0.01 250);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar-ring: var(--primary);
+  --portal-a: #6366f1;
+  --portal-b: #8b5cf6;
+  --shadow-card: 0 1px 2px oklch(0 0 0 / 0.3), 0 14px 36px -18px oklch(0 0 0 / 0.6);
+  --shadow-card-hover: 0 2px 4px oklch(0 0 0 / 0.35), 0 24px 48px -20px oklch(0 0 0 / 0.7);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     color-scheme: dark;
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
+    --background: oklch(0.16 0.02 262);
+    --foreground: oklch(0.96 0.01 250);
+    --card: oklch(0.215 0.022 262);
+    --card-foreground: oklch(0.96 0.01 250);
+    --popover: oklch(0.215 0.022 262);
+    --popover-foreground: oklch(0.96 0.01 250);
+    --primary: oklch(0.74 0.15 268);
+    --primary-foreground: oklch(0.15 0.03 262);
+    --secondary: oklch(0.27 0.022 262);
+    --secondary-foreground: oklch(0.96 0.01 250);
+    --muted: oklch(0.27 0.022 262);
+    --muted-foreground: oklch(0.72 0.02 250);
+    --accent: oklch(0.3 0.04 268);
+    --accent-foreground: oklch(0.96 0.01 250);
+    --destructive: oklch(0.7 0.19 22);
+    --destructive-foreground: oklch(0.15 0.03 262);
     --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --input: oklch(1 0 0 / 14%);
+    --ring: var(--primary);
+    --chart-1: oklch(0.74 0.15 268);
+    --chart-2: oklch(0.75 0.15 160);
+    --chart-3: oklch(0.8 0.15 75);
+    --chart-4: oklch(0.72 0.17 300);
+    --chart-5: oklch(0.7 0.19 25);
+    --sidebar: oklch(0.2 0.022 262 / 85%);
+    --sidebar-foreground: oklch(0.96 0.01 250);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: oklch(0.15 0.03 262);
+    --sidebar-accent: oklch(0.27 0.022 262);
+    --sidebar-accent-foreground: oklch(0.96 0.01 250);
     --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --sidebar-ring: var(--primary);
+    --portal-a: #6366f1;
+    --portal-b: #8b5cf6;
+    --shadow-card: 0 1px 2px oklch(0 0 0 / 0.3), 0 14px 36px -18px oklch(0 0 0 / 0.6);
+    --shadow-card-hover: 0 2px 4px oklch(0 0 0 / 0.35), 0 24px 48px -20px oklch(0 0 0 / 0.7);
   }
+}
+
+/* ── Per-portal accents ───────────────────────────────────────────────────── */
+[data-portal='admin'] {
+  --primary: oklch(0.5 0.2 268);
+  --portal-a: #4f46e5;
+  --portal-b: #7c3aed;
+}
+[data-portal='teacher'] {
+  --primary: oklch(0.52 0.15 160);
+  --portal-a: #059669;
+  --portal-b: #0d9488;
+}
+[data-portal='counselor'] {
+  --primary: oklch(0.52 0.12 205);
+  --portal-a: #0891b2;
+  --portal-b: #0d9488;
+}
+[data-portal='parent'] {
+  --primary: oklch(0.52 0.2 305);
+  --portal-a: #7c3aed;
+  --portal-b: #db2777;
+}
+.dark [data-portal='admin'],
+[data-portal='admin']:is(.dark *) {
+  --primary: oklch(0.74 0.15 268);
+  --portal-a: #6366f1;
+  --portal-b: #a78bfa;
+}
+.dark [data-portal='teacher'],
+[data-portal='teacher']:is(.dark *) {
+  --primary: oklch(0.76 0.14 160);
+  --portal-a: #10b981;
+  --portal-b: #2dd4bf;
+}
+.dark [data-portal='counselor'],
+[data-portal='counselor']:is(.dark *) {
+  --primary: oklch(0.76 0.12 205);
+  --portal-a: #22d3ee;
+  --portal-b: #2dd4bf;
+}
+.dark [data-portal='parent'],
+[data-portal='parent']:is(.dark *) {
+  --primary: oklch(0.76 0.16 305);
+  --portal-a: #a78bfa;
+  --portal-b: #f472b6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) [data-portal='admin'] { --primary: oklch(0.74 0.15 268); --portal-a: #6366f1; --portal-b: #a78bfa; }
+  :root:not(.light) [data-portal='teacher'] { --primary: oklch(0.76 0.14 160); --portal-a: #10b981; --portal-b: #2dd4bf; }
+  :root:not(.light) [data-portal='counselor'] { --primary: oklch(0.76 0.12 205); --portal-a: #22d3ee; --portal-b: #2dd4bf; }
+  :root:not(.light) [data-portal='parent'] { --primary: oklch(0.76 0.16 305); --portal-a: #a78bfa; --portal-b: #f472b6; }
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    scroll-behavior: smooth;
+  }
   body {
     @apply bg-background text-foreground;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 22%, transparent);
+  }
+  /* A quieter scrollbar that follows the theme */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--foreground) 18%, transparent) transparent;
+  }
+  input,
+  select,
+  textarea {
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  }
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    border-color: color-mix(in oklch, var(--primary) 55%, var(--border));
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 18%, transparent);
+  }
+  button {
+    transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Portal chrome
+   Everything below is scoped to a portal shell and written with :where() so
+   it never outranks a utility class on the element itself — a page can
+   still say `shadow-none` or `bg-red-50` and win.
+   ────────────────────────────────────────────────────────────────────────── */
+@layer components {
+  /* Soft coloured light behind the page, in the portal's own hue */
+  .portal-shell {
+    background-color: var(--background);
+    background-image:
+      radial-gradient(1100px 520px at 100% -8%, color-mix(in oklch, var(--portal-a) 13%, transparent), transparent 62%),
+      radial-gradient(900px 480px at -10% 108%, color-mix(in oklch, var(--portal-b) 10%, transparent), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  /* Page titles carry the portal colour */
+  .portal-shell :where(main h1) {
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    background-image: linear-gradient(90deg, var(--foreground) 0%, color-mix(in oklch, var(--primary) 75%, var(--foreground)) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Cards: a real shadow instead of a hairline, and a lift on hover where
+     the card is a link or a button */
+  .portal-shell :where(.bg-card.border, .bg-card.border-border) {
+    box-shadow: var(--shadow-card);
+  }
+  .portal-shell :where(a.bg-card.border, button.bg-card.border, a.bg-card.border-border, button.bg-card.border-border) {
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+  .portal-shell :where(a.bg-card.border:hover, button.bg-card.border:hover, a.bg-card.border-border:hover, button.bg-card.border-border:hover) {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-card-hover);
+    border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
+  }
+
+  /* Primary actions: the portal gradient with a coloured glow */
+  .portal-shell :where(button.bg-primary, a.bg-primary, [type='submit'].bg-primary) {
+    background-image: linear-gradient(135deg, var(--portal-a), var(--portal-b));
+    box-shadow: 0 8px 18px -8px var(--glow);
+  }
+  .portal-shell :where(button.bg-primary:not(:disabled):hover, a.bg-primary:hover) {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 24px -8px var(--glow);
+    filter: brightness(1.04);
+  }
+  .portal-shell :where(button.bg-primary:not(:disabled):active) {
+    transform: translateY(0) scale(0.985);
+  }
+
+  /* Tables */
+  .portal-shell :where(table thead th) {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--muted-foreground);
+    background: color-mix(in oklch, var(--primary) 5%, var(--card));
+  }
+  .portal-shell :where(table tbody tr) {
+    transition: background-color 0.12s ease;
+  }
+  .portal-shell :where(table tbody tr:hover) {
+    background: color-mix(in oklch, var(--primary) 4%, transparent);
+  }
+
+  /* Modals: blur the page behind and let the panel pop in */
+  .portal-shell :where(.fixed.inset-0.z-50) {
+    backdrop-filter: blur(6px);
+    animation: portal-fade 0.16s ease-out both;
+  }
+  .portal-shell :where(.fixed.inset-0.z-50 > div) {
+    animation: portal-pop 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  /* Page content settles in */
+  .portal-shell :where(main > *) {
+    animation: portal-rise 0.32s ease-out both;
+  }
+
+  /* Empty states and dashed drop zones */
+  .portal-shell :where(.border-dashed) {
+    background-image: radial-gradient(color-mix(in oklch, var(--primary) 14%, transparent) 1px, transparent 1px);
+    background-size: 14px 14px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .portal-shell :where(main > *),
+    .portal-shell :where(.fixed.inset-0.z-50),
+    .portal-shell :where(.fixed.inset-0.z-50 > div) {
+      animation: none;
+    }
+  }
+}
+
+@keyframes portal-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes portal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes portal-pop {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Gradient text helper for hero headings outside the portals */
+.text-gradient {
+  background-image: linear-gradient(90deg, var(--portal-a), var(--portal-b));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Dark mode for the light tints
+   Hundreds of badges, notices and rows are written as bg-*-50 / text-*-700 /
+   border-*-200 — right on a white card, a glaring block on a dark one. Rather
+   than touching each, the same utilities are re-read here in the dark: a
+   translucent tint of the hue, lighter text, a softer border. A page that
+   sets its own dark: variant keeps the same treatment.
+   ────────────────────────────────────────────────────────────────────────── */
+.dark .bg-red-50, .dark .bg-red-100 { background-color: color-mix(in oklch, oklch(0.637 0.237 25.331) 16%, transparent); }
+.dark .bg-red-200 { background-color: color-mix(in oklch, oklch(0.637 0.237 25.331) 26%, transparent); }
+.dark .text-red-600, .dark .text-red-700 { color: oklch(0.84 0.130 25.331); }
+.dark .text-red-800, .dark .text-red-900 { color: oklch(0.9 0.100 25.331); }
+.dark .border-red-100, .dark .border-red-200, .dark .border-red-300 { border-color: color-mix(in oklch, oklch(0.637 0.237 25.331) 38%, transparent); }
+.dark .bg-orange-50, .dark .bg-orange-100 { background-color: color-mix(in oklch, oklch(0.705 0.213 47.604) 16%, transparent); }
+.dark .bg-orange-200 { background-color: color-mix(in oklch, oklch(0.705 0.213 47.604) 26%, transparent); }
+.dark .text-orange-600, .dark .text-orange-700 { color: oklch(0.84 0.130 47.604); }
+.dark .text-orange-800, .dark .text-orange-900 { color: oklch(0.9 0.100 47.604); }
+.dark .border-orange-100, .dark .border-orange-200, .dark .border-orange-300 { border-color: color-mix(in oklch, oklch(0.705 0.213 47.604) 38%, transparent); }
+.dark .bg-amber-50, .dark .bg-amber-100 { background-color: color-mix(in oklch, oklch(0.769 0.188 70.08) 16%, transparent); }
+.dark .bg-amber-200 { background-color: color-mix(in oklch, oklch(0.769 0.188 70.08) 26%, transparent); }
+.dark .text-amber-600, .dark .text-amber-700 { color: oklch(0.84 0.130 70.08); }
+.dark .text-amber-800, .dark .text-amber-900 { color: oklch(0.9 0.100 70.08); }
+.dark .border-amber-100, .dark .border-amber-200, .dark .border-amber-300 { border-color: color-mix(in oklch, oklch(0.769 0.188 70.08) 38%, transparent); }
+.dark .bg-yellow-50, .dark .bg-yellow-100 { background-color: color-mix(in oklch, oklch(0.795 0.184 86.047) 16%, transparent); }
+.dark .bg-yellow-200 { background-color: color-mix(in oklch, oklch(0.795 0.184 86.047) 26%, transparent); }
+.dark .text-yellow-600, .dark .text-yellow-700 { color: oklch(0.84 0.130 86.047); }
+.dark .text-yellow-800, .dark .text-yellow-900 { color: oklch(0.9 0.100 86.047); }
+.dark .border-yellow-100, .dark .border-yellow-200, .dark .border-yellow-300 { border-color: color-mix(in oklch, oklch(0.795 0.184 86.047) 38%, transparent); }
+.dark .bg-lime-50, .dark .bg-lime-100 { background-color: color-mix(in oklch, oklch(0.768 0.233 130.85) 16%, transparent); }
+.dark .bg-lime-200 { background-color: color-mix(in oklch, oklch(0.768 0.233 130.85) 26%, transparent); }
+.dark .text-lime-600, .dark .text-lime-700 { color: oklch(0.84 0.130 130.85); }
+.dark .text-lime-800, .dark .text-lime-900 { color: oklch(0.9 0.100 130.85); }
+.dark .border-lime-100, .dark .border-lime-200, .dark .border-lime-300 { border-color: color-mix(in oklch, oklch(0.768 0.233 130.85) 38%, transparent); }
+.dark .bg-green-50, .dark .bg-green-100 { background-color: color-mix(in oklch, oklch(0.723 0.219 149.579) 16%, transparent); }
+.dark .bg-green-200 { background-color: color-mix(in oklch, oklch(0.723 0.219 149.579) 26%, transparent); }
+.dark .text-green-600, .dark .text-green-700 { color: oklch(0.84 0.130 149.579); }
+.dark .text-green-800, .dark .text-green-900 { color: oklch(0.9 0.100 149.579); }
+.dark .border-green-100, .dark .border-green-200, .dark .border-green-300 { border-color: color-mix(in oklch, oklch(0.723 0.219 149.579) 38%, transparent); }
+.dark .bg-emerald-50, .dark .bg-emerald-100 { background-color: color-mix(in oklch, oklch(0.696 0.17 162.48) 16%, transparent); }
+.dark .bg-emerald-200 { background-color: color-mix(in oklch, oklch(0.696 0.17 162.48) 26%, transparent); }
+.dark .text-emerald-600, .dark .text-emerald-700 { color: oklch(0.84 0.130 162.48); }
+.dark .text-emerald-800, .dark .text-emerald-900 { color: oklch(0.9 0.100 162.48); }
+.dark .border-emerald-100, .dark .border-emerald-200, .dark .border-emerald-300 { border-color: color-mix(in oklch, oklch(0.696 0.17 162.48) 38%, transparent); }
+.dark .bg-teal-50, .dark .bg-teal-100 { background-color: color-mix(in oklch, oklch(0.704 0.14 182.503) 16%, transparent); }
+.dark .bg-teal-200 { background-color: color-mix(in oklch, oklch(0.704 0.14 182.503) 26%, transparent); }
+.dark .text-teal-600, .dark .text-teal-700 { color: oklch(0.84 0.130 182.503); }
+.dark .text-teal-800, .dark .text-teal-900 { color: oklch(0.9 0.100 182.503); }
+.dark .border-teal-100, .dark .border-teal-200, .dark .border-teal-300 { border-color: color-mix(in oklch, oklch(0.704 0.14 182.503) 38%, transparent); }
+.dark .bg-cyan-50, .dark .bg-cyan-100 { background-color: color-mix(in oklch, oklch(0.715 0.143 215.221) 16%, transparent); }
+.dark .bg-cyan-200 { background-color: color-mix(in oklch, oklch(0.715 0.143 215.221) 26%, transparent); }
+.dark .text-cyan-600, .dark .text-cyan-700 { color: oklch(0.84 0.130 215.221); }
+.dark .text-cyan-800, .dark .text-cyan-900 { color: oklch(0.9 0.100 215.221); }
+.dark .border-cyan-100, .dark .border-cyan-200, .dark .border-cyan-300 { border-color: color-mix(in oklch, oklch(0.715 0.143 215.221) 38%, transparent); }
+.dark .bg-sky-50, .dark .bg-sky-100 { background-color: color-mix(in oklch, oklch(0.685 0.169 237.323) 16%, transparent); }
+.dark .bg-sky-200 { background-color: color-mix(in oklch, oklch(0.685 0.169 237.323) 26%, transparent); }
+.dark .text-sky-600, .dark .text-sky-700 { color: oklch(0.84 0.130 237.323); }
+.dark .text-sky-800, .dark .text-sky-900 { color: oklch(0.9 0.100 237.323); }
+.dark .border-sky-100, .dark .border-sky-200, .dark .border-sky-300 { border-color: color-mix(in oklch, oklch(0.685 0.169 237.323) 38%, transparent); }
+.dark .bg-blue-50, .dark .bg-blue-100 { background-color: color-mix(in oklch, oklch(0.623 0.214 259.815) 16%, transparent); }
+.dark .bg-blue-200 { background-color: color-mix(in oklch, oklch(0.623 0.214 259.815) 26%, transparent); }
+.dark .text-blue-600, .dark .text-blue-700 { color: oklch(0.84 0.130 259.815); }
+.dark .text-blue-800, .dark .text-blue-900 { color: oklch(0.9 0.100 259.815); }
+.dark .border-blue-100, .dark .border-blue-200, .dark .border-blue-300 { border-color: color-mix(in oklch, oklch(0.623 0.214 259.815) 38%, transparent); }
+.dark .bg-indigo-50, .dark .bg-indigo-100 { background-color: color-mix(in oklch, oklch(0.585 0.233 277.117) 16%, transparent); }
+.dark .bg-indigo-200 { background-color: color-mix(in oklch, oklch(0.585 0.233 277.117) 26%, transparent); }
+.dark .text-indigo-600, .dark .text-indigo-700 { color: oklch(0.84 0.130 277.117); }
+.dark .text-indigo-800, .dark .text-indigo-900 { color: oklch(0.9 0.100 277.117); }
+.dark .border-indigo-100, .dark .border-indigo-200, .dark .border-indigo-300 { border-color: color-mix(in oklch, oklch(0.585 0.233 277.117) 38%, transparent); }
+.dark .bg-violet-50, .dark .bg-violet-100 { background-color: color-mix(in oklch, oklch(0.606 0.25 292.717) 16%, transparent); }
+.dark .bg-violet-200 { background-color: color-mix(in oklch, oklch(0.606 0.25 292.717) 26%, transparent); }
+.dark .text-violet-600, .dark .text-violet-700 { color: oklch(0.84 0.130 292.717); }
+.dark .text-violet-800, .dark .text-violet-900 { color: oklch(0.9 0.100 292.717); }
+.dark .border-violet-100, .dark .border-violet-200, .dark .border-violet-300 { border-color: color-mix(in oklch, oklch(0.606 0.25 292.717) 38%, transparent); }
+.dark .bg-purple-50, .dark .bg-purple-100 { background-color: color-mix(in oklch, oklch(0.627 0.265 303.9) 16%, transparent); }
+.dark .bg-purple-200 { background-color: color-mix(in oklch, oklch(0.627 0.265 303.9) 26%, transparent); }
+.dark .text-purple-600, .dark .text-purple-700 { color: oklch(0.84 0.130 303.9); }
+.dark .text-purple-800, .dark .text-purple-900 { color: oklch(0.9 0.100 303.9); }
+.dark .border-purple-100, .dark .border-purple-200, .dark .border-purple-300 { border-color: color-mix(in oklch, oklch(0.627 0.265 303.9) 38%, transparent); }
+.dark .bg-fuchsia-50, .dark .bg-fuchsia-100 { background-color: color-mix(in oklch, oklch(0.667 0.295 322.15) 16%, transparent); }
+.dark .bg-fuchsia-200 { background-color: color-mix(in oklch, oklch(0.667 0.295 322.15) 26%, transparent); }
+.dark .text-fuchsia-600, .dark .text-fuchsia-700 { color: oklch(0.84 0.130 322.15); }
+.dark .text-fuchsia-800, .dark .text-fuchsia-900 { color: oklch(0.9 0.100 322.15); }
+.dark .border-fuchsia-100, .dark .border-fuchsia-200, .dark .border-fuchsia-300 { border-color: color-mix(in oklch, oklch(0.667 0.295 322.15) 38%, transparent); }
+.dark .bg-pink-50, .dark .bg-pink-100 { background-color: color-mix(in oklch, oklch(0.656 0.241 354.308) 16%, transparent); }
+.dark .bg-pink-200 { background-color: color-mix(in oklch, oklch(0.656 0.241 354.308) 26%, transparent); }
+.dark .text-pink-600, .dark .text-pink-700 { color: oklch(0.84 0.130 354.308); }
+.dark .text-pink-800, .dark .text-pink-900 { color: oklch(0.9 0.100 354.308); }
+.dark .border-pink-100, .dark .border-pink-200, .dark .border-pink-300 { border-color: color-mix(in oklch, oklch(0.656 0.241 354.308) 38%, transparent); }
+.dark .bg-rose-50, .dark .bg-rose-100 { background-color: color-mix(in oklch, oklch(0.645 0.246 16.439) 16%, transparent); }
+.dark .bg-rose-200 { background-color: color-mix(in oklch, oklch(0.645 0.246 16.439) 26%, transparent); }
+.dark .text-rose-600, .dark .text-rose-700 { color: oklch(0.84 0.130 16.439); }
+.dark .text-rose-800, .dark .text-rose-900 { color: oklch(0.9 0.100 16.439); }
+.dark .border-rose-100, .dark .border-rose-200, .dark .border-rose-300 { border-color: color-mix(in oklch, oklch(0.645 0.246 16.439) 38%, transparent); }
+.dark .bg-slate-50, .dark .bg-slate-100 { background-color: color-mix(in oklch, oklch(0.554 0.046 257.417) 16%, transparent); }
+.dark .bg-slate-200 { background-color: color-mix(in oklch, oklch(0.554 0.046 257.417) 26%, transparent); }
+.dark .text-slate-600, .dark .text-slate-700 { color: oklch(0.84 0.046 257.417); }
+.dark .text-slate-800, .dark .text-slate-900 { color: oklch(0.9 0.046 257.417); }
+.dark .border-slate-100, .dark .border-slate-200, .dark .border-slate-300 { border-color: color-mix(in oklch, oklch(0.554 0.046 257.417) 38%, transparent); }
+.dark .bg-gray-50, .dark .bg-gray-100 { background-color: color-mix(in oklch, oklch(0.551 0.027 264.364) 16%, transparent); }
+.dark .bg-gray-200 { background-color: color-mix(in oklch, oklch(0.551 0.027 264.364) 26%, transparent); }
+.dark .text-gray-600, .dark .text-gray-700 { color: oklch(0.84 0.027 264.364); }
+.dark .text-gray-800, .dark .text-gray-900 { color: oklch(0.9 0.027 264.364); }
+.dark .border-gray-100, .dark .border-gray-200, .dark .border-gray-300 { border-color: color-mix(in oklch, oklch(0.551 0.027 264.364) 38%, transparent); }
