@@ -592,7 +592,7 @@ export default function ClassRoster({
                                     {/* Pressing the group the student is already in keeps the detail. */}
                                     <button
                                       onClick={() => { touch(student.id); setAttendance(a => ({ ...a, [student.id]: isInSchool(att) ? att : 'present' })) }}
-                                      className={`px-4 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                      className={`px-4 py-2.5 sm:py-1 rounded-lg text-xs font-semibold border transition-all ${
                                         isInSchool(att)
                                           ? 'bg-emerald-100 text-emerald-700 border-emerald-400'
                                           : 'bg-card text-muted-foreground border-border hover:bg-muted'
@@ -600,7 +600,7 @@ export default function ClassRoster({
                                     >حاضر</button>
                                     <button
                                       onClick={() => { touch(student.id); setAttendance(a => ({ ...a, [student.id]: isInSchool(att) ? 'absent' : att })) }}
-                                      className={`px-4 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                      className={`px-4 py-2.5 sm:py-1 rounded-lg text-xs font-semibold border transition-all ${
                                         !isInSchool(att)
                                           ? 'bg-red-100 text-red-700 border-red-400'
                                           : 'bg-card text-muted-foreground border-border hover:bg-muted'
@@ -668,7 +668,7 @@ export default function ClassRoster({
                                   <button
                                     key={btn.key}
                                     onClick={() => { touch(student.id); setHomework(h => ({ ...h, [student.id]: btn.key })) }}
-                                    className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                    className={`px-2 py-2.5 sm:py-1 rounded-lg text-xs font-semibold border transition-all ${
                                       hw === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
                                   >{btn.label}</button>
@@ -685,7 +685,7 @@ export default function ClassRoster({
                                   <button
                                     key={btn.key}
                                     onClick={() => { touch(student.id); setMaterials(m => ({ ...m, [student.id]: btn.key })) }}
-                                    className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                    className={`px-2 py-2.5 sm:py-1 rounded-lg text-xs font-semibold border transition-all ${
                                       mat === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
                                   >{btn.label}</button>
@@ -702,7 +702,7 @@ export default function ClassRoster({
                                   <button
                                     key={btn.key}
                                     onClick={() => { touch(student.id); setParticipation(p => ({ ...p, [student.id]: btn.key })) }}
-                                    className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                    className={`px-2 py-2.5 sm:py-1 rounded-lg text-xs font-semibold border transition-all ${
                                       part === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
                                   >{btn.label}</button>

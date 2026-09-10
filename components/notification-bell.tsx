@@ -129,7 +129,10 @@ export function NotificationBell() {
     <div className="relative" ref={panelRef}>
       <button
         onClick={toggle}
-        className="relative p-1.5 hover:bg-muted text-muted-foreground rounded-lg transition-colors"
+        /* 32px square was too small a target for a thumb, and this is the only
+           way a deputy learns a case has been handed to them. Grown to 44 on a
+           phone; the desk keeps the compact size. */
+        className="relative p-3 sm:p-1.5 hover:bg-muted text-muted-foreground rounded-lg transition-colors"
         title="الإشعارات"
         aria-label={data.unread > 0 ? `${data.unread} إشعار غير مقروء` : 'الإشعارات'}
       >

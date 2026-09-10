@@ -67,7 +67,7 @@ function PointInput({
         <button
           type="button"
           onClick={() => onChange(value - 1)}
-          className="w-7 h-7 rounded-lg bg-background border border-border flex items-center justify-center font-bold text-base hover:bg-muted transition-colors"
+          className="w-10 h-10 sm:w-7 sm:h-7 rounded-lg bg-background border border-border flex items-center justify-center font-bold text-base hover:bg-muted transition-colors"
         >−</button>
         <span className={`w-10 text-center font-black text-base ${value > 0 ? 'text-emerald-600' : value < 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
           {value > 0 ? `+${value}` : value}
@@ -75,7 +75,7 @@ function PointInput({
         <button
           type="button"
           onClick={() => onChange(value + 1)}
-          className="w-7 h-7 rounded-lg bg-background border border-border flex items-center justify-center font-bold text-base hover:bg-muted transition-colors"
+          className="w-10 h-10 sm:w-7 sm:h-7 rounded-lg bg-background border border-border flex items-center justify-center font-bold text-base hover:bg-muted transition-colors"
         >+</button>
       </div>
     </div>
@@ -682,7 +682,7 @@ export default function SettingsClient({
                     type="button"
                     onClick={() => handleDeleteHoliday(h.id)}
                     aria-label="حذف الإجازة"
-                    className="px-3 py-2 rounded-lg text-red-600 hover:bg-red-50 shrink-0"
+                    className="px-3 py-3 sm:py-2 rounded-lg text-red-600 hover:bg-red-50 shrink-0"
                   >
                     <Trash2 className="size-4" />
                   </button>

@@ -362,7 +362,7 @@ export function CounselorSettingsClient({
                   <button
                     onClick={() => removeTemplate(i)}
                     aria-label="حذف القالب"
-                    className="px-3 rounded-xl text-red-600 hover:bg-red-50"
+                    className="px-3 py-3 sm:py-0 rounded-xl text-red-600 hover:bg-red-50"
                   >
                     <Trash2 className="size-4" />
                   </button>
