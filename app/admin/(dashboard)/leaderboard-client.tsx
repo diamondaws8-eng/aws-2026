@@ -2,16 +2,9 @@
 
 import { useState } from 'react'
 import { EmptyState } from '@/components/empty-state'
-import { rankWithTies } from '@/lib/ranking'
+import { rankWithTies, LEADERBOARD_PERIODS, MIN_LESSONS_FOR_SCHOOL_RANK, type LeaderboardPeriod } from '@/lib/ranking'
+import type { LeaderboardRow } from '@/lib/points'
 import { Trophy, Medal, Star, Crown } from 'lucide-react'
-
-type LeaderboardStudent = {
-  id: string
-  name: string
-  classId: string | null
-  className: string | null
-  totalPoints: number
-}
 
 type ClassInfo = {
   id: string
@@ -26,7 +19,7 @@ export function LeaderboardClient({
   showAll = true,
   defaultClassId,
 }: {
-  students: LeaderboardStudent[]
+  students: LeaderboardRow[]
   classes: ClassInfo[]
   title?: string
   /** What the "everything" option is called — a teacher's is "كل فصولي". */
@@ -38,19 +31,31 @@ export function LeaderboardClient({
   const [selectedClass, setSelectedClass] = useState<string>(
     defaultClassId && classes.some((c) => c.id === defaultClassId) ? defaultClassId : showAll ? 'all' : (classes[0]?.id ?? 'all'),
   )
+  const [period, setPeriod] = useState<LeaderboardPeriod>('year')
 
-  // Ranked with ties before the cut, so two pupils on the same score share a
-  // place instead of one of them being "11th" and dropped.
-  const filteredStudents = rankWithTies(
-    students.filter(s => selectedClass === 'all' || s.classId === selectedClass),
-  ).slice(0, 10)
+  const schoolWide = selectedClass === 'all'
+  const inScope = students.filter((s) => schoolWide || s.classId === selectedClass)
 
-  const maxPoints = filteredStudents.length > 0 ? filteredStudents[0].totalPoints : 0
+  // Inside one class every pupil had the same lessons, so raw points compare
+  // fairly. Across classes they do not — a pupil with six teachers recording
+  // has six chances a day where another has one — so the school-wide list
+  // ranks by the share of the points that were possible.
+  const keyed = inScope.map((s) => {
+    const stat = s.periods[period]
+    return { ...s, stat, totalPoints: schoolWide ? (stat.pct ?? Number.NEGATIVE_INFINITY) : stat.points }
+  })
+  // School-wide, a share needs a sample behind it (see MIN_LESSONS_FOR_SCHOOL_RANK).
+  const eligible = schoolWide ? keyed.filter((s) => s.stat.lessons >= MIN_LESSONS_FOR_SCHOOL_RANK) : keyed
+  const tooFew = keyed.length - eligible.length
+  const scoring = eligible.filter((s) => s.totalPoints > 0)
+  const ranked = rankWithTies(scoring).slice(0, 10)
+  const notShown = eligible.length - scoring.length
+  const maxKey = ranked.length > 0 ? ranked[0].totalPoints : 0
 
   return (
-    <div className="relative overflow-hidden bg-card border border-border rounded-2xl p-6 flex flex-col min-h-[400px] max-h-[500px]">
+    <div className="relative overflow-hidden bg-card border border-border rounded-2xl p-6 flex flex-col min-h-[400px] max-h-[560px]">
       <div className="absolute -top-16 -right-14 size-48 rounded-full bg-amber-400/10 blur-3xl pointer-events-none" />
-      <div className="relative flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
+      <div className="relative flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
         <h2 className="text-lg font-bold flex items-center gap-2">
           <div className="flex size-9 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
             <Trophy className="w-4.5 h-4.5" />
@@ -70,22 +75,37 @@ export function LeaderboardClient({
         </select>
       </div>
 
-      {/* Lesson points scale with how many teachers record a class: a pupil
-          with eight subjects can out-score a better pupil with one. A
-          school-wide list is still wanted, but it must say what it compares. */}
-      {selectedClass === 'all' && (
-        <p className="relative -mt-3 mb-3 text-[11px] text-muted-foreground">
-          الترتيب على مستوى المدرسة يتأثر بعدد المواد المسجَّلة لكل فصل — للمقارنة العادلة اختر فصلاً واحداً.
+      {/* A board that only ever counts the whole year freezes by the second
+          month: the same names at the top, and nothing a pupil does this week
+          can move them. The short windows are what keep a class trying. */}
+      <div className="relative flex flex-wrap items-center gap-1.5 mb-3">
+        {LEADERBOARD_PERIODS.map((p) => (
+          <button
+            key={p.key}
+            type="button"
+            onClick={() => setPeriod(p.key)}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+              period === p.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/70'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {schoolWide && (
+        <p className="relative mb-3 text-[11px] text-muted-foreground">
+          على مستوى المدرسة يُرتَّب بنسبة النقاط من الممكن، لا بالنقاط الخام — حتى لا يتقدم فصل بكثرة مواده على فصل بقلّتها.
         </p>
       )}
 
-      {filteredStudents.length > 0 ? (
+      {ranked.length > 0 ? (
         <div className="relative space-y-2.5 flex-1 overflow-y-auto pr-2">
-          {filteredStudents.map((student) => {
+          {ranked.map((student) => {
             const isFirst = student.rank === 1
             const isSecond = student.rank === 2
             const isThird = student.rank === 3
-            const barPct = maxPoints > 0 ? Math.max((student.totalPoints / maxPoints) * 100, 4) : 0
+            const barPct = maxKey > 0 ? Math.max((student.totalPoints / maxKey) * 100, 4) : 0
 
             return (
               <div
@@ -117,7 +137,7 @@ export function LeaderboardClient({
                       <div className={`font-bold ${isFirst ? 'text-amber-900 dark:text-amber-400' : ''}`}>
                         {student.name}
                       </div>
-                      {selectedClass === 'all' && student.className && (
+                      {schoolWide && student.className && (
                         <div className="text-xs text-muted-foreground mt-0.5">
                           {student.className}
                         </div>
@@ -125,14 +145,23 @@ export function LeaderboardClient({
                     </div>
                   </div>
 
-                  <div className={`font-black flex items-center gap-1 ${
+                  <div className={`text-left ${
                     isFirst ? 'text-amber-600' :
                     isSecond ? 'text-slate-600' :
                     isThird ? 'text-orange-600' :
                     'text-primary'
                   }`}>
-                    {student.totalPoints}
-                    <Star className="w-4 h-4 fill-current" />
+                    {schoolWide ? (
+                      <>
+                        <div className="font-black">{student.stat.pct}%</div>
+                        <div className="text-[11px] text-muted-foreground">{student.stat.points} من {student.stat.possible} نقطة</div>
+                      </>
+                    ) : (
+                      <div className="font-black flex items-center gap-1">
+                        {student.stat.points}
+                        <Star className="w-4 h-4 fill-current" />
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -142,9 +171,19 @@ export function LeaderboardClient({
       ) : (
         <EmptyState
           title="لا يوجد بيانات"
-          description="لم يحصل أي طالب على نقاط بعد"
+          description={period === 'year' ? 'لم يحصل أي طالب على نقاط موجبة بعد' : 'لا نقاط موجبة في هذه المدة'}
           icon={Medal}
         />
+      )}
+
+      {/* Said out loud rather than dropped: a class where nobody has a positive
+          score is a class where nothing was recorded, and that is worth seeing. */}
+      {(notShown > 0 || tooFew > 0) && (
+        <p className="relative mt-3 text-[11px] text-muted-foreground">
+          {notShown > 0 && <>{notShown} من {inScope.length} طالباً بلا نقاط موجبة في هذه المدة — لا يظهرون في القائمة.</>}
+          {notShown > 0 && tooFew > 0 && ' '}
+          {tooFew > 0 && <>{tooFew} لم يكتمل نصابهم بعد (أقل من {MIN_LESSONS_FOR_SCHOOL_RANK} حصص مسجَّلة) فلا يُرتَّبون على مستوى المدرسة.</>}
+        </p>
       )}
     </div>
   )

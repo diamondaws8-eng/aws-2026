@@ -2,7 +2,10 @@ import { cache } from 'react'
 import { db } from '@/lib/db'
 import { dailyRecords, lessonRecords, studentPoints, students, classes, schools } from '@/lib/db/schema'
 import { eq, and, gte, inArray, sql, type SQL } from 'drizzle-orm'
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import type { SchoolSettings } from '@/app/admin/(dashboard)/settings/settings-types'
+import { schoolDate } from '@/lib/utils'
+import type { LeaderboardPeriod, PeriodStat } from '@/lib/ranking'
 
 // ─── The academic year boundary ───────────────────────────────────────────────
 /**
@@ -350,23 +353,56 @@ export async function getClassPointsTotals(classId: string): Promise<Record<stri
   return totals
 }
 
+export type { LeaderboardPeriod, PeriodStat }
+
 export type LeaderboardRow = {
   id: string
   name: string
   classId: string | null
   className: string | null
+  /** Points since the year started — the plain total every board used before. */
   totalPoints: number
+  periods: Record<LeaderboardPeriod, PeriodStat>
+}
+
+function daysAgo(n: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - n)
+  return schoolDate(d)
 }
 
 /**
  * School leaderboard, optionally limited to certain classes (for scoped roles).
- * Only students with a positive score appear, highest first.
+ *
+ * Every active pupil is returned, highest year total first — including those
+ * on zero or below, so a board can say how many it is not showing instead of
+ * dropping them silently. Three windows come back from one pass (conditional
+ * sums), and each carries the points that were possible in it, because raw
+ * points only compare fairly inside one class: across classes a pupil with six
+ * teachers recording has six chances a day where another has one.
  */
 export async function getLeaderboard(schoolId: string, classIds?: string[] | null): Promise<LeaderboardRow[]> {
   const classFilter = classIds ? (classIds.length ? inArray(students.classId, classIds) : sql`false`) : undefined
   const since = await yearStartForSchool(schoolId)
 
-  const [roster, attendance, lessons, manual] = await Promise.all([
+  // Windows never reach back past the year boundary.
+  const clamp = (from: string) => (since && since > from ? since : from)
+  const monthFrom = clamp(daysAgo(29))
+  const weekFrom = clamp(daysAgo(6))
+
+  const yearFilter = (col: AnyPgColumn) => (since ? sql`FILTER (WHERE ${col} >= ${since})` : sql``)
+  const sums = (col: SQL, dateCol: AnyPgColumn) => ({
+    year: sql<number>`COALESCE(SUM(${col}) ${yearFilter(dateCol)}, 0)`.mapWith(Number),
+    month: sql<number>`COALESCE(SUM(${col}) FILTER (WHERE ${dateCol} >= ${monthFrom}), 0)`.mapWith(Number),
+    week: sql<number>`COALESCE(SUM(${col}) FILTER (WHERE ${dateCol} >= ${weekFrom}), 0)`.mapWith(Number),
+  })
+  const counts = (dateCol: AnyPgColumn) => ({
+    nYear: sql<number>`COUNT(*) ${yearFilter(dateCol)}`.mapWith(Number),
+    nMonth: sql<number>`COUNT(*) FILTER (WHERE ${dateCol} >= ${monthFrom})`.mapWith(Number),
+    nWeek: sql<number>`COUNT(*) FILTER (WHERE ${dateCol} >= ${weekFrom})`.mapWith(Number),
+  })
+
+  const [roster, attendance, lessons, manual, settings] = await Promise.all([
     db.select({
         id: students.id,
         name: students.fullName,
@@ -380,37 +416,78 @@ export async function getLeaderboard(schoolId: string, classIds?: string[] | nul
 
     db.select({
         studentId: dailyRecords.studentId,
-        v: sql<number>`COALESCE(SUM(${dailyRecords.pointsEarned}), 0)`.mapWith(Number),
+        ...sums(sql`${dailyRecords.pointsEarned}`, dailyRecords.date),
+        ...counts(dailyRecords.date),
       })
       .from(dailyRecords)
-      .where(and(eq(dailyRecords.schoolId, schoolId), since ? gte(dailyRecords.date, since) : undefined))
+      .where(eq(dailyRecords.schoolId, schoolId))
       .groupBy(dailyRecords.studentId),
 
     db.select({
         studentId: lessonRecords.studentId,
-        v: sql<number>`COALESCE(SUM(${lessonRecords.pointsEarned}), 0)`.mapWith(Number),
+        ...sums(sql`${lessonRecords.pointsEarned}`, lessonRecords.date),
+        ...counts(lessonRecords.date),
       })
       .from(lessonRecords)
-      .where(and(eq(lessonRecords.schoolId, schoolId), since ? gte(lessonRecords.date, since) : undefined))
+      .where(eq(lessonRecords.schoolId, schoolId))
       .groupBy(lessonRecords.studentId),
 
     db.select({
         studentId: studentPoints.studentId,
-        v: sql<number>`COALESCE(SUM(${studentPoints.points}), 0)`.mapWith(Number),
+        ...sums(sql`${studentPoints.points}`, studentPoints.date),
       })
       .from(studentPoints)
-      .where(and(eq(studentPoints.schoolId, schoolId), since ? gte(studentPoints.date, since) : undefined))
+      .where(eq(studentPoints.schoolId, schoolId))
       .groupBy(studentPoints.studentId),
+
+    // Loaded lazily: the settings module imports this file for resyncSchoolPoints.
+    import('@/app/admin/(dashboard)/settings/actions-settings').then((m) => m.getSchoolSettings(schoolId)),
   ])
 
-  const totals: Record<string, number> = {}
-  for (const row of [...attendance, ...lessons, ...manual]) {
-    totals[row.studentId] = (totals[row.studentId] ?? 0) + row.v
+  type Acc = { points: number; days: number; lessons: number }
+  const blank = (): Record<LeaderboardPeriod, Acc> => ({
+    year: { points: 0, days: 0, lessons: 0 },
+    month: { points: 0, days: 0, lessons: 0 },
+    week: { points: 0, days: 0, lessons: 0 },
+  })
+  const acc = new Map<string, Record<LeaderboardPeriod, Acc>>()
+  const bucket = (id: string) => {
+    let a = acc.get(id)
+    if (!a) { a = blank(); acc.set(id, a) }
+    return a
+  }
+  for (const r of attendance) {
+    const a = bucket(r.studentId)
+    a.year.points += r.year; a.month.points += r.month; a.week.points += r.week
+    a.year.days += r.nYear; a.month.days += r.nMonth; a.week.days += r.nWeek
+  }
+  for (const r of lessons) {
+    const a = bucket(r.studentId)
+    a.year.points += r.year; a.month.points += r.month; a.week.points += r.week
+    a.year.lessons += r.nYear; a.month.lessons += r.nMonth; a.week.lessons += r.nWeek
+  }
+  for (const r of manual) {
+    const a = bucket(r.studentId)
+    a.year.points += r.year; a.month.points += r.month; a.week.points += r.week
+  }
+
+  const stat = (a: Acc): PeriodStat => {
+    const possible = maxPossiblePoints(settings, a.days, a.lessons)
+    return {
+      points: a.points,
+      possible,
+      pct: possible > 0 ? Math.round((a.points / possible) * 100) : null,
+      days: a.days,
+      lessons: a.lessons,
+    }
   }
 
   return roster
-    .map((s) => ({ ...s, totalPoints: totals[s.id] ?? 0 }))
-    .filter((s) => s.totalPoints > 0)
+    .map((s) => {
+      const a = acc.get(s.id) ?? blank()
+      const periods = { year: stat(a.year), month: stat(a.month), week: stat(a.week) }
+      return { ...s, totalPoints: periods.year.points, periods }
+    })
     .sort((a, b) => b.totalPoints - a.totalPoints)
 }
 
