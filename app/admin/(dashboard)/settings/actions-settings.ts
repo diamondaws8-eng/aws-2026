@@ -5,14 +5,15 @@ import { db } from '@/lib/db'
 import {
   schools, gradeLevels, classes, teachers, students, subjects, attendance,
   gradeEntries, notifications, dailyRecords, lessonRecords, studentPoints, user, schoolStaff, account,
-  behaviorCases, schoolHolidays, schoolYears, parentWhatsappMessages, parentActivationLog, auditLog, userNotifications,
+  behaviorCases, schoolHolidays, schoolYears, parentWhatsappMessages, parentActivationLog, auditLog, userNotifications, session,
 } from '@/lib/db/schema'
-import { eq, inArray, and, ne } from 'drizzle-orm'
+import { eq, inArray, and, ne, sql, count as drizzleCount } from 'drizzle-orm'
 import { getAdminAccess } from '@/lib/admin-access'
 import { logAudit } from '@/lib/audit'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { cache } from 'react'
+import type { PgTable, PgColumn } from 'drizzle-orm/pg-core'
 import type { SchoolSettings } from './settings-types'
 import { DEFAULT_SETTINGS, RESET_PHRASE } from './settings-types'
 
@@ -73,14 +74,81 @@ const readSchoolSettings = cache(async (schoolId: string): Promise<SchoolSetting
  * Owner only, behind a typed phrase, logged, and meant to be run once: the
  * morning the school stops practising and starts.
  */
-export async function resetOperationalData(phrase: string): Promise<{ ok: true; removed: Record<string, number> } | { ok: false; error: string }> {
+/**
+ * What the owner chooses to clear beyond the records. The trial is run with
+ * stand-in pupils, teachers and families; when the real ones arrive, all of
+ * them go — accounts included — and the school starts empty but configured.
+ */
+export type ResetScope = {
+  /** Pupils and the parent accounts that exist only for them. */
+  pupils: boolean
+  /** Teachers and their sign-in accounts; subjects keep their names, unassigned. */
+  teachers: boolean
+  /** Deputies, principals, quality managers and counsellors — never the owner. */
+  staff: boolean
+  /** Stages, classes, subjects and the per-stage calendar entries. */
+  structure: boolean
+}
+
+type ResetCounts = Record<string, number>
+
+/**
+ * Counts for a scope without touching anything — the confirmation screen
+ * shows these so the owner knows exactly what the phrase will remove.
+ */
+export async function previewReset(scope: ResetScope): Promise<{ ok: true; counts: ResetCounts } | { ok: false; error: string }> {
+  const access = await getAdminAccess()
+  if (!access || access.role !== 'owner') return { ok: false, error: 'هذا الإجراء للمالك وحده' }
+  const schoolId = access.school.id
+  const n = async (table: PgTable, col: PgColumn) => {
+    const [r] = await db.select({ c: drizzleCount() }).from(table).where(eq(col, schoolId))
+    return Number(r?.c ?? 0)
+  }
+  const counts: ResetCounts = {
+    dailyRecords: await n(dailyRecords, dailyRecords.schoolId),
+    lessonRecords: await n(lessonRecords, lessonRecords.schoolId),
+    studentPoints: await n(studentPoints, studentPoints.schoolId),
+    gradeEntries: await n(gradeEntries, gradeEntries.schoolId),
+    behaviorCases: await n(behaviorCases, behaviorCases.schoolId),
+    userNotifications: await n(userNotifications, userNotifications.schoolId),
+    notifications: await n(notifications, notifications.schoolId),
+    parentWhatsappMessages: await n(parentWhatsappMessages, parentWhatsappMessages.schoolId),
+  }
+  if (scope.pupils) {
+    counts.students = await n(students, students.schoolId)
+    counts.parentAccounts = (await parentUserIds(schoolId)).length
+  }
+  if (scope.teachers) counts.teachers = await n(teachers, teachers.schoolId)
+  if (scope.staff) counts.staff = await n(schoolStaff, schoolStaff.schoolId)
+  if (scope.structure) {
+    counts.subjects = await n(subjects, subjects.schoolId)
+    counts.classes = await n(classes, classes.schoolId)
+    counts.gradeLevels = await n(gradeLevels, gradeLevels.schoolId)
+  }
+  return { ok: true, counts }
+}
+
+/** Parents of this school's pupils — the accounts that exist for those pupils alone. */
+async function parentUserIds(schoolId: string): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ id: students.parentUserId })
+    .from(students)
+    .where(eq(students.schoolId, schoolId))
+  return rows.map((r) => r.id).filter((v): v is string => !!v)
+}
+
+export async function resetOperationalData(phrase: string, scope?: Partial<ResetScope>): Promise<{ ok: true; removed: ResetCounts } | { ok: false; error: string }> {
   const access = await getAdminAccess()
   if (!access || access.role !== 'owner') return { ok: false, error: 'هذا الإجراء للمالك وحده' }
   if (String(phrase ?? '').trim() !== RESET_PHRASE) return { ok: false, error: `اكتب العبارة كما هي: ${RESET_PHRASE}` }
 
   const schoolId = access.school.id
+  const s: ResetScope = { pupils: !!scope?.pupils, teachers: !!scope?.teachers, staff: !!scope?.staff, structure: !!scope?.structure }
   try {
-    const removed: Record<string, number> = {}
+    const removed: ResetCounts = {}
+    // Everything in one transaction: either the school is exactly as chosen
+    // afterwards, or exactly as before. Account rows are removed last, after
+    // every row that named them is gone.
     await db.transaction(async (tx) => {
       const del = async (name: string, q: Promise<{ rowCount: number | null }>) => { removed[name] = (await q).rowCount ?? 0 }
       await del('dailyRecords', tx.delete(dailyRecords).where(eq(dailyRecords.schoolId, schoolId)))
@@ -93,8 +161,42 @@ export async function resetOperationalData(phrase: string): Promise<{ ok: true; 
       await del('parentWhatsappMessages', tx.delete(parentWhatsappMessages).where(eq(parentWhatsappMessages.schoolId, schoolId)))
       await del('parentActivationLog', tx.delete(parentActivationLog).where(eq(parentActivationLog.schoolId, schoolId)))
       await del('attendance', tx.delete(attendance).where(eq(attendance.schoolId, schoolId)))
+
+      const accountsToDrop: string[] = []
+      if (s.pupils) {
+        accountsToDrop.push(...(await parentUserIds(schoolId)))
+        await del('students', tx.delete(students).where(eq(students.schoolId, schoolId)))
+      }
+      if (s.teachers) {
+        const rows = await tx.select({ id: teachers.userId }).from(teachers).where(eq(teachers.schoolId, schoolId))
+        accountsToDrop.push(...rows.map((r) => r.id))
+        await tx.update(subjects).set({ teacherUserId: null }).where(eq(subjects.schoolId, schoolId))
+        await del('teachers', tx.delete(teachers).where(eq(teachers.schoolId, schoolId)))
+      }
+      if (s.staff) {
+        const rows = await tx.select({ id: schoolStaff.userId }).from(schoolStaff).where(eq(schoolStaff.schoolId, schoolId))
+        accountsToDrop.push(...rows.map((r) => r.id).filter((id) => id !== access.userId))
+        await del('staff', tx.delete(schoolStaff).where(and(eq(schoolStaff.schoolId, schoolId), ne(schoolStaff.userId, access.userId))))
+      }
+      if (s.structure) {
+        await del('subjects', tx.delete(subjects).where(eq(subjects.schoolId, schoolId)))
+        await del('classes', tx.delete(classes).where(eq(classes.schoolId, schoolId)))
+        await del('gradeLevels', tx.delete(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)))
+        // Calendar entries that belonged to a stage go with it; school-wide ones stay.
+        await tx.delete(schoolHolidays).where(and(eq(schoolHolidays.schoolId, schoolId), sqlNotNull(schoolHolidays.gradeLevelId)))
+        // A pupil left in place would point at a class that no longer exists.
+        if (!s.pupils) await tx.update(students).set({ classId: null }).where(eq(students.schoolId, schoolId))
+      }
+      // The owner's own account is never in this list; everything else that
+      // signed in for the trial goes with its sessions.
+      const ids = [...new Set(accountsToDrop)].filter((id) => id !== access.userId)
+      if (ids.length) {
+        await tx.delete(session).where(inArray(session.userId, ids))
+        await tx.delete(account).where(inArray(account.userId, ids))
+        removed.accounts = (await tx.delete(user).where(inArray(user.id, ids))).rowCount ?? 0
+      }
     })
-    await logAudit(access, 'data.reset', access.school.name, removed)
+    await logAudit(access, 'data.reset', access.school.name, { ...removed, scope: Object.entries(s).filter(([, v]) => v).map(([k]) => k).join(',') || 'records' })
     revalidatePath('/admin', 'layout')
     return { ok: true, removed }
   } catch (error) {
@@ -102,6 +204,9 @@ export async function resetOperationalData(phrase: string): Promise<{ ok: true; 
     return { ok: false, error: 'تعذّر المسح — لم يتغير شيء' }
   }
 }
+
+// Kept local: an IS NOT NULL test on a column.
+function sqlNotNull(col: PgColumn) { return sql`${col} IS NOT NULL` }
 
 // ── Save school settings ──────────────────────────────────────────────────────
 export async function saveSchoolSettings(schoolId: string, settings: SchoolSettings) {
