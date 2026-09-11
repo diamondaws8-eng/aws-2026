@@ -14,6 +14,12 @@ import {
   ChevronRight,
   ChevronLeft,
   History,
+  ChartLine,
+  ChartArea,
+  ChartColumn,
+  ChartBar,
+  ChartPie,
+  Radar,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -246,6 +252,22 @@ type TrendSeries = {
   color: string
 }
 
+type TrendKind = 'line' | 'area' | 'columns' | 'bars' | 'donut' | 'radar'
+const TREND_KINDS: { id: TrendKind; label: string; icon: LucideIcon }[] = [
+  { id: 'line', label: 'خطي', icon: ChartLine },
+  { id: 'area', label: 'منطقة', icon: ChartArea },
+  { id: 'columns', label: 'أعمدة', icon: ChartColumn },
+  { id: 'bars', label: 'أفقي', icon: ChartBar },
+  { id: 'donut', label: 'دائري', icon: ChartPie },
+  { id: 'radar', label: 'راداري', icon: Radar },
+]
+const TREND_KIND_KEY = 'aws-trend-chart'
+
+/**
+ * The same fourteen days, drawn six ways. Which way is the reader's choice
+ * and is remembered on the device. Every shape keeps the one rule of the
+ * original: a day that was not recorded is a gap, never a zero.
+ */
 function TrendChart({
   trend,
   series,
@@ -255,16 +277,75 @@ function TrendChart({
   series: TrendSeries[]
   highlightIndex?: number
 }) {
-  const w = 720
-  const h = 220
-  const padX = 6
-  const padY = 14
-  const innerH = h - padY * 2
-  const step = trend.length > 1 ? (w - padX * 2) / (trend.length - 1) : 0
-  const highlightX = highlightIndex != null ? padX + highlightIndex * step : null
+  const [kind, setKind] = useState<TrendKind>('line')
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(TREND_KIND_KEY)
+      if (v && TREND_KINDS.some((k) => k.id === v)) setKind(v as TrendKind)
+    } catch { /* stays on the line chart */ }
+  }, [])
+  const pick = (k: TrendKind) => { setKind(k); try { localStorage.setItem(TREND_KIND_KEY, k) } catch { /* private mode */ } }
+
+  const blank = trend.filter((t) => !t.hasAttendance && !t.hasHomework && !t.hasMaterials && !t.hasParticipation && !t.hasBehavior).length
+  const dateLabel = (d: string) => d.slice(5).replace('-', '/')
 
   return (
     <div className="space-y-3">
+      <div className="no-print flex flex-wrap items-center gap-1 rounded-xl border border-border bg-muted/40 p-1 w-fit" role="radiogroup" aria-label="شكل الرسم">
+        {TREND_KINDS.map((k) => {
+          const Icon = k.icon
+          const active = kind === k.id
+          return (
+            <button
+              key={k.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => pick(k.id)}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${active ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+              title={k.label}
+            >
+              <Icon className="size-3.5" /> {k.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {kind === 'line' || kind === 'area' ? (
+        <TrendLines trend={trend} series={series} highlightIndex={highlightIndex} filled={kind === 'area'} />
+      ) : kind === 'columns' ? (
+        <TrendColumns trend={trend} series={series} highlightIndex={highlightIndex} />
+      ) : kind === 'bars' ? (
+        <TrendBars trend={trend} series={series} highlightIndex={highlightIndex} />
+      ) : kind === 'donut' ? (
+        <TrendDonut trend={trend} highlightIndex={highlightIndex} />
+      ) : (
+        <TrendRadar trend={trend} series={series} />
+      )}
+
+      <div className="flex flex-wrap items-center gap-4">
+        {kind !== 'donut' && series.map((s) => (
+          <span key={String(s.key)} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="size-2.5 rounded-full" style={{ backgroundColor: s.color }} />
+            {s.label}
+          </span>
+        ))}
+        {blank > 0 && (
+          <span className="text-xs text-muted-foreground">
+            — {blank} من {trend.length} يوم دراسة بلا تسجيل، ولا تظهر في الرسم
+            <span className="opacity-70"> (الإجازات مستبعدة)</span>
+          </span>
+        )}
+      </div>
+    </div>
+  )
+
+  function TrendLines({ trend, series, highlightIndex, filled }: { trend: DailyTrendPoint[]; series: TrendSeries[]; highlightIndex?: number; filled: boolean }) {
+    const w = 720, h = 220, padX = 6, padY = 14
+    const innerH = h - padY * 2
+    const step = trend.length > 1 ? (w - padX * 2) / (trend.length - 1) : 0
+    const highlightX = highlightIndex != null ? padX + highlightIndex * step : null
+    return (
       <svg viewBox={`0 0 ${w} ${h + 18}`} className="w-full h-60" preserveAspectRatio="none">
         {[0, 25, 50, 75, 100].map((g) => {
           const y = padY + innerH - (g / 100) * innerH
@@ -279,48 +360,25 @@ function TrendChart({
           <line x1={highlightX} x2={highlightX} y1={padY} y2={padY + innerH} stroke="currentColor" className="text-foreground/30" strokeWidth={1.5} strokeDasharray="2 3" />
         )}
         {series.map((s) => {
-          // A day with no record is a GAP, not a zero. Plotting it at 0% claimed
-          // the school scored nothing that day — which is the opposite of "no
-          // data yet", and it dragged the whole line to the floor.
           const segments: (Point & { i: number })[][] = []
           let run: (Point & { i: number })[] = []
           trend.forEach((t, i) => {
-            if (t[s.flag]) {
-              run.push({
-                i,
-                x: padX + i * step,
-                y: padY + innerH - (Number(t[s.key]) / 100) * innerH,
-              })
-            } else if (run.length) {
-              segments.push(run)
-              run = []
-            }
+            if (t[s.flag]) run.push({ i, x: padX + i * step, y: padY + innerH - (Number(t[s.key]) / 100) * innerH })
+            else if (run.length) { segments.push(run); run = [] }
           })
           if (run.length) segments.push(run)
-
           return (
             <g key={String(s.key)}>
               {segments.map((coords, si) => {
                 const linePath = smoothPath(coords)
-                const last = coords[coords.length - 1]
-                const first = coords[0]
+                const last = coords[coords.length - 1], first = coords[0]
                 const areaPath = `${linePath} L ${last.x} ${padY + innerH} L ${first.x} ${padY + innerH} Z`
                 return (
                   <g key={si}>
-                    {coords.length > 1 && <path d={areaPath} fill={s.color} opacity={0.09} />}
-                    {coords.length > 1 && (
-                      <path d={linePath} fill="none" stroke={s.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-                    )}
+                    {coords.length > 1 && <path d={areaPath} fill={s.color} opacity={filled ? 0.22 : 0.09} />}
+                    {coords.length > 1 && <path d={linePath} fill="none" stroke={s.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />}
                     {coords.map((c) => (
-                      <circle
-                        key={c.i}
-                        cx={c.x}
-                        cy={c.y}
-                        r={c.i === highlightIndex ? 5 : 2.6}
-                        fill={s.color}
-                        stroke={c.i === highlightIndex ? 'white' : 'none'}
-                        strokeWidth={c.i === highlightIndex ? 1.5 : 0}
-                      />
+                      <circle key={c.i} cx={c.x} cy={c.y} r={c.i === highlightIndex ? 5 : 2.6} fill={s.color} stroke={c.i === highlightIndex ? 'white' : 'none'} strokeWidth={c.i === highlightIndex ? 1.5 : 0} />
                     ))}
                   </g>
                 )
@@ -328,36 +386,161 @@ function TrendChart({
             </g>
           )
         })}
-        {trend.map((t, i) =>
-          i % 2 === 0 ? (
-            <text key={t.date} x={padX + i * step} y={h + 14} fontSize={9.5} textAnchor="middle" className="fill-muted-foreground">
-              {t.date.slice(5).replace('-', '/')}
-            </text>
-          ) : null
-        )}
+        {trend.map((t, i) => i % 2 === 0 ? (
+          <text key={t.date} x={padX + i * step} y={h + 14} fontSize={9.5} textAnchor="middle" className="fill-muted-foreground">{dateLabel(t.date)}</text>
+        ) : null)}
       </svg>
-      <div className="flex flex-wrap items-center gap-4">
-        {series.map((s) => (
-          <span key={String(s.key)} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="size-2.5 rounded-full" style={{ backgroundColor: s.color }} />
-            {s.label}
-          </span>
-        ))}
-        {(() => {
-          const blank = trend.filter((t) =>
-            !t.hasAttendance && !t.hasHomework && !t.hasMaterials && !t.hasParticipation && !t.hasBehavior,
-          ).length
-          if (blank === 0) return null
+    )
+  }
+
+  function TrendColumns({ trend, series, highlightIndex }: { trend: DailyTrendPoint[]; series: TrendSeries[]; highlightIndex?: number }) {
+    const w = 720, h = 220, padX = 6, padY = 14
+    const innerH = h - padY * 2
+    const slot = (w - padX * 2) / Math.max(trend.length, 1)
+    const group = slot * 0.72
+    const bar = group / Math.max(series.length, 1)
+    return (
+      <svg viewBox={`0 0 ${w} ${h + 18}`} className="w-full h-60" preserveAspectRatio="none">
+        {[0, 25, 50, 75, 100].map((g) => {
+          const y = padY + innerH - (g / 100) * innerH
           return (
-            <span className="text-xs text-muted-foreground">
-              — {blank} من {trend.length} يوم دراسة بلا تسجيل، ولا تظهر في الرسم
-              <span className="opacity-70"> (الإجازات مستبعدة)</span>
-            </span>
+            <g key={g}>
+              <line x1={padX} x2={w - padX} y1={y} y2={y} stroke="currentColor" className="text-muted" strokeDasharray="3 7" strokeWidth={1} />
+              <text x={w - padX} y={y - 3} fontSize={10} textAnchor="end" className="fill-muted-foreground">{g}%</text>
+            </g>
           )
-        })()}
+        })}
+        {trend.map((t, i) => {
+          const x0 = padX + i * slot + (slot - group) / 2
+          return (
+            <g key={t.date}>
+              {i === highlightIndex && <rect x={padX + i * slot} y={padY} width={slot} height={innerH} fill="currentColor" className="text-foreground/6" />}
+              {series.map((s, si) => {
+                if (!t[s.flag]) return null
+                const v = Number(t[s.key]) / 100
+                const bh = Math.max(v * innerH, v > 0 ? 2 : 0)
+                return <rect key={String(s.key)} x={x0 + si * bar + 0.5} y={padY + innerH - bh} width={Math.max(bar - 1, 1)} height={bh} rx={1.5} fill={s.color} opacity={i === highlightIndex ? 1 : 0.85} />
+              })}
+              {i % 2 === 0 && <text x={padX + i * slot + slot / 2} y={h + 14} fontSize={9.5} textAnchor="middle" className="fill-muted-foreground">{dateLabel(t.date)}</text>}
+            </g>
+          )
+        })}
+      </svg>
+    )
+  }
+
+  function TrendBars({ trend, series, highlightIndex }: { trend: DailyTrendPoint[]; series: TrendSeries[]; highlightIndex?: number }) {
+    const days = trend.map((t, i) => ({ t, i })).filter(({ t }) => series.some((s) => t[s.flag]))
+    if (!days.length) return <p className="text-sm text-muted-foreground py-10 text-center">لا يوم مسجَّل في هذه الفترة</p>
+    const w = 720, labelW = 52, padX = 6, rowGap = 6, bar = 7
+    const rowH = series.length * bar + rowGap
+    const h = days.length * rowH + 10
+    const innerW = w - padX * 2 - labelW
+    return (
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: Math.max(220, h) }} preserveAspectRatio="none">
+        {[0, 25, 50, 75, 100].map((g) => {
+          const x = padX + labelW + (g / 100) * innerW
+          return (
+            <g key={g}>
+              <line x1={x} x2={x} y1={0} y2={h - 10} stroke="currentColor" className="text-muted" strokeDasharray="3 7" strokeWidth={1} />
+              <text x={x} y={h - 1} fontSize={9.5} textAnchor="middle" className="fill-muted-foreground">{g}%</text>
+            </g>
+          )
+        })}
+        {days.map(({ t, i }, r) => {
+          const y0 = r * rowH
+          return (
+            <g key={t.date}>
+              {i === highlightIndex && <rect x={padX} y={y0 - 1} width={w - padX * 2} height={rowH - rowGap + 2} fill="currentColor" className="text-foreground/6" rx={3} />}
+              <text x={padX + labelW - 6} y={y0 + (rowH - rowGap) / 2 + 3.5} fontSize={10} textAnchor="end" className="fill-muted-foreground">{dateLabel(t.date)}</text>
+              {series.map((s, si) => {
+                if (!t[s.flag]) return null
+                const v = Number(t[s.key]) / 100
+                return <rect key={String(s.key)} x={padX + labelW} y={y0 + si * bar} width={Math.max(v * innerW, v > 0 ? 2 : 0)} height={bar - 1.5} rx={1.5} fill={s.color} />
+              })}
+            </g>
+          )
+        })}
+      </svg>
+    )
+  }
+
+  function TrendDonut({ trend, highlightIndex }: { trend: DailyTrendPoint[]; highlightIndex?: number }) {
+    const recorded = trend.filter((t) => t.hasAttendance)
+    const day = (highlightIndex != null && trend[highlightIndex]?.hasAttendance ? trend[highlightIndex] : recorded[recorded.length - 1]) ?? null
+    if (!day) return <p className="text-sm text-muted-foreground py-10 text-center">لا حضور مسجَّل في هذه الفترة</p>
+    const parts = [
+      { label: 'حاضر', value: day.present, color: '#059669' },
+      { label: 'متأخر', value: day.late, color: '#d97706' },
+      { label: 'إذن', value: day.excused, color: '#2563eb' },
+      { label: 'غائب', value: day.absent, color: '#e11d48' },
+    ].filter((x) => x.value > 0)
+    const total = parts.reduce((n, x) => n + x.value, 0) || 1
+    const cx = 110, cy = 110, r = 84, stroke = 26
+    const circ = 2 * Math.PI * r
+    let offset = 0
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-[220px_1fr] gap-4 items-center">
+        <svg viewBox="0 0 220 220" className="w-[220px] h-[220px] mx-auto">
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="currentColor" className="text-muted" strokeWidth={stroke} />
+          {parts.map((x) => {
+            const len = (x.value / total) * circ
+            const el = <circle key={x.label} cx={cx} cy={cy} r={r} fill="none" stroke={x.color} strokeWidth={stroke} strokeDasharray={`${len} ${circ - len}`} strokeDashoffset={-offset} transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="butt" />
+            offset += len
+            return el
+          })}
+          <text x={cx} y={cy - 4} fontSize={22} fontWeight={800} textAnchor="middle" className="fill-foreground">{Math.round((day.inSchool / total) * 100)}%</text>
+          <text x={cx} y={cy + 16} fontSize={10.5} textAnchor="middle" className="fill-muted-foreground">في المدرسة · {dateLabel(day.date)}</text>
+        </svg>
+        <ul className="space-y-2 text-sm">
+          {parts.map((x) => (
+            <li key={x.label} className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2">
+              <span className="inline-flex items-center gap-2"><span className="size-3 rounded-full" style={{ backgroundColor: x.color }} /> {x.label}</span>
+              <span className="font-bold tabular-nums">{x.value} <span className="text-xs font-normal text-muted-foreground">({Math.round((x.value / total) * 100)}%)</span></span>
+            </li>
+          ))}
+          <li className="text-xs text-muted-foreground px-1">تركيبة حضور اليوم المحدَّد من {day.attTotal} طالباً مسجَّلاً</li>
+        </ul>
       </div>
-    </div>
-  )
+    )
+  }
+
+  function TrendRadar({ trend, series }: { trend: DailyTrendPoint[]; series: TrendSeries[] }) {
+    const avgs = series.map((s) => {
+      const vals = trend.filter((t) => t[s.flag]).map((t) => Number(t[s.key]))
+      return { s, avg: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null, days: vals.length }
+    })
+    const axes = avgs.filter((a) => a.avg != null)
+    if (axes.length < 3) return <p className="text-sm text-muted-foreground py-10 text-center">الرسم الراداري يحتاج ثلاثة مؤشرات مسجَّلة على الأقل</p>
+    const cx = 160, cy = 150, R = 110
+    const pt = (i: number, v: number) => polarToCartesian(cx, cy, (v / 100) * R, (360 / axes.length) * i)
+    const poly = axes.map((a, i) => pt(i, a.avg as number))
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-[320px_1fr] gap-4 items-center">
+        <svg viewBox="0 0 320 300" className="w-[320px] h-[300px] mx-auto">
+          {[25, 50, 75, 100].map((g) => (
+            <polygon key={g} points={axes.map((_, i) => { const q = pt(i, g); return `${q.x},${q.y}` }).join(' ')} fill="none" stroke="currentColor" className="text-muted" strokeWidth={1} />
+          ))}
+          {axes.map((a, i) => { const q = pt(i, 100); const lab = pt(i, 122); return (
+            <g key={String(a.s.key)}>
+              <line x1={cx} y1={cy} x2={q.x} y2={q.y} stroke="currentColor" className="text-muted" strokeWidth={1} />
+              <text x={lab.x} y={lab.y + 4} fontSize={10.5} textAnchor="middle" className="fill-muted-foreground">{a.s.label}</text>
+            </g>
+          ) })}
+          <polygon points={poly.map((q) => `${q.x},${q.y}`).join(' ')} fill="var(--primary)" opacity={0.22} stroke="var(--primary)" strokeWidth={2} strokeLinejoin="round" />
+          {poly.map((q, i) => <circle key={i} cx={q.x} cy={q.y} r={4} fill={axes[i].s.color} stroke="white" strokeWidth={1.5} />)}
+        </svg>
+        <ul className="space-y-2 text-sm">
+          {axes.map((a) => (
+            <li key={String(a.s.key)} className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2">
+              <span className="inline-flex items-center gap-2"><span className="size-3 rounded-full" style={{ backgroundColor: a.s.color }} /> {a.s.label}</span>
+              <span className="font-bold tabular-nums">{Math.round(a.avg as number)}% <span className="text-xs font-normal text-muted-foreground">متوسط {a.days} يوم</span></span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
 }
 
 /**
