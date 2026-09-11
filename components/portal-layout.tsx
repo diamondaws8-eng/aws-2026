@@ -176,19 +176,36 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
         />
       )}
 
-      {/* Floating Toggle Button (visible when sidebar is closed). Before the
-          width is known it exists only on a phone-sized screen. */}
+      {/* With the sidebar closed, the menu control lives in a strip of its own
+          instead of floating over the page: a narrow rail on the right on a
+          desk, a slim top bar on a phone. No empty band above the content. */}
+      {isOpen === false && (
+        <div className="hidden md:flex fixed right-0 top-0 z-30 h-full w-14 flex-col items-center gap-3 border-l border-border bg-sidebar backdrop-blur-xl py-3">
+          <button
+            onClick={() => setIsOpen(true)}
+            aria-label="فتح القائمة"
+            title="فتح القائمة"
+            className="p-2.5 rounded-xl text-foreground hover:bg-muted transition-colors"
+          >
+            <Menu className="size-5" />
+          </button>
+          <BrandLogo size={32} rounded="rounded-lg" href={null} />
+        </div>
+      )}
       {isOpen !== true && (
-        <button
-          onClick={() => setIsOpen(true)}
-          aria-label="فتح القائمة"
-          className={cn(
-            "fixed top-4 right-4 z-30 p-2.5 bg-card/90 backdrop-blur border border-border shadow-[var(--shadow-card)] rounded-xl text-foreground hover:bg-muted transition-colors",
-            isOpen === null && "md:hidden",
-          )}
-        >
-          <Menu className="size-5" />
-        </button>
+        <div className="md:hidden fixed top-0 inset-x-0 z-30 h-12 flex items-center justify-between gap-2 px-3 border-b border-border bg-card/90 backdrop-blur">
+          <span className="min-w-0 flex items-center gap-2">
+            <BrandLogo size={28} rounded="rounded-lg" href={null} />
+            <span className="text-sm font-bold truncate">{schoolName ?? 'مدارس الأوس الأهلية'}</span>
+          </span>
+          <button
+            onClick={() => setIsOpen(true)}
+            aria-label="فتح القائمة"
+            className="p-2 rounded-lg text-foreground hover:bg-muted transition-colors"
+          >
+            <Menu className="size-5" />
+          </button>
+        </div>
       )}
 
       {/* ── Sidebar ──────────────────────────────────────────────────────── */}
@@ -341,10 +358,11 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
         // (the class register) stopped it shrinking to the space left beside
         // the sidebar — every desktop page then overflowed 256px to the left,
         // grew a horizontal scrollbar, and cut off the bell in the header.
-        "min-h-screen w-full min-w-0 max-md:pt-14",
+        "min-h-screen w-full min-w-0 max-md:pt-12",
         // The floating menu button sits in a band of its own whenever the
         // sidebar is closed, on any screen — never over a page's title.
-        isOpen === false && "pt-14",
+        // A closed sidebar leaves a 56px rail on the right, never a band on top.
+        isOpen === false && "md:mr-14",
         isOpen !== null && "transition-all duration-300",
         isOpen === null ? "md:mr-64" : isOpen ? "md:mr-64 mr-0" : "mr-0"
       )}>
