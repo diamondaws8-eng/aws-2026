@@ -6,7 +6,8 @@ import { Printer, FileSpreadsheet, FileText, ChevronRight, ChevronLeft, Loader2,
 import type { DailyAbsence, SheetIdentity } from '@/lib/daily-absence'
 import { ABSENCE_STATUS_LABEL } from '@/lib/daily-absence-labels'
 import { SCHOOL_IDENTITY, IDENTITY_HEADER_LINES, IDENTITY_FOOTER_ITEMS } from '@/lib/school-identity'
-import { SHEET_TITLE, SHEET_COLUMNS, sheetFileStem, buildAbsenceWorkbook, buildAbsenceDocx, classSummary, stageGroups, totalsLine } from '@/lib/absence-export'
+import { SHEET_TITLE, SHEET_COLUMNS, sheetFileStem, buildAbsenceWorkbook, classSummary, stageGroups, totalsLine } from '@/lib/absence-export'
+import { buildAbsenceDocx } from '@/lib/absence-docx'
 
 type Props = {
   data: DailyAbsence
@@ -135,8 +136,8 @@ export function DailyAbsenceReport({ data, identity, basePath, keepQuery = {}, t
           <div className="sheet-ink text-[12.5px] leading-6 font-semibold">
             {IDENTITY_HEADER_LINES.map((l, i) => <p key={l} className={i === 3 ? 'text-[11px] font-medium' : ''}>{l}</p>)}
           </div>
-          <img src={SCHOOL_IDENTITY.ministryLogo} alt={SCHOOL_IDENTITY.ministry} className="h-16 w-auto object-contain" />
-          <img src={SCHOOL_IDENTITY.schoolLogo} alt={identity.schoolName} className="h-[74px] w-auto object-contain" />
+          <img src={SCHOOL_IDENTITY.ministryLogo} alt={SCHOOL_IDENTITY.ministry} className="h-14 w-auto object-contain" />
+          <img src={SCHOOL_IDENTITY.schoolLogo} alt={identity.schoolName} className="h-[84px] w-auto object-contain" />
         </div>
         <div className="sheet-rule border-b-[3px] border-double mt-3" />
 
