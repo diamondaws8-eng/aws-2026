@@ -32,6 +32,7 @@ import type { LucideIcon } from 'lucide-react'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { BrandLogo } from '@/components/brand-logo'
 import { MotionLayer } from '@/components/motion-layer'
+import { UnreadDot, inboxHrefFor } from '@/components/notification-bell'
 
 // ─── Nav config per role ──────────────────────────────────────────────────────
 
@@ -252,6 +253,7 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
                       <Icon className="size-4" />
                     </span>
                     {link.label}
+                    {link.href === inboxHrefFor(pathname) && <UnreadDot className="ms-auto" />}
                   </Link>
                 </li>
               )
@@ -340,6 +342,9 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
         // the sidebar — every desktop page then overflowed 256px to the left,
         // grew a horizontal scrollbar, and cut off the bell in the header.
         "min-h-screen w-full min-w-0 max-md:pt-14",
+        // The floating menu button sits in a band of its own whenever the
+        // sidebar is closed, on any screen — never over a page's title.
+        isOpen === false && "pt-14",
         isOpen !== null && "transition-all duration-300",
         isOpen === null ? "md:mr-64" : isOpen ? "md:mr-64 mr-0" : "mr-0"
       )}>
