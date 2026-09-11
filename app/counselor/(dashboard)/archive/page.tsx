@@ -36,6 +36,7 @@ export default async function CounselorArchivePage() {
         <CaseArchiveTable
           rows={cases.map((c) => ({
             id: c.id,
+            studentId: c.studentId,
             studentName: c.studentName,
             className: c.className,
             gradeName: c.gradeName,

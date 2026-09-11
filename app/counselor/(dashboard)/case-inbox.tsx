@@ -260,7 +260,9 @@ function CaseDecision({
       <div className="bg-background rounded-3xl border border-border shadow-xl w-full max-w-2xl max-h-[92vh] overflow-auto">
         <div className="p-4 border-b border-border flex items-center justify-between sticky top-0 bg-background">
           <div className="min-w-0">
-            <h3 className="font-bold text-lg truncate">{c.studentName}</h3>
+            <h3 className="font-bold text-lg truncate">
+              <Link href={`/counselor/students/${c.studentId}`} target="_blank" className="hover:text-primary underline-offset-2 hover:underline" title="السجل الكامل للطالب">{c.studentName}</Link>
+            </h3>
             <p className="text-xs text-muted-foreground">
               {c.gradeName ? `${c.gradeName} — ` : ''}{c.className ? `فصل ${c.className}` : ''} · رفعها {c.teacherName} · {c.date}
             </p>

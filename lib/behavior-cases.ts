@@ -5,6 +5,8 @@ import { alias } from 'drizzle-orm/pg-core'
 
 /** school_staff appears twice in one query: the row's owner and its escalation target. */
 const escalatedStaff = alias(schoolStaff, 'escalated_staff')
+/** A case can be raised by a counsellor as well as a teacher; the name comes from whichever table holds them. */
+const raiserStaff = alias(schoolStaff, 'raiser_staff')
 
 /**
  * A behaviour case moves through one owner at a time. The teacher who raises it
@@ -68,6 +70,7 @@ export async function listCases(opts: {
       gradeName: gradeLevels.name,
       subjectName: subjects.name,
       teacherName: teachers.fullName,
+      raiserStaffName: raiserStaff.fullName,
       teacherNote: behaviorCases.teacherNote,
       adminNote: behaviorCases.adminNote,
       date: behaviorCases.date,
@@ -84,15 +87,16 @@ export async function listCases(opts: {
     .leftJoin(gradeLevels, eq(gradeLevels.id, classes.gradeLevelId))
     .leftJoin(subjects, eq(subjects.id, behaviorCases.subjectId))
     .leftJoin(teachers, eq(teachers.userId, behaviorCases.raisedByUserId))
+    .leftJoin(raiserStaff, eq(raiserStaff.userId, behaviorCases.raisedByUserId))
     .leftJoin(escalatedStaff, eq(escalatedStaff.userId, behaviorCases.escalatedToUserId))
     .where(and(...filters))
     .orderBy(desc(behaviorCases.createdAt))
     .limit(opts.limit ?? 100)
 
-  return rows.map(({ escalatedToUserId, ...r }) => ({
+  return rows.map(({ escalatedToUserId, raiserStaffName, ...r }) => ({
     ...r,
     studentName: r.studentName ?? 'طالب محذوف',
-    teacherName: r.teacherName ?? 'معلم محذوف',
+    teacherName: r.teacherName ?? (raiserStaffName ? `${raiserStaffName} (الموجه)` : 'معلم محذوف'),
     // A case handed to somebody whose account was later removed still says
     // it was handed on — a blank would read as if it never was.
     escalatedToName: r.escalatedToName ?? (escalatedToUserId ? 'مسؤول محذوف' : null),
@@ -142,6 +146,7 @@ export async function listCaseHeads(opts: {
       className: classes.name,
       gradeName: gradeLevels.name,
       teacherName: teachers.fullName,
+      raiserStaffName: raiserStaff.fullName,
       date: behaviorCases.date,
       status: behaviorCases.status,
       createdAt: behaviorCases.createdAt,
@@ -151,14 +156,15 @@ export async function listCaseHeads(opts: {
     .leftJoin(classes, eq(classes.id, behaviorCases.classId))
     .leftJoin(gradeLevels, eq(gradeLevels.id, classes.gradeLevelId))
     .leftJoin(teachers, eq(teachers.userId, behaviorCases.raisedByUserId))
+    .leftJoin(raiserStaff, eq(raiserStaff.userId, behaviorCases.raisedByUserId))
     .where(and(...filters))
     .orderBy(desc(behaviorCases.createdAt))
     .limit(opts.limit ?? 100)
 
-  return rows.map((r) => ({
+  return rows.map(({ raiserStaffName, ...r }) => ({
     ...r,
     studentName: r.studentName ?? 'طالب محذوف',
-    teacherName: r.teacherName ?? 'معلم محذوف',
+    teacherName: r.teacherName ?? (raiserStaffName ? `${raiserStaffName} (الموجه)` : 'معلم محذوف'),
     status: (isCaseStatus(r.status) ? r.status : 'open') as CaseStatus,
   }))
 }
@@ -193,11 +199,13 @@ export async function countCasesByTeacher(schoolId: string, classIds?: string[] 
     .select({
       teacherUserId: behaviorCases.raisedByUserId,
       teacherName: teachers.fullName,
+      raiserStaffName: raiserStaff.fullName,
       total: sql<number>`COUNT(*)`.mapWith(Number),
       dismissed: sql<number>`COUNT(*) FILTER (WHERE ${behaviorCases.status} = 'dismissed')`.mapWith(Number),
     })
     .from(behaviorCases)
     .leftJoin(teachers, eq(teachers.userId, behaviorCases.raisedByUserId))
+    .leftJoin(raiserStaff, eq(raiserStaff.userId, behaviorCases.raisedByUserId))
     .where(and(...filters))
     .groupBy(behaviorCases.raisedByUserId, teachers.fullName)
     .orderBy(desc(sql`COUNT(*)`))

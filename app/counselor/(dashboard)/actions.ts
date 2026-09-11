@@ -41,10 +41,12 @@ const MAX_NOTE = 2000
  * and goes back to messaging families from their own phone.
  */
 async function tellTeacher(
-  access: { schoolId: string; name: string },
+  access: { schoolId: string; name: string; userId?: string },
   row: { raisedByUserId: string; studentId: string; classId: string; id: string },
   outcome: string,
 ) {
+  // A note the counsellor wrote themselves has no teacher waiting to hear.
+  if (access.userId && row.raisedByUserId === access.userId) return
   const { notify } = await import('@/lib/notifications')
   const [student] = await db
     .select({ fullName: students.fullName })
@@ -296,7 +298,7 @@ export async function getStudentCaseHistory(studentId: string) {
 export async function getCaseContext(caseId: string) {
   const { access, row } = await requireOwnCase(caseId)
 
-  const { dailyRecords, lessonRecords, gradeEntries, subjects: subj, teachers: tch } = await import('@/lib/db/schema')
+  const { dailyRecords, lessonRecords, gradeEntries, subjects: subj, teachers: tch, schoolStaff: stf } = await import('@/lib/db/schema')
   const { sql, desc, gte } = await import('drizzle-orm')
   const { getStudentPointsTotal } = await import('@/lib/points')
 
@@ -320,10 +322,12 @@ export async function getCaseContext(caseId: string) {
         counselorNote: behaviorCases.counselorNote,
         adminNote: behaviorCases.adminNote,
         teacherName: tch.fullName,
+        raiserStaffName: stf.fullName,
         parentMessageSent: behaviorCases.parentMessageSent,
       })
       .from(behaviorCases)
       .leftJoin(tch, eq(tch.userId, behaviorCases.raisedByUserId))
+      .leftJoin(stf, eq(stf.userId, behaviorCases.raisedByUserId))
       .where(and(
         eq(behaviorCases.studentId, row.studentId),
         sql`${behaviorCases.id} <> ${caseId}`,
@@ -361,9 +365,9 @@ export async function getCaseContext(caseId: string) {
 
   return {
     studentName: student?.fullName ?? '',
-    history: history.map((h) => ({
+    history: history.map(({ raiserStaffName, ...h }) => ({
       ...h,
-      teacherName: h.teacherName ?? 'معلم محذوف',
+      teacherName: h.teacherName ?? (raiserStaffName ? `${raiserStaffName} (الموجه)` : 'معلم محذوف'),
     })),
     attendance: att,
     attendanceDays: att.present + att.late + att.absent + att.excused,
@@ -385,4 +389,58 @@ export async function getParentContact(caseId: string) {
     .where(eq(students.id, row.studentId))
     .limit(1)
   return s ?? null
+}
+
+// ── The counsellor's own observations ────────────────────────────────────────
+/**
+ * Pupils this counsellor may write about, for the picker: name and class,
+ * nothing else, cut to their stages. Matched on the server so a counsellor
+ * covering a whole building does not download every pupil to type a name.
+ */
+export async function searchMyPupils(q: string): Promise<{ id: string; fullName: string; className: string | null }[]> {
+  const access = await requireCounselor()
+  const needle = String(q ?? '').trim().slice(0, 60)
+  if (needle.length < 2) return []
+  const classIds = access.allGrades ? null : await getCounselorClassIds(access)
+  if (classIds && classIds.length === 0) return []
+  const { ilike, inArray } = await import('drizzle-orm')
+  return db
+    .select({ id: students.id, fullName: students.fullName, className: classes.name })
+    .from(students)
+    .leftJoin(classes, eq(classes.id, students.classId))
+    .where(and(
+      eq(students.schoolId, access.schoolId),
+      eq(students.status, 'active'),
+      ilike(students.fullName, `%${needle}%`),
+      classIds ? inArray(students.classId, classIds) : undefined,
+    ))
+    .limit(12)
+}
+
+/**
+ * A case the counsellor opens themselves — something seen in the corridor,
+ * or brought by a parent — so it lives in the same record as everything the
+ * teachers raise, and is decided the same way. It lands in this counsellor's
+ * own inbox: nobody else is told, because there is nobody else to tell.
+ */
+export async function raiseCaseByCounselor(input: { studentId: string; note: string }): Promise<CaseResult> {
+  const access = await requireCounselor()
+  const note = String(input.note ?? '').trim().slice(0, MAX_NOTE)
+  if (note.length < 5) return { ok: false, error: 'اكتب ما لاحظته — بلا وصف لا تُقرَّر حالة' }
+  const student = await requireCounselorForStudent(access, input.studentId)
+  if (!student.classId) return { ok: false, error: 'الطالب بلا فصل — أسنده لفصل أولاً من الإدارة' }
+  const [created] = await db.insert(behaviorCases).values({
+    schoolId: access.schoolId,
+    studentId: student.id,
+    classId: student.classId,
+    subjectId: null,
+    raisedByUserId: access.userId,
+    teacherNote: note,
+    date: schoolToday(),
+    status: 'open',
+    ownerUserId: access.userId,
+  }).returning({ id: behaviorCases.id })
+  await logCounselorAudit(access, 'case.raised', undefined, { byCounselor: true, caseId: created?.id ?? null })
+  revalidatePath('/counselor')
+  return { ok: true }
 }

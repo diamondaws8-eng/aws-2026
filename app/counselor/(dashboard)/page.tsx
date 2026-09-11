@@ -10,6 +10,8 @@ import { StatCard } from '@/components/stat-card'
 import { EmptyState } from '@/components/empty-state'
 import { ClipboardList, AlertTriangle, CheckCircle2, Clock } from 'lucide-react'
 import { NotificationBell } from '@/components/notification-bell'
+import { CounselorRaiseCase } from '@/components/counselor-raise-case'
+import { CounselorPupilSearch } from '@/components/counselor-pupil-search'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,8 +60,13 @@ export default async function CounselorInboxPage() {
             لا شيء يصل إلى ولي الأمر قبل أن تقرأه — القرار لك
           </p>
         </div>
-        <NotificationBell />
+        <div className="flex items-center gap-2">
+          <NotificationBell />
+          <CounselorRaiseCase />
+        </div>
       </div>
+
+      <CounselorPupilSearch />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="بانتظار قرارك" value={open.length} icon={ClipboardList} accent="amber" />

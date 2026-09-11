@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { Search } from 'lucide-react'
 import { CASE_STATUS, type CaseStatus } from '@/lib/case-status'
 
@@ -15,6 +16,7 @@ const STATUS_STYLE: Record<CaseStatus, string> = {
 
 type Row = {
   id: string
+  studentId: string
   studentName: string
   className: string | null
   gradeName: string | null
@@ -68,7 +70,7 @@ export function CaseArchiveTable({ rows }: { rows: Row[] }) {
             <tbody className="divide-y divide-border">
               {shown.map((c) => (
                 <tr key={c.id} className="hover:bg-muted/40">
-                  <td className="p-3 font-semibold">{c.studentName}</td>
+                  <td className="p-3 font-semibold"><Link href={`/counselor/students/${c.studentId}`} className="hover:text-primary underline-offset-2 hover:underline">{c.studentName}</Link></td>
                   <td className="p-3 text-muted-foreground text-xs">
                     {c.gradeName ? `${c.gradeName} — ` : ''}{c.className ? `فصل ${c.className}` : '—'}
                   </td>
