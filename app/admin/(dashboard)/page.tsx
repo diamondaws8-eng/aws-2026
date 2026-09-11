@@ -15,6 +15,8 @@ import { RecentNotifications } from './recent-notifications'
 import { StageFilter } from './stage-filter'
 import { getSchoolSettings } from './settings/actions-settings'
 import { NotificationBell } from '@/components/notification-bell'
+import { getDataHealth } from '@/lib/data-health'
+import { DataHealthCard } from '@/components/data-health-card'
 
 export const dynamic = 'force-dynamic'
 
@@ -513,6 +515,10 @@ export default async function AdminDashboardPage({
       </div>
 
       <StageFilter stages={permittedGrades} selected={selectedGradeIds} />
+
+      {/* Only whole-school accounts see the school's own gaps: a deputy cannot
+          assign a counsellor or take a backup, so the list would only nag. */}
+      {access.viewAllGrades && <DataHealthCard items={await getDataHealth(school.id)} />}
 
       <HeroStats
         studentCount={studentCount.value}

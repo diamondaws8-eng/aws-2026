@@ -3,6 +3,7 @@ import SettingsClient from './settings-client'
 import { requireAdminAccess } from '@/lib/admin-access'
 import { Settings as SettingsIcon } from 'lucide-react'
 import { NotificationBell } from '@/components/notification-bell'
+import { ResetTestData } from '@/components/reset-test-data'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,6 +47,8 @@ export default async function AdminSettingsPage() {
         initialHolidays={holidays}
         initialStages={stages}
       />
+
+      {access.role === 'owner' && <ResetTestData />}
     </div>
   )
 }

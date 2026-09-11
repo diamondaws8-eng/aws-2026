@@ -75,6 +75,7 @@ export async function listCases(opts: {
       createdAt: behaviorCases.createdAt,
       decidedAt: behaviorCases.decidedAt,
       escalatedToName: escalatedStaff.fullName,
+      escalatedToUserId: behaviorCases.escalatedToUserId,
       parentMessageSent: behaviorCases.parentMessageSent,
     })
     .from(behaviorCases)
@@ -88,10 +89,13 @@ export async function listCases(opts: {
     .orderBy(desc(behaviorCases.createdAt))
     .limit(opts.limit ?? 100)
 
-  return rows.map((r) => ({
+  return rows.map(({ escalatedToUserId, ...r }) => ({
     ...r,
     studentName: r.studentName ?? 'طالب محذوف',
     teacherName: r.teacherName ?? 'معلم محذوف',
+    // A case handed to somebody whose account was later removed still says
+    // it was handed on — a blank would read as if it never was.
+    escalatedToName: r.escalatedToName ?? (escalatedToUserId ? 'مسؤول محذوف' : null),
     status: (isCaseStatus(r.status) ? r.status : 'open') as CaseStatus,
   }))
 }

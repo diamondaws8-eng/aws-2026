@@ -52,3 +52,6 @@ export const DEFAULT_SETTINGS: SchoolSettings = {
     ]
   }
 }
+
+/** Typed by the owner to wipe the trial records — see resetOperationalData. */
+export const RESET_PHRASE = 'مسح بيانات التجربة'

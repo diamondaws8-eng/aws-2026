@@ -28,6 +28,7 @@ export type AuditAction =
   | 'settings.update'
   | 'backup.export'
   | 'backup.restore'
+  | 'data.reset'
   | 'parents.requirePasswordChange'
   | 'teacher.dailyRecords.backdated'
   | 'teacher.attendance.lateArrival'
@@ -66,6 +67,7 @@ export const AUDIT_LABELS: Record<AuditAction, string> = {
   'settings.update': 'تعديل إعدادات المدرسة',
   'backup.export': 'تنزيل نسخة احتياطية',
   'backup.restore': 'استعادة نسخة احتياطية',
+  'data.reset': 'مسح بيانات التجربة قبل التشغيل',
   'parents.requirePasswordChange': 'إلزام أولياء الأمور بتغيير كلمة المرور',
   'teacher.dailyRecords.backdated': 'تعديل سجل يوم سابق',
   'teacher.attendance.lateArrival': 'تسجيل وصول متأخر بدل غياب سجّله معلم آخر',

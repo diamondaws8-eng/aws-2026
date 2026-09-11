@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import {
   schools, gradeLevels, classes, teachers, students, subjects, attendance,
   gradeEntries, notifications, dailyRecords, lessonRecords, studentPoints, user, schoolStaff, account,
-  behaviorCases, schoolHolidays, schoolYears, parentWhatsappMessages, parentActivationLog, auditLog,
+  behaviorCases, schoolHolidays, schoolYears, parentWhatsappMessages, parentActivationLog, auditLog, userNotifications,
 } from '@/lib/db/schema'
 import { eq, inArray, and, ne } from 'drizzle-orm'
 import { getAdminAccess } from '@/lib/admin-access'
@@ -14,7 +14,7 @@ import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { cache } from 'react'
 import type { SchoolSettings } from './settings-types'
-import { DEFAULT_SETTINGS } from './settings-types'
+import { DEFAULT_SETTINGS, RESET_PHRASE } from './settings-types'
 
 // ── Get current school settings ───────────────────────────────────────────────
 /**
@@ -64,6 +64,44 @@ const readSchoolSettings = cache(async (schoolId: string): Promise<SchoolSetting
     return DEFAULT_SETTINGS
   }
 })
+
+// ── Wipe the trial period's records before the real start ────────────────────
+/**
+ * Everything written by using the system — attendance, lessons, points, marks,
+ * cases, notices — goes; everything that describes the school — stages,
+ * classes, pupils, teachers, staff, calendar, settings, accounts — stays.
+ * Owner only, behind a typed phrase, logged, and meant to be run once: the
+ * morning the school stops practising and starts.
+ */
+export async function resetOperationalData(phrase: string): Promise<{ ok: true; removed: Record<string, number> } | { ok: false; error: string }> {
+  const access = await getAdminAccess()
+  if (!access || access.role !== 'owner') return { ok: false, error: 'هذا الإجراء للمالك وحده' }
+  if (String(phrase ?? '').trim() !== RESET_PHRASE) return { ok: false, error: `اكتب العبارة كما هي: ${RESET_PHRASE}` }
+
+  const schoolId = access.school.id
+  try {
+    const removed: Record<string, number> = {}
+    await db.transaction(async (tx) => {
+      const del = async (name: string, q: Promise<{ rowCount: number | null }>) => { removed[name] = (await q).rowCount ?? 0 }
+      await del('dailyRecords', tx.delete(dailyRecords).where(eq(dailyRecords.schoolId, schoolId)))
+      await del('lessonRecords', tx.delete(lessonRecords).where(eq(lessonRecords.schoolId, schoolId)))
+      await del('studentPoints', tx.delete(studentPoints).where(eq(studentPoints.schoolId, schoolId)))
+      await del('gradeEntries', tx.delete(gradeEntries).where(eq(gradeEntries.schoolId, schoolId)))
+      await del('behaviorCases', tx.delete(behaviorCases).where(eq(behaviorCases.schoolId, schoolId)))
+      await del('userNotifications', tx.delete(userNotifications).where(eq(userNotifications.schoolId, schoolId)))
+      await del('notifications', tx.delete(notifications).where(eq(notifications.schoolId, schoolId)))
+      await del('parentWhatsappMessages', tx.delete(parentWhatsappMessages).where(eq(parentWhatsappMessages.schoolId, schoolId)))
+      await del('parentActivationLog', tx.delete(parentActivationLog).where(eq(parentActivationLog.schoolId, schoolId)))
+      await del('attendance', tx.delete(attendance).where(eq(attendance.schoolId, schoolId)))
+    })
+    await logAudit(access, 'data.reset', access.school.name, removed)
+    revalidatePath('/admin', 'layout')
+    return { ok: true, removed }
+  } catch (error) {
+    console.error('Reset Operational Data Error:', error)
+    return { ok: false, error: 'تعذّر المسح — لم يتغير شيء' }
+  }
+}
 
 // ── Save school settings ──────────────────────────────────────────────────────
 export async function saveSchoolSettings(schoolId: string, settings: SchoolSettings) {
