@@ -277,7 +277,8 @@ function TrendChart({
   series: TrendSeries[]
   highlightIndex?: number
 }) {
-  const [kind, setKind] = useState<TrendKind>('line')
+  // Radar first: the owner asked for it as the default shape.
+  const [kind, setKind] = useState<TrendKind>('radar')
   useEffect(() => {
     try {
       const v = localStorage.getItem(TREND_KIND_KEY)
