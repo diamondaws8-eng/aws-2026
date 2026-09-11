@@ -64,7 +64,7 @@ export default async function ParentDashboardPage({
 
   const activeChildId = params.child || children[0].id
   const dashboard     = await getStudentDashboard(activeChildId)
-  if (!dashboard) redirect('/parent/login')
+  if (!dashboard) redirect('/parent') // a child id that is not theirs — back to their own children, not to the login page
 
   const { student, classInfo, gradeName, totalPoints, attendance, subjectCards, possiblePoints, recentRecords, recentGrades } = dashboard
   const totalSessions = attendance.present + attendance.absent + attendance.late + attendance.excused

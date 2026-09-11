@@ -6,10 +6,17 @@ import { db } from '@/lib/db'
 import { user } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { CounselorSetPasswordCard } from './set-password-card'
+import { homePortalFor } from '@/lib/home-portal'
+import { auth } from '@/lib/auth'
+import { headers } from 'next/headers'
 
 export default async function CounselorLayout({ children }: { children: React.ReactNode }) {
   const access = await getCounselorAccess()
-  if (!access) redirect('/counselor/login')
+  if (!access) {
+    // A real account that is not a counsellor goes to its own portal.
+    const session = await auth.api.getSession({ headers: await headers() })
+    redirect(session?.user ? ((await homePortalFor(session.user.id, session.user.role)) ?? '/counselor/login') : '/counselor/login')
+  }
 
   // Issued passwords open nothing until replaced — this account reads private
   // notes about children.

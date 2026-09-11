@@ -4,6 +4,7 @@ import { students, user, schools } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
+import { homePortalFor } from '@/lib/home-portal'
 import { PortalLayout } from '@/components/portal-layout'
 import { SetPasswordCard } from './set-password-card'
 
@@ -12,7 +13,7 @@ export default async function ParentDashboardLayout({ children }: { children: Re
   if (!session?.user) redirect('/parent/login')
   // A parent's portal, for parents. A teacher or an administrator who lands
   // here is signed in, but not as a parent — send them to pick their portal.
-  if (session.user.role !== 'parent') redirect('/')
+  if (session.user.role !== 'parent') redirect((await homePortalFor(session.user.id, session.user.role)) ?? '/')
 
   // While the account still has the shared starter password, nothing else is
   // reachable — the parent must pick their own password first.

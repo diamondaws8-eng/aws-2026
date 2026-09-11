@@ -7,13 +7,14 @@ import { eq, and, sql, desc, gte, inArray } from 'drizzle-orm'
 import { hashPassword } from 'better-auth/crypto'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
+import { homePortalFor } from '@/lib/home-portal'
 import { getStudentPointsTotal, getManualPoints, deriveLessonEntries, yearStartForStudent, maxPossiblePoints } from '@/lib/points'
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 export async function requireParent() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect('/parent/login')
-  if (session.user.role !== 'parent') redirect('/')
+  if (session.user.role !== 'parent') redirect((await homePortalFor(session.user.id, session.user.role)) ?? '/')
   return session.user
 }
 
