@@ -13,6 +13,7 @@ import { getStudentPointsTotal, getManualPoints, deriveLessonEntries, yearStartF
 export async function requireParent() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect('/parent/login')
+  if (session.user.role !== 'parent') redirect('/')
   return session.user
 }
 

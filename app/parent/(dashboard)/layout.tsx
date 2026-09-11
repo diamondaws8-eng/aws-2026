@@ -10,6 +10,9 @@ import { SetPasswordCard } from './set-password-card'
 export default async function ParentDashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect('/parent/login')
+  // A parent's portal, for parents. A teacher or an administrator who lands
+  // here is signed in, but not as a parent — send them to pick their portal.
+  if (session.user.role !== 'parent') redirect('/')
 
   // While the account still has the shared starter password, nothing else is
   // reachable — the parent must pick their own password first.
