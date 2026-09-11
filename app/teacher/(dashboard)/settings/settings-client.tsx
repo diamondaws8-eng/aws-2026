@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { AppearanceSettings } from '@/components/appearance-settings'
 import { authClient } from '@/lib/auth-client'
 import { updateTeacherSettings } from './actions'
 import { NotificationBell } from '@/components/notification-bell'
@@ -239,6 +240,7 @@ export function TeacherSettingsClient({
           </button>
         </form>
       </div>
+      <AppearanceSettings />
     </div>
   )
 }

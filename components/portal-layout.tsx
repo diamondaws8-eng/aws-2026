@@ -30,7 +30,6 @@ import {
 import type { LucideIcon } from 'lucide-react'
 
 import { ThemeToggle } from '@/components/theme-toggle'
-import { PalettePicker } from '@/components/palette-picker'
 import { BrandLogo } from '@/components/brand-logo'
 import { MotionLayer } from '@/components/motion-layer'
 import { UnreadDot, inboxHrefFor } from '@/components/notification-bell'
@@ -210,7 +209,6 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
             <div className="relative flex items-center justify-between">
               <BrandLogo size={40} rounded="rounded-xl" href={null} className="ring-2 ring-white/40" />
               <div className="flex items-center gap-1">
-                <PalettePicker buttonClassName="p-2.5 rounded-full text-white/80 hover:bg-white/15 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60" />
                 <ThemeToggle />
                 <button
                   onClick={() => setIsOpen(false)}

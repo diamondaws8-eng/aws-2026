@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { AppearanceSettings } from '@/components/appearance-settings'
 import { authClient } from '@/lib/auth-client'
 import { NotificationBell } from '@/components/notification-bell'
 
@@ -78,6 +79,7 @@ export default function ParentSettingsPage() {
           </button>
         </form>
       </div>
+      <AppearanceSettings />
     </div>
   )
 }

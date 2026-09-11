@@ -1,4 +1,5 @@
 import { getSchoolSettings } from './actions-settings'
+import { AppearanceSettings } from '@/components/appearance-settings'
 import SettingsClient from './settings-client'
 import { requireAdminAccess } from '@/lib/admin-access'
 import { Settings as SettingsIcon } from 'lucide-react'
@@ -28,6 +29,8 @@ export default async function AdminSettingsPage() {
         </div>
         <div className="ms-auto"><NotificationBell /></div>
       </div>
+
+      <AppearanceSettings />
 
       <SettingsClient
         schoolId={access.school.id}

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { AppearanceSettings } from '@/components/appearance-settings'
 import Link from 'next/link'
 import { authClient } from '@/lib/auth-client'
 import { NotificationBell } from '@/components/notification-bell'
@@ -552,6 +553,7 @@ export function CounselorSettingsClient({
         </Link>
         .
       </p>
+      <AppearanceSettings />
     </div>
   )
 }
