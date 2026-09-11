@@ -207,9 +207,9 @@ export async function countCasesByTeacher(schoolId: string, classIds?: string[] 
     .leftJoin(teachers, eq(teachers.userId, behaviorCases.raisedByUserId))
     .leftJoin(raiserStaff, eq(raiserStaff.userId, behaviorCases.raisedByUserId))
     .where(and(...filters))
-    .groupBy(behaviorCases.raisedByUserId, teachers.fullName)
+    .groupBy(behaviorCases.raisedByUserId, teachers.fullName, raiserStaff.fullName)
     .orderBy(desc(sql`COUNT(*)`))
-  return rows.map((r) => ({ ...r, teacherName: r.teacherName ?? 'معلم محذوف' }))
+  return rows.map(({ raiserStaffName, ...r }) => ({ ...r, teacherName: r.teacherName ?? (raiserStaffName ? `${raiserStaffName} (الموجه)` : 'معلم محذوف') }))
 }
 
 /** Students carrying several open or recent cases — a pattern, not an incident. */

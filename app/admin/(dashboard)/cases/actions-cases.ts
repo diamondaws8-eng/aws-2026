@@ -72,6 +72,10 @@ async function tellCounselorAndTeacher(
   const name = await studentName(row.studentId)
   const counselors = await counselorsForClass(access.school.id, row.classId)
 
+  // A case the counsellor raised themselves has no teacher behind it: the
+  // counsellor is told once, as counsellor, not a second time as «the teacher»
+  // with a link into a portal they do not have.
+  const raiserIsCounselor = counselors.includes(row.raisedByUserId)
   await notify([
     ...counselors.map((userId) => ({
       schoolId: access.school.id,
@@ -83,7 +87,7 @@ async function tellCounselorAndTeacher(
       entityId: row.id,
       actorName: access.name,
     })),
-    {
+    ...(raiserIsCounselor ? [] : [{
       schoolId: access.school.id,
       recipientUserId: row.raisedByUserId,
       kind: 'case_decided' as const,
@@ -92,7 +96,7 @@ async function tellCounselorAndTeacher(
       href: `/teacher/classes/${row.classId}`,
       entityId: row.id,
       actorName: access.name,
-    },
+    }]),
   ])
 }
 
