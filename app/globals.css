@@ -235,6 +235,35 @@
   :root:not(.light) [data-portal='parent'] { --primary: oklch(0.76 0.16 305); --portal-a: #a78bfa; --portal-b: #f472b6; }
 }
 
+/* ── Palettes: one accent for the whole system, chosen by the person ──────
+   Written after the per-portal accents so a chosen palette wins in every
+   portal; «portal» sets nothing and lets each portal keep its own hue.
+   The default is slate, set before first paint by PALETTE_BOOT_SCRIPT. */
+:root[data-palette='slate'], :root[data-palette='slate'] [data-portal] { --primary: oklch(0.42 0.03 255); --portal-a: #475569; --portal-b: #64748b; }
+:root.dark[data-palette='slate'], :root.dark[data-palette='slate'] [data-portal] { --primary: oklch(0.8 0.02 250); --portal-a: #94a3b8; --portal-b: #cbd5e1; }
+:root[data-palette='indigo'], :root[data-palette='indigo'] [data-portal] { --primary: oklch(0.5 0.2 268); --portal-a: #4f46e5; --portal-b: #7c3aed; }
+:root.dark[data-palette='indigo'], :root.dark[data-palette='indigo'] [data-portal] { --primary: oklch(0.74 0.15 268); --portal-a: #6366f1; --portal-b: #a78bfa; }
+:root[data-palette='emerald'], :root[data-palette='emerald'] [data-portal] { --primary: oklch(0.52 0.15 160); --portal-a: #059669; --portal-b: #0d9488; }
+:root.dark[data-palette='emerald'], :root.dark[data-palette='emerald'] [data-portal] { --primary: oklch(0.76 0.14 160); --portal-a: #10b981; --portal-b: #2dd4bf; }
+:root[data-palette='teal'], :root[data-palette='teal'] [data-portal] { --primary: oklch(0.52 0.12 205); --portal-a: #0891b2; --portal-b: #0d9488; }
+:root.dark[data-palette='teal'], :root.dark[data-palette='teal'] [data-portal] { --primary: oklch(0.76 0.12 205); --portal-a: #22d3ee; --portal-b: #2dd4bf; }
+:root[data-palette='violet'], :root[data-palette='violet'] [data-portal] { --primary: oklch(0.52 0.2 305); --portal-a: #7c3aed; --portal-b: #db2777; }
+:root.dark[data-palette='violet'], :root.dark[data-palette='violet'] [data-portal] { --primary: oklch(0.76 0.16 305); --portal-a: #a78bfa; --portal-b: #f472b6; }
+:root[data-palette='amber'], :root[data-palette='amber'] [data-portal] { --primary: oklch(0.58 0.15 70); --portal-a: #b45309; --portal-b: #d97706; }
+:root.dark[data-palette='amber'], :root.dark[data-palette='amber'] [data-portal] { --primary: oklch(0.82 0.15 80); --portal-a: #f59e0b; --portal-b: #fbbf24; }
+:root[data-palette='rose'], :root[data-palette='rose'] [data-portal] { --primary: oklch(0.55 0.2 15); --portal-a: #be123c; --portal-b: #e11d48; }
+:root.dark[data-palette='rose'], :root.dark[data-palette='rose'] [data-portal] { --primary: oklch(0.78 0.15 15); --portal-a: #fb7185; --portal-b: #f9a8d4; }
+@media (prefers-color-scheme: dark) {
+  :root:not(.light)[data-palette='slate'], :root:not(.light)[data-palette='slate'] [data-portal] { --primary: oklch(0.8 0.02 250); --portal-a: #94a3b8; --portal-b: #cbd5e1; }
+  :root:not(.light)[data-palette='indigo'], :root:not(.light)[data-palette='indigo'] [data-portal] { --primary: oklch(0.74 0.15 268); --portal-a: #6366f1; --portal-b: #a78bfa; }
+  :root:not(.light)[data-palette='emerald'], :root:not(.light)[data-palette='emerald'] [data-portal] { --primary: oklch(0.76 0.14 160); --portal-a: #10b981; --portal-b: #2dd4bf; }
+  :root:not(.light)[data-palette='teal'], :root:not(.light)[data-palette='teal'] [data-portal] { --primary: oklch(0.76 0.12 205); --portal-a: #22d3ee; --portal-b: #2dd4bf; }
+  :root:not(.light)[data-palette='violet'], :root:not(.light)[data-palette='violet'] [data-portal] { --primary: oklch(0.76 0.16 305); --portal-a: #a78bfa; --portal-b: #f472b6; }
+  :root:not(.light)[data-palette='amber'], :root:not(.light)[data-palette='amber'] [data-portal] { --primary: oklch(0.82 0.15 80); --portal-a: #f59e0b; --portal-b: #fbbf24; }
+  :root:not(.light)[data-palette='rose'], :root:not(.light)[data-palette='rose'] [data-portal] { --primary: oklch(0.78 0.15 15); --portal-a: #fb7185; --portal-b: #f9a8d4; }
+}
+
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

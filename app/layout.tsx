@@ -28,6 +28,7 @@ export const viewport: Viewport = {
 }
 
 import { ThemeProvider } from '@/components/theme-provider'
+import { PALETTE_BOOT_SCRIPT } from '@/components/palette-picker'
 
 export default function RootLayout({
   children,
@@ -36,11 +37,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
+      <head>
+        {/* The remembered palette, applied before the first paint. */}
+        <script dangerouslySetInnerHTML={{ __html: PALETTE_BOOT_SCRIPT }} />
+      </head>
       <body className={`${cairo.variable} ${geistMono.variable} ${reemKufi.variable} font-sans antialiased bg-background text-foreground transition-colors duration-300`} suppressHydrationWarning>
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
-          enableSystem
+          // Daylight is the default; the toggle still offers the dark mode.
+          defaultTheme="light"
+          enableSystem={false}
           disableTransitionOnChange
         >
           {children}

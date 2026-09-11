@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { ArrowLeft, GraduationCap, School, UsersRound, Sparkles, HeartHandshake, ShieldCheck, BellRing, LineChart } from 'lucide-react'
 import { BrandLogo } from '@/components/brand-logo'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { PalettePicker } from '@/components/palette-picker'
 import { MotionLayer } from '@/components/motion-layer'
 
 const portals = [
@@ -54,7 +55,8 @@ export default function HomePage() {
     <main data-portal="admin" className="portal-shell relative min-h-screen overflow-hidden px-5 py-12 lg:px-12">
       <MotionLayer />
 
-      <div className="absolute top-6 left-6">
+      <div className="absolute top-6 left-6 flex items-center gap-2">
+        <PalettePicker />
         <ThemeToggle />
       </div>
 
