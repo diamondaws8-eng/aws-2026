@@ -721,6 +721,8 @@
 .absence-sheet th { background: #eef2f6; color: #0f172a; }
 .absence-sheet tbody tr:nth-child(even) td { background: #f8fafc; }
 .absence-sheet .sheet-box { border: 1px solid #cbd5e1; }
+/* While the sheet is being captured to a file, nothing may be mid-animation. */
+.absence-sheet.is-capturing, .absence-sheet.is-capturing * { animation: none !important; transition: none !important; opacity: 1 !important; transform: none !important; }
 @media print {
   @page { size: A4; margin: 10mm 12mm; }
   html, body { background: #ffffff !important; color: #000 !important; }

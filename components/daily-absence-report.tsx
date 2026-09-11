@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Printer, FileSpreadsheet, FileText, ChevronRight, ChevronLeft, Loader2, CalendarX, AlertTriangle, Globe, Mail, Phone, AtSign, MapPin } from 'lucide-react'
+import { Printer, FileSpreadsheet, FileText, FileDown, ChevronRight, ChevronLeft, Loader2, CalendarX, AlertTriangle, Globe, Mail, Phone, AtSign, MapPin, Layers, School } from 'lucide-react'
 import type { DailyAbsence, SheetIdentity } from '@/lib/daily-absence'
+import type { AbsenceScope } from '@/lib/daily-absence-scope'
 import { ABSENCE_STATUS_LABEL } from '@/lib/daily-absence-labels'
 import { SCHOOL_IDENTITY, IDENTITY_HEADER_LINES, IDENTITY_FOOTER_ITEMS } from '@/lib/school-identity'
 import { SHEET_TITLE, SHEET_COLUMNS, sheetFileStem, buildAbsenceWorkbook, classSummary, stageGroups, totalsLine } from '@/lib/absence-export'
@@ -14,8 +15,8 @@ type Props = {
   identity: SheetIdentity
   /** Where the date navigation goes: /admin/absence or /counselor/absence (query kept). */
   basePath: string
-  /** Extra query to keep while changing the date, e.g. the stage filter. */
-  keepQuery?: Record<string, string[]>
+  /** What may be picked, what is picked, and the query that keeps it. */
+  scope: AbsenceScope
   today: string
 }
 
@@ -34,19 +35,30 @@ const FOOTER_ICON = { web: Globe, mail: Mail, phone: Phone, social: AtSign, city
  * portal around it and leaves the sheet, so what the officer sees is what
  * comes out of the printer, letterhead and signatures included.
  */
-export function DailyAbsenceReport({ data, identity, basePath, keepQuery = {}, today }: Props) {
+export function DailyAbsenceReport({ data, identity, basePath, scope, today }: Props) {
   const router = useRouter()
-  const [busy, setBusy] = useState<'xlsx' | 'docx' | null>(null)
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const [busy, setBusy] = useState<'xlsx' | 'docx' | 'pdf' | null>(null)
   const [error, setError] = useState('')
   const [draftDate, setDraftDate] = useState(data.date)
   const minDate = `${Number(today.slice(0, 4)) - 1}-01-01`
 
-  const go = (d: string) => {
+  const navigate = (next: { date?: string; stage?: string[]; class?: string[] }) => {
     const q = new URLSearchParams()
-    for (const [k, vs] of Object.entries(keepQuery)) for (const v of vs) q.append(k, v)
-    q.set('date', d)
+    for (const id of next.stage ?? scope.selectedStages) q.append('stage', id)
+    for (const id of next.class ?? scope.selectedClasses) q.append('class', id)
+    q.set('date', next.date ?? data.date)
     router.push(`${basePath}?${q.toString()}`)
   }
+  const go = (d: string) => navigate({ date: d })
+  const toggleStage = (id: string) => {
+    const stages = scope.selectedStages.includes(id) ? scope.selectedStages.filter((x) => x !== id) : [...scope.selectedStages, id]
+    // A class outside the stages now chosen is dropped with them.
+    const keep = new Set(scope.classes.filter((c) => !stages.length || stages.includes(c.gradeId)).map((c) => c.id))
+    navigate({ stage: stages, class: scope.selectedClasses.filter((c) => keep.has(c)) })
+  }
+  const toggleClass = (id: string) => navigate({ class: scope.selectedClasses.includes(id) ? scope.selectedClasses.filter((x) => x !== id) : [...scope.selectedClasses, id] })
+  const classChoices = scope.classes.filter((c) => !scope.selectedStages.length || scope.selectedStages.includes(c.gradeId))
   // The picker navigates on commit, not on every keystroke: a half-typed
   // year is a valid date to the browser and would load a sheet for year 2.
   const commitDate = () => {
@@ -76,6 +88,48 @@ export function DailyAbsenceReport({ data, identity, basePath, keepQuery = {}, t
       download(await docx.Packer.toBlob(doc), `${sheetFileStem(data.date)}.docx`)
     } catch { setError('تعذّر إنشاء ملف Word') } finally { setBusy(null) }
   }
+  // The PDF is the sheet as drawn — the browser paints it into an SVG, the SVG
+  // is rasterised onto a canvas and cut into A4 pages — so it matches the
+  // printout to the pixel, Arabic shaping included. The image is awaited on
+  // load rather than on an animation frame, so a background tab still finishes.
+  const exportPdf = async () => {
+    const node = sheetRef.current
+    if (!node) return
+    setBusy('pdf'); setError('')
+    // Rows enter with an animation; a capture taken mid-animation would print
+    // them faint or shifted, so the sheet is frozen at its final state first.
+    node.classList.add('is-capturing')
+    try {
+      const [{ toSvg }, { jsPDF }] = await Promise.all([import('html-to-image'), import('jspdf')])
+      // The clone keeps the sheet's computed auto margins as pixels, which would
+      // shift it inside the SVG and crop one edge; the card chrome is not paper.
+      const svgUrl = await toSvg(node, { backgroundColor: '#ffffff', cacheBust: true, width: node.offsetWidth, height: node.offsetHeight, style: { margin: '0', boxShadow: 'none', borderRadius: '0', border: '0', transform: 'none' } })
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image()
+        const timer = setTimeout(() => reject(new Error('timeout')), 45_000)
+        el.onload = () => { clearTimeout(timer); resolve(el) }
+        el.onerror = () => { clearTimeout(timer); reject(new Error('image')) }
+        el.src = svgUrl
+      })
+      const ratio = 2
+      const rect = node.getBoundingClientRect()
+      const fullW = Math.round(rect.width * ratio), fullH = Math.round(rect.height * ratio)
+      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+      const margin = 8, pageW = 210, pageH = 297
+      const drawW = pageW - 2 * margin, scale = drawW / fullW, sliceMax = Math.floor((pageH - 2 * margin) / scale)
+      const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('canvas')
+      for (let y = 0, page = 0; y < fullH; y += sliceMax, page++) {
+        const h = Math.min(sliceMax, fullH - y)
+        canvas.width = fullW; canvas.height = h
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, fullW, h)
+        ctx.drawImage(img, 0, y / ratio, rect.width, h / ratio, 0, 0, fullW, h)
+        if (page > 0) pdf.addPage()
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', margin, margin, drawW, h * scale)
+      }
+      pdf.save(`${sheetFileStem(data.date)}.pdf`)
+    } catch { setError('تعذّر إنشاء ملف PDF — جرّب «طباعة» ثم «حفظ كـ PDF»') } finally { node.classList.remove('is-capturing'); setBusy(null) }
+  }
 
   const t = data.totals
 
@@ -104,7 +158,10 @@ export function DailyAbsenceReport({ data, identity, basePath, keepQuery = {}, t
           </div>
           <div className="ms-auto flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground min-h-10">
-              <Printer className="size-4" /> طباعة / PDF
+              <Printer className="size-4" /> طباعة
+            </button>
+            <button type="button" onClick={exportPdf} disabled={busy !== null} className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-bold min-h-10 hover:bg-muted disabled:opacity-50">
+              {busy === 'pdf' ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4 text-red-600" />} PDF
             </button>
             <button type="button" onClick={exportExcel} disabled={busy !== null} className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-bold min-h-10 hover:bg-muted disabled:opacity-50">
               {busy === 'xlsx' ? <Loader2 className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4 text-emerald-600" />} Excel
@@ -126,11 +183,28 @@ export function DailyAbsenceReport({ data, identity, basePath, keepQuery = {}, t
           )}
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <p className="text-[11px] text-muted-foreground">«طباعة / PDF» تفتح نافذة الطباعة؛ اختر فيها «حفظ كـ PDF» لحفظ الملف. يخرج الكشف كما تراه أدناه: الترويسة والتوقيعات وختم المدرسة.</p>
+        {/* Stage and class picker: narrows what the reader already may see. */}
+        <div className="space-y-2 border-t border-border pt-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-muted-foreground me-1"><Layers className="size-3.5" /> المرحلة</span>
+            <button type="button" onClick={() => navigate({ stage: [], class: [] })} className={`rounded-full border px-3 py-1 text-xs font-bold ${!scope.selectedStages.length && !scope.selectedClasses.length ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted'}`}>الكل</button>
+            {scope.stages.map((s) => (
+              <button key={s.id} type="button" onClick={() => toggleStage(s.id)} className={`rounded-full border px-3 py-1 text-xs font-bold ${scope.selectedStages.includes(s.id) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted'}`}>{s.name}</button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-muted-foreground me-1"><School className="size-3.5" /> الفصل</span>
+            {classChoices.length === 0 && <span className="text-xs text-muted-foreground">لا فصول</span>}
+            {classChoices.map((c) => (
+              <button key={c.id} type="button" onClick={() => toggleClass(c.id)} className={`rounded-full border px-2.5 py-1 text-xs font-bold ${scope.selectedClasses.includes(c.id) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted'}`}>{c.name}</button>
+            ))}
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground">«طباعة» تفتح نافذة الطابعة، و«PDF» يحفظ الكشف ملفاً كما تراه أدناه بالترويسة والتوقيعات وختم المدرسة.</p>
       </div>
 
       {/* ── The sheet itself: screen and paper ── */}
-      <div className="absence-sheet mx-auto w-full max-w-[210mm] rounded-2xl border border-border shadow-sm p-6 sm:p-8" dir="rtl">
+      <div ref={sheetRef} className="absence-sheet mx-auto w-full max-w-[210mm] rounded-2xl border border-border shadow-sm p-6 sm:p-8" dir="rtl">
         {/* Letterhead */}
         <div className="flex items-center justify-between gap-4">
           <div className="sheet-ink text-[12.5px] leading-6 font-semibold">
