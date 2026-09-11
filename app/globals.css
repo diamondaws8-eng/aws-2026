@@ -700,3 +700,39 @@
     .skeleton { animation: none; }
   }
 }
+
+/* ── Official sheets: white in either theme on screen, and alone on paper ── */
+.absence-sheet {
+  background: #ffffff;
+  color: #0f172a;
+  color-scheme: light;
+  --sheet-ink: #3f4a58;
+}
+.absence-sheet table { color: #0f172a; }
+/* Explicit tones: the theme's dark-mode remaps rewrite Tailwind palette classes, and a sheet must not go pastel. */
+.absence-sheet .sheet-absent { color: #b91c1c; font-weight: 700; }
+.absence-sheet .sheet-excused { color: #1d4ed8; font-weight: 600; }
+.absence-sheet .sheet-warn { color: #b45309; }
+.absence-sheet .sheet-muted { color: #64748b; }
+.absence-sheet .sheet-ink { color: var(--sheet-ink); }
+.absence-sheet .sheet-band { background: var(--sheet-ink); color: #ffffff; }
+.absence-sheet .sheet-band-light { background: #eef2f6; color: #0f172a; }
+.absence-sheet .sheet-rule { border-color: var(--sheet-ink); }
+.absence-sheet th { background: #eef2f6; color: #0f172a; }
+.absence-sheet tbody tr:nth-child(even) td { background: #f8fafc; }
+.absence-sheet .sheet-box { border: 1px solid #cbd5e1; }
+@media print {
+  @page { size: A4; margin: 10mm 12mm; }
+  html, body { background: #ffffff !important; color: #000 !important; }
+  /* Only the sheet reaches the paper: everything else stays on screen. */
+  body * { visibility: hidden !important; }
+  .absence-sheet, .absence-sheet * { visibility: visible !important; }
+  .absence-sheet { position: absolute !important; inset: 0 auto auto 0 !important; width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; border: 0 !important; border-radius: 0 !important; }
+  .portal-shell > aside, .portal-shell header, .portal-shell > button.fixed, .portal-shell > div.fixed, .no-print, .motion-layer, .aurora, [data-motion] { display: none !important; }
+  .page-enter, .page-enter * { animation: none !important; opacity: 1 !important; transform: none !important; transition: none !important; }
+  [data-tilt] { transform: none !important; }
+  .absence-sheet table { break-inside: auto; }
+  .absence-sheet tr, .absence-sheet .break-inside-avoid { break-inside: avoid; page-break-inside: avoid; }
+  .absence-sheet .stage-block + .stage-block { break-before: page; page-break-before: always; }
+  .absence-sheet th, .absence-sheet .sheet-band, .absence-sheet .sheet-band-light, .absence-sheet tbody tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

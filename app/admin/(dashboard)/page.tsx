@@ -17,6 +17,8 @@ import { getSchoolSettings } from './settings/actions-settings'
 import { NotificationBell } from '@/components/notification-bell'
 import { getDataHealth } from '@/lib/data-health'
 import { DataHealthCard } from '@/components/data-health-card'
+import { Suspense } from 'react'
+import { AbsenceTodayCard, AbsenceTodayCardSkeleton } from '@/components/absence-today-card'
 
 export const dynamic = 'force-dynamic'
 
@@ -515,6 +517,11 @@ export default async function AdminDashboardPage({
       </div>
 
       <StageFilter stages={permittedGrades} selected={selectedGradeIds} />
+
+      {/* Streams on its own: the sheet's three round trips must not hold the page. Keeps the stage picker's choice. */}
+      <Suspense fallback={<AbsenceTodayCardSkeleton />}>
+        <AbsenceTodayCard schoolId={school.id} date={todayStr} classIds={scopedClassIds} href={selectedGradeIds.length ? `/admin/absence?${selectedGradeIds.map((id) => `stage=${id}`).join('&')}` : '/admin/absence'} />
+      </Suspense>
 
       {/* Only whole-school accounts see the school's own gaps: a deputy cannot
           assign a counsellor or take a backup, so the list would only nag. */}

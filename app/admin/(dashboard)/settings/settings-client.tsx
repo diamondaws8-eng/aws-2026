@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { saveSchoolSettings, changeAdminPassword, exportFullBackup, restoreFullBackup, updateAdminProfile, saveAcademicCalendar } from './actions-settings'
+import { saveSchoolSettings, changeAdminPassword, exportFullBackup, restoreFullBackup, updateAdminProfile, saveAcademicCalendar, savePrincipalName } from './actions-settings'
 import { requireAllParentsToChangePassword } from '../students/actions-students'
 import type { SchoolSettings } from './settings-types'
 import { SEMESTERS, SEMESTER_LABELS } from '@/lib/academic'
@@ -11,7 +11,7 @@ import {
   Sliders, MessageCircle, Lock, Database, Save, Backpack, Star,
   CalendarCheck2, BookOpen, Hand, Award, ShieldAlert, Trash2, Loader2,
   Download, KeyRound, CheckCircle2, XCircle, Upload, FileJson, AlertTriangle, RotateCcw, X,
-  UserCircle, Users, CalendarDays, CalendarOff,
+  UserCircle, Users, CalendarDays, CalendarOff, FileSignature,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -126,6 +126,7 @@ export default function SettingsClient({
   initialSaturdayIsSchoolDay,
   initialHolidays,
   initialStages = [],
+  initialPrincipalName = '',
 }: {
   schoolId: string
   initialSettings: SchoolSettings
@@ -143,8 +144,19 @@ export default function SettingsClient({
   initialSaturdayIsSchoolDay: boolean
   initialHolidays: { id: string; name: string; startDate: string; endDate: string; gradeLevelId: string | null }[]
   initialStages?: { id: string; name: string; saturdayIsSchoolDay: boolean | null }[]
+  initialPrincipalName?: string
 }) {
   const [settings, setSettings] = useState<SchoolSettings>(initialSettings)
+  const [principalName, setPrincipalName] = useState(initialPrincipalName)
+  const [principalLoading, setPrincipalLoading] = useState(false)
+  const [principalMsg, setPrincipalMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const handleSavePrincipal = async () => {
+    setPrincipalLoading(true); setPrincipalMsg(null)
+    try {
+      const res = await savePrincipalName(principalName)
+      setPrincipalMsg(res.ok ? { ok: true, text: 'حُفظ اسم مدير المدرسة' } : { ok: false, text: res.error ?? 'تعذّر الحفظ' })
+    } catch { setPrincipalMsg({ ok: false, text: 'تعذّر الحفظ' }) } finally { setPrincipalLoading(false) }
+  }
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -526,6 +538,38 @@ export default function SettingsClient({
             </button>
             {calendarMsg && <StatusMsg ok={calendarMsg.ok} text={calendarMsg.text} />}
           </div>
+        </Section>
+      )}
+
+      {/* ── Official sheets: who signs them ─────────────────────────────────── */}
+      {canManageSchoolSettings && (
+        <Section title="الكشوف الرسمية — اسم مدير المدرسة" icon={FileSignature}>
+          <p className="text-sm text-muted-foreground mb-5 leading-7">
+            يُطبع تحت «مدير المدرسة» في كشف الغياب اليومي مع خانة توقيعه. اتركه فارغاً فتُطبع نقاط يُكتب عليها الاسم بخط اليد.
+            ترويسة الكشف (شعار الوزارة والمدرسة وبيانات التواصل) ثابتة من ترويسة المدرسة المطبوعة.
+          </p>
+          <div className="grid sm:grid-cols-[1fr_auto] gap-3 max-w-2xl items-end">
+            <div>
+              <label className="block text-sm font-semibold mb-1.5">اسم مدير المدرسة</label>
+              <input
+                type="text"
+                value={principalName}
+                onChange={e => setPrincipalName(e.target.value)}
+                placeholder="مثال: أ. فلان بن فلان"
+                maxLength={120}
+                className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-sm"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleSavePrincipal}
+              disabled={principalLoading}
+              className="px-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold text-sm disabled:opacity-50"
+            >
+              {principalLoading ? 'جاري الحفظ...' : 'حفظ'}
+            </button>
+          </div>
+          {principalMsg && <div className="mt-3"><StatusMsg ok={principalMsg.ok} text={principalMsg.text} /></div>}
         </Section>
       )}
 

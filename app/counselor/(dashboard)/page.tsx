@@ -12,6 +12,9 @@ import { ClipboardList, AlertTriangle, CheckCircle2, Clock } from 'lucide-react'
 import { NotificationBell } from '@/components/notification-bell'
 import { CounselorRaiseCase } from '@/components/counselor-raise-case'
 import { CounselorPupilSearch } from '@/components/counselor-pupil-search'
+import { Suspense } from 'react'
+import { AbsenceTodayCard, AbsenceTodayCardSkeleton } from '@/components/absence-today-card'
+import { today as schoolTodayStr } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
@@ -67,6 +70,10 @@ export default async function CounselorInboxPage() {
       </div>
 
       <CounselorPupilSearch />
+
+      <Suspense fallback={<AbsenceTodayCardSkeleton />}>
+        <AbsenceTodayCard schoolId={access.schoolId} date={schoolTodayStr()} classIds={classIds} href="/counselor/absence" />
+      </Suspense>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="بانتظار قرارك" value={open.length} icon={ClipboardList} accent="amber" />

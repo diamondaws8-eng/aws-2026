@@ -229,6 +229,25 @@ export async function saveSchoolSettings(schoolId: string, settings: SchoolSetti
   return { ok: true }
 }
 
+// ── Official sheets ───────────────────────────────────────────────────────────
+/**
+ * The name printed under «مدير المدرسة» on the daily absence sheet. Empty is
+ * allowed and prints a blank line; a wrong name on an official sheet is worse
+ * than none, so it is never guessed from whoever is signed in.
+ */
+export async function savePrincipalName(name: string) {
+  const access = await getAdminAccess()
+  if (!access) return { ok: false as const, error: 'غير مصرح بهذا الإجراء' }
+  if (!access.canManageSchoolSettings) {
+    return { ok: false as const, error: 'تعديل بيانات الكشوف متاح لمدير الجودة ومالك النظام' }
+  }
+  const principalName = String(name ?? '').trim().slice(0, 120)
+  await db.update(schools).set({ principalName: principalName || null }).where(eq(schools.id, access.school.id))
+  await logAudit(access, 'settings.update', access.school.name, { principalName: principalName || null })
+  revalidatePath('/admin', 'layout')
+  return { ok: true as const }
+}
+
 // ── Academic calendar ─────────────────────────────────────────────────────────
 /**
  * The term marks are stamped with, and the day the year's points start from.

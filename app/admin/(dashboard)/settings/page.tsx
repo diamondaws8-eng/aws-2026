@@ -46,6 +46,7 @@ export default async function AdminSettingsPage() {
         initialSaturdayIsSchoolDay={access.school.saturdayIsSchoolDay}
         initialHolidays={holidays}
         initialStages={stages}
+        initialPrincipalName={access.school.principalName ?? ''}
       />
 
       {access.role === 'owner' && <ResetTestData />}

@@ -76,6 +76,14 @@ export const schools = pgTable('schools', {
   parentActivationMessage: text('parent_activation_message'),
 
   /**
+   * The name printed under «مدير المدرسة» on official sheets (the daily
+   * absence roster). Null prints a blank line to sign over — a name is never
+   * guessed from an account, because the owner and the principal are
+   * different people at most schools.
+   */
+  principalName: text('principal_name'),
+
+  /**
    * Which term the school is in right now.
    *
    * Every mark is stamped with it, and re-saving an exam replaces the rows
