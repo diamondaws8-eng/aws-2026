@@ -35,12 +35,18 @@ export default async function ClassPage({ params }: { params: Promise<{ classId:
     .from(students)
     .where(eq(students.classId, classId))
 
+  // The grades tab is not offered any more (the school records no marks
+  // here); its panel and actions stay, so flipping this flag brings it back.
+  // While it is off, the two queries that only fed it are not run.
+  const GRADES_TAB_ENABLED = false
   // The grades tab only ever writes under the caller's own subject (see
   // saveGrades) — the dropdown offers exactly that set, not a colleague's.
-  const subjectList = await db
-    .select()
-    .from(subjects)
-    .where(and(eq(subjects.classId, classId), eq(subjects.teacherUserId, userId)))
+  const subjectList = GRADES_TAB_ENABLED
+    ? await db
+        .select()
+        .from(subjects)
+        .where(and(eq(subjects.classId, classId), eq(subjects.teacherUserId, userId)))
+    : []
 
   const today = schoolToday()
 
@@ -54,7 +60,7 @@ export default async function ClassPage({ params }: { params: Promise<{ classId:
 
   // Get saved grades
   const { getSavedGrades, getAbsenceLocks } = await import('../../actions')
-  const savedGrades = await getSavedGrades(classId)
+  const savedGrades = GRADES_TAB_ENABLED ? await getSavedGrades(classId) : []
 
   // Students another teacher already marked absent today: the roster shows why
   // instead of letting this teacher silently overwrite it.
