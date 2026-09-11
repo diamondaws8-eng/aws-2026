@@ -68,6 +68,17 @@ export async function saveDailyRecords(
   if (!isValidDateString(date)) return { ok: false, error: 'تاريخ غير صالح' }
   if (date > schoolToday()) return { ok: false, error: 'لا يمكن التسجيل ليوم لم يأتِ بعد' }
 
+  // A day the stage does not teach on takes no register — the screen locks it,
+  // and this is the rule behind the screen.
+  {
+    const { classes: classesTable } = await import('@/lib/db/schema')
+    const { getSchoolDaysConfig } = await import('@/lib/school-holidays')
+    const { nonSchoolDayReason } = await import('@/lib/school-days')
+    const [cls] = await db.select({ gradeLevelId: classesTable.gradeLevelId }).from(classesTable).where(eq(classesTable.id, classId)).limit(1)
+    const off = nonSchoolDayReason(date, await getSchoolDaysConfig(schoolId, cls?.gradeLevelId ?? null))
+    if (off) return { ok: false, error: `يوم إجازة (${off}) — لا يُسجَّل فيه حضور` }
+  }
+
   const { getSchoolSettings } = await import('@/app/admin/(dashboard)/settings/actions-settings')
   const settings = await getSchoolSettings(schoolId)
 
@@ -470,6 +481,16 @@ export async function addManualPoints(
   if (!Number.isInteger(points) || Math.abs(points) > 100) throw new Error('عدد النقاط غير صالح')
 
   const today = schoolToday()
+
+  // No award on a day the stage does not teach on — the same rule as the register.
+  {
+    const { classes: classesTable } = await import('@/lib/db/schema')
+    const { getSchoolDaysConfig } = await import('@/lib/school-holidays')
+    const { nonSchoolDayReason } = await import('@/lib/school-days')
+    const [cls] = await db.select({ gradeLevelId: classesTable.gradeLevelId }).from(classesTable).where(eq(classesTable.id, classId)).limit(1)
+    const off = nonSchoolDayReason(today, await getSchoolDaysConfig(schoolId, cls?.gradeLevelId ?? null))
+    if (off) throw new Error(`يوم إجازة (${off}) — لا تُمنح نقاط فيه`)
+  }
 
   await db.insert(studentPoints).values({
     schoolId,

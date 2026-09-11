@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { NotificationBell } from '@/components/notification-bell'
 import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage, raiseBehaviorCase } from '../../actions'
 import type { DailyStudentRecord, AbsenceLock, BlockedAbsence } from '../../actions'
 import { termLabel as termLabelOf } from '@/lib/academic'
@@ -301,6 +300,8 @@ export default function ClassRoster({
   const navigateDate = async (newDate: string) => {
     if (newDate > initialDate) return // can't go to future
     setLoadingDate(true)
+    // A notice about colleagues' locks belongs to the day it was produced on.
+    setBlockedNotice([])
     try {
       const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${newDate}`)
       const data = await res.json()
@@ -450,6 +451,8 @@ export default function ClassRoster({
   const isToday = selectedDate === initialDate
   const isFuture = selectedDate > initialDate
   const dayOff = schoolDays ? nonSchoolDayReason(selectedDate, schoolDays) : null
+  // Manual awards are dated today whatever day is on screen, so they follow today's calendar.
+  const todayOff = schoolDays ? nonSchoolDayReason(initialDate, schoolDays) : null
 
   return (
     <div className="flex flex-col h-full">
@@ -457,7 +460,6 @@ export default function ClassRoster({
       <div className="p-4 sm:p-6 border-b border-border bg-card">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <NotificationBell />
             <div>
               <h1 className="text-xl font-bold">فصل {classInfo.name} — {classInfo.gradeName}</h1>
               <p className="text-sm text-muted-foreground mt-0.5">{students.length} طالباً</p>
@@ -514,7 +516,6 @@ export default function ClassRoster({
         <div className="flex gap-1 mt-4 bg-muted/40 rounded-xl p-1">
           {[
             { id: 'daily', label: '📋 السجل اليومي' },
-            { id: 'grades', label: '📊 الدرجات' },
             { id: 'points', label: '🏆 النقاط' },
           ].map(t => (
             <button
@@ -532,7 +533,18 @@ export default function ClassRoster({
 
       {/* ── Daily Tab ── */}
       {activeTab === 'daily' && (
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1">
+          {/* A day the stage does not teach on: the register is closed, and it
+              says why. Fridays and Saturdays by rule, holidays by name. */}
+          {dayOff && (
+            <div className="mx-4 mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-center gap-3">
+              <span className="text-xl" aria-hidden>🔒</span>
+              <div>
+                <p className="font-bold">{dayOff === 'الجمعة' || dayOff === 'السبت' ? `اليوم ${dayOff} — يوم إجازة` : `إجازة: ${dayOff}`}</p>
+                <p className="text-xs mt-0.5">السجل مغلق في هذا اليوم ولا يُحفظ فيه حضور ولا تقييم. اختر يوماً دراسياً من التاريخ أعلاه.</p>
+              </div>
+            </div>
+          )}
           <div className="mx-4 mt-4 rounded-xl border border-border bg-muted/30 px-4 py-2.5 text-xs leading-6 text-muted-foreground">
             <span className="font-semibold text-foreground">الحضور والغياب مشترك</span> بين كل معلمي الفصل — أول من يسجّله يثبّته لليوم،
             وأي معلم يستطيع منح الطالب إذناً بالخروج في حصته.
@@ -571,6 +583,7 @@ export default function ClassRoster({
             <div className="p-12 text-center text-muted-foreground">لا يوجد طلاب في هذا الفصل</div>
           ) : (
             <>
+              <fieldset disabled={!!dayOff} className={`min-w-0 border-0 p-0 m-0 ${dayOff ? 'opacity-60' : ''}`} aria-disabled={!!dayOff}>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/60 text-muted-foreground font-semibold text-xs sticky top-0 z-10">
@@ -825,9 +838,11 @@ export default function ClassRoster({
                   </tbody>
                 </table>
               </div>
+              </fieldset>
 
-              {/* Save button */}
-              <div className="p-4 border-t border-border bg-card/80 backdrop-blur-sm sticky bottom-0 flex items-center justify-between">
+              {/* Save button — sticks to the bottom of the window while the table scrolls behind it. */}
+              {!dayOff && (
+              <div className="p-4 border-t border-border bg-card/90 backdrop-blur-sm sticky bottom-0 z-20 flex items-center justify-between">
                 <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-3">
                   {selectedDate !== initialDate && (
                     <span className="text-amber-600 font-semibold">⚠ تعديل يوم سابق: {selectedDate}</span>
@@ -847,6 +862,7 @@ export default function ClassRoster({
                   >{saving ? 'جاري الحفظ...' : '💾 حفظ اليوم'}</button>
                 </div>
               </div>
+              )}
             </>
           )}
         </div>
@@ -1068,7 +1084,9 @@ export default function ClassRoster({
                         ) : (
                           <button
                             onClick={() => { setManualStudent(student.id); setManualError('') }}
-                            className="px-3 py-1.5 bg-muted hover:bg-muted/70 rounded-lg text-xs font-semibold transition-colors"
+                            disabled={!!todayOff}
+                            title={todayOff ? `يوم إجازة (${todayOff}) — لا تُمنح نقاط فيه` : undefined}
+                            className="px-3 py-1.5 bg-muted hover:bg-muted/70 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >✏️ تعديل</button>
                         )}
                       </td>

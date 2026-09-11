@@ -104,7 +104,7 @@ export default async function StudentDetailPage({
       <div>
         <h2 className="text-lg font-bold text-foreground mb-4">درجاتي لهذا الطالب</h2>
         {myGrades.length === 0 ? (
-          <p className="text-sm text-muted-foreground bg-card border border-border rounded-2xl p-4">لم ترصد له درجات بعد — من تبويب «الدرجات» في الفصل.</p>
+          <p className="text-sm text-muted-foreground bg-card border border-border rounded-2xl p-4">لم تُرصد له درجات بعد</p>
         ) : (
           <div className="bg-card border border-border rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
