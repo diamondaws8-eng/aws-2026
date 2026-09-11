@@ -145,13 +145,33 @@ export async function getStudentDashboard(studentId: string) {
     lessons,
   )
 
-  // Recent daily records (last 10)
-  const recentRecords = await db
-    .select()
-    .from(dailyRecords)
-    .where(and(eq(dailyRecords.studentId, studentId), thisYear))
-    .orderBy(desc(dailyRecords.date))
-    .limit(10)
+  // Recent daily records (last 10) and the latest marks — what a parent
+  // actually opens the app to check: "how was this week, and what did the
+  // last test say", in that order.
+  const [recentRecords, recentGrades] = await Promise.all([
+    db
+      .select()
+      .from(dailyRecords)
+      .where(and(eq(dailyRecords.studentId, studentId), thisYear))
+      .orderBy(desc(dailyRecords.date))
+      .limit(10),
+    db
+      .select({
+        id: gradeEntries.id,
+        subjectId: gradeEntries.subjectId,
+        subjectName: subjects.name,
+        examName: gradeEntries.examName,
+        examType: gradeEntries.examType,
+        score: gradeEntries.score,
+        maxScore: gradeEntries.maxScore,
+        createdAt: gradeEntries.createdAt,
+      })
+      .from(gradeEntries)
+      .leftJoin(subjects, eq(subjects.id, gradeEntries.subjectId))
+      .where(and(eq(gradeEntries.studentId, studentId), eq(gradeEntries.schoolId, student.schoolId)))
+      .orderBy(desc(gradeEntries.createdAt))
+      .limit(6),
+  ])
 
   // Subject cards — all subjects in the student's class with teacher info
   let subjectCards: {
@@ -278,6 +298,7 @@ export async function getStudentDashboard(studentId: string) {
     possiblePoints,
     attendance,
     recentRecords,
+    recentGrades,
     subjectCards,
   }
 }

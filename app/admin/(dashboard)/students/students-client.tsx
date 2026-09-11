@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import Link from 'next/link'
 import { addStudent, deleteStudent, importStudents, resetParentPassword } from './actions-students'
 import { EmptyState } from '@/components/empty-state'
 import { normalizeGender, genderLabel, genderShort, GENDER_OPTIONS } from '@/lib/gender'
@@ -314,7 +315,9 @@ export default function StudentsClient({
                         <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
                           {student.fullName?.charAt(0) ?? '؟'}
                         </div>
-                        <span className="font-semibold">{student.fullName}</span>
+                        <Link href={`/admin/students/${student.id}`} className="font-semibold hover:text-primary hover:underline underline-offset-2">
+                          {student.fullName}
+                        </Link>
                       </div>
                     </td>
                     <td className="p-4">

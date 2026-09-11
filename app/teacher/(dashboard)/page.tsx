@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
-import { students, classes, gradeLevels } from '@/lib/db/schema'
-import { eq, and, count } from 'drizzle-orm'
+import { students, classes, gradeLevels, lessonRecords, subjects } from '@/lib/db/schema'
+import { eq, and, count, inArray } from 'drizzle-orm'
+import { CalendarCheck, CircleDashed } from 'lucide-react'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { formatDateAr, today } from '@/lib/utils'
@@ -59,6 +60,43 @@ export default async function TeacherDashboard() {
     ? await getLeaderboard(teacher.schoolId, visibleClasses.map((c) => c.id))
     : []
 
+  /**
+   * Today, class by class: which of this teacher's classes already have their
+   * record saved and which are still waiting. The classes listed are the ones
+   * with a subject assigned to this teacher — the ones they are expected to
+   * fill — and the count is of pupils in them, not in the whole school.
+   */
+  const todayStr = today()
+  const myClassIds = visibleClasses.map((c) => c.id)
+  const [mySubjectRows, recordedRows, [{ count: myPupils }]] = await Promise.all([
+    myClassIds.length
+      ? db.select({ classId: subjects.classId, name: subjects.name }).from(subjects)
+          .where(and(eq(subjects.teacherUserId, teacher.userId), inArray(subjects.classId, myClassIds)))
+      : Promise.resolve([] as { classId: string; name: string }[]),
+    myClassIds.length
+      ? db.selectDistinct({ classId: lessonRecords.classId }).from(lessonRecords)
+          .where(and(eq(lessonRecords.teacherUserId, teacher.userId), eq(lessonRecords.date, todayStr), inArray(lessonRecords.classId, myClassIds)))
+      : Promise.resolve([] as { classId: string }[]),
+    myClassIds.length
+      ? db.select({ count: count() }).from(students).where(and(inArray(students.classId, myClassIds), eq(students.status, 'active')))
+      : Promise.resolve([{ count: 0 }]),
+  ])
+  const recordedToday = new Set(recordedRows.map((r) => r.classId))
+  const subjectOf = new Map<string, string[]>()
+  for (const s of mySubjectRows) subjectOf.set(s.classId, [...(subjectOf.get(s.classId) ?? []), s.name])
+  // "My classes" are the ones with a subject in this teacher's name. Classes
+  // nobody has been assigned to yet are reachable (the rollout fallback) but
+  // are not this teacher's daily duty, so they stay off the list — unless
+  // the teacher has no assignment at all, when the list shows what is open.
+  const mine = boardClasses.filter((c) => subjectOf.has(c.id))
+  const todayBase = mine.length ? mine : boardClasses
+  const todayList = todayBase.map((c) => ({ ...c, subjects: subjectOf.get(c.id) ?? [], done: recordedToday.has(c.id) }))
+  const pendingCount = todayList.filter((c) => !c.done).length
+  const myClassCount = todayBase.length
+  const myPupilCount = todayBase.length === visibleClasses.length
+    ? myPupils
+    : (await db.select({ count: count() }).from(students).where(and(inArray(students.classId, todayBase.map((c) => c.id)), eq(students.status, 'active'))))[0].count
+
   return (
     <div className="p-6 space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -74,10 +112,48 @@ export default async function TeacherDashboard() {
         </div>
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <StatCard label="إجمالي الطلاب بالمدرسة" value={totalStudents} icon={Users} accent="blue" />
-        <StatCard label="إجمالي الفصول بالمدرسة" value={totalClasses} icon={BookOpen} accent="emerald" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <StatCard label="طلاب فصولي" value={myPupilCount} icon={Users} accent="blue" trend={{ value: 0, label: `من ${totalStudents} طالباً في المدرسة` }} />
+        <StatCard label="فصولي" value={myClassCount} icon={BookOpen} accent="emerald" trend={{ value: 0, label: mine.length ? `من ${totalClasses} فصلاً في المدرسة` : 'لم تُسند إليك مادة بعد — تظهر الفصول المفتوحة' }} />
+        <StatCard
+          label="فصول لم تُسجَّل اليوم"
+          value={pendingCount}
+          icon={pendingCount ? CircleDashed : CalendarCheck}
+          accent={pendingCount ? 'amber' : 'emerald'}
+          trend={{ value: 0, label: pendingCount ? 'اضغط الفصل أدناه لتسجيله' : 'كل فصولك مسجَّلة لهذا اليوم' }}
+        />
       </div>
+
+      {todayList.length > 0 && (
+        <div className="bg-card border border-border rounded-2xl p-5">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h2 className="text-lg font-bold">سجل اليوم — {formatDateAr(todayStr)}</h2>
+            <span className="text-xs text-muted-foreground">{todayList.length - pendingCount} من {todayList.length} فصل</span>
+          </div>
+          <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {todayList.map((c) => (
+              <li key={c.id}>
+                <Link
+                  href={`/teacher/classes/${c.id}`}
+                  className={`flex items-center gap-3 rounded-xl border p-3 transition-colors ${
+                    c.done ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100' : 'border-amber-200 bg-amber-50 hover:bg-amber-100'
+                  }`}
+                >
+                  <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${c.done ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {c.done ? <CalendarCheck className="size-4" /> : <CircleDashed className="size-4" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold truncate">{c.name}</span>
+                    <span className="block text-[11px] text-muted-foreground truncate">
+                      {c.subjects.length ? c.subjects.join('، ') : 'بلا مادة مسندة'} · {c.done ? 'سُجّل اليوم' : 'لم يُسجَّل بعد'}
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {boardClasses.length > 0 && (
         <LeaderboardClient

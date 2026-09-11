@@ -7,6 +7,7 @@ import { getLeaderboard } from '@/lib/points'
 import { db } from '@/lib/db'
 import { students } from '@/lib/db/schema'
 import { and, count, eq } from 'drizzle-orm'
+import { ATTENDANCE_STATUS, formatDateAr } from '@/lib/utils'
 
 /**
  * Points earned as a share of the points that were possible. It used to be an
@@ -65,7 +66,7 @@ export default async function ParentDashboardPage({
   const dashboard     = await getStudentDashboard(activeChildId)
   if (!dashboard) redirect('/parent/login')
 
-  const { student, classInfo, gradeName, totalPoints, attendance, subjectCards, possiblePoints } = dashboard
+  const { student, classInfo, gradeName, totalPoints, attendance, subjectCards, possiblePoints, recentRecords, recentGrades } = dashboard
   const totalSessions = attendance.present + attendance.absent + attendance.late + attendance.excused
   const perf = getPerformanceRating(totalPoints, possiblePoints)
 
@@ -184,6 +185,57 @@ export default async function ParentDashboardPage({
           </p>
         )}
       </div>
+
+      {/* ── Last days and latest marks ───────────────────────────────────────── */}
+      {/* Fetched from the first day, never shown: a parent had the totals but not
+          the week. Ten days, newest first, and the last six marks. */}
+      {(recentRecords.length > 0 || recentGrades.length > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-card border border-border rounded-3xl p-5 shadow-sm">
+            <h2 className="font-bold text-lg mb-3">آخر الأيام</h2>
+            {recentRecords.length === 0 ? (
+              <p className="text-sm text-muted-foreground">لم يُسجَّل حضور بعد</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {recentRecords.map((r) => {
+                  const s = ATTENDANCE_STATUS[r.attendanceStatus as keyof typeof ATTENDANCE_STATUS]
+                  return (
+                    <li key={r.id} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="text-muted-foreground">{formatDateAr(r.date)}</span>
+                      <span className={`rounded-lg border px-2 py-0.5 text-xs font-bold ${s?.light ?? 'bg-muted text-muted-foreground border-border'}`}>
+                        {s?.label ?? r.attendanceStatus}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+          <div className="bg-card border border-border rounded-3xl p-5 shadow-sm">
+            <h2 className="font-bold text-lg mb-3">آخر الدرجات</h2>
+            {recentGrades.length === 0 ? (
+              <p className="text-sm text-muted-foreground">لم تُرصد درجات بعد</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {recentGrades.map((g) => {
+                  const pct = g.maxScore > 0 ? Math.round((g.score / g.maxScore) * 100) : 0
+                  return (
+                    <li key={g.id} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="min-w-0 truncate">
+                        <span className="font-semibold">{g.subjectName ?? 'مادة'}</span>
+                        <span className="text-muted-foreground"> · {g.examName}</span>
+                      </span>
+                      <span className={`shrink-0 rounded-lg px-2 py-0.5 text-xs font-black ${pct >= 80 ? 'bg-emerald-50 text-emerald-700' : pct >= 50 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
+                        {g.score}/{g.maxScore}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Class honour board ───────────────────────────────────────────────── */}
       {student.classId && (
