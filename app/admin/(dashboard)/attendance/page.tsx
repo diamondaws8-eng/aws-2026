@@ -4,6 +4,8 @@ import { and, eq, asc } from 'drizzle-orm'
 import { requireAdminAccess, canViewGrade, canEditGrade } from '@/lib/admin-access'
 import { NotificationBell } from '@/components/notification-bell'
 import { today, isValidDateString } from '@/lib/utils'
+import { getSchoolDaysConfig } from '@/lib/school-holidays'
+import { nonSchoolDayReason } from '@/lib/school-days'
 import AttendanceClient, { type RegisterRow } from './attendance-client'
 
 export const dynamic = 'force-dynamic'
@@ -77,6 +79,10 @@ export default async function AttendancePage({
     })
   }
 
+  // A Friday or a holiday has no register to read; say so rather than show
+  // a class of pupils «غير مسجَّل» as if the teachers had forgotten.
+  const dayOff = selected ? nonSchoolDayReason(date, await getSchoolDaysConfig(school.id, selected.gradeLevelId)) : null
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-start gap-3">
@@ -94,6 +100,7 @@ export default async function AttendancePage({
         classId={selected?.id ?? null}
         date={date}
         today={todayStr}
+        dayOff={dayOff}
         rows={rows}
         editable={!!selected && canEditGrade(access, selected.gradeLevelId)}
       />

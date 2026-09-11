@@ -7,6 +7,7 @@ import { NotificationBell } from '@/components/notification-bell'
 import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage, raiseBehaviorCase } from '../../actions'
 import type { DailyStudentRecord, AbsenceLock, BlockedAbsence } from '../../actions'
 import { termLabel as termLabelOf } from '@/lib/academic'
+import { nonSchoolDayReason, type SchoolDaysConfig } from '@/lib/school-days'
 import { genderShort } from '@/lib/gender'
 import { rankWithTies, medalFor } from '@/lib/ranking'
 
@@ -39,6 +40,8 @@ type Props = {
   teacherTemplates?: { positive: string[], negative: string[] }
   /** Which term marks are filed under, shown so it is never a silent guess. */
   termLabel?: string
+  /** Teaching-day rules for this class's stage; the roster notes a day off under the date. */
+  schoolDays?: SchoolDaysConfig
 }
 
 type AttStatus = 'present' | 'absent' | 'late' | 'excused'
@@ -158,7 +161,7 @@ function formatDateArabic(dateStr: string): string {
 
 // ── MAIN COMPONENT ─────────────────────────────────────────────────────────────
 export default function ClassRoster({
-  classInfo, students, teacherName, schoolName, subjects, initialDate, initialRecords, pointsSummary, savedGrades, absenceLocks, schoolSettings, teacherTemplates, termLabel
+  classInfo, students, teacherName, schoolName, subjects, initialDate, initialRecords, pointsSummary, savedGrades, absenceLocks, schoolSettings, teacherTemplates, termLabel, schoolDays
 }: Props) {
   const router = useRouter()
   // A roster only needs to distinguish boys from girls where it actually
@@ -446,6 +449,7 @@ export default function ClassRoster({
 
   const isToday = selectedDate === initialDate
   const isFuture = selectedDate > initialDate
+  const dayOff = schoolDays ? nonSchoolDayReason(selectedDate, schoolDays) : null
 
   return (
     <div className="flex flex-col h-full">
@@ -475,6 +479,9 @@ export default function ClassRoster({
               ) : (
                 <>
                   <p className="text-sm font-bold">{formatDateArabic(selectedDate)}</p>
+                  {dayOff && (
+                    <span className="block text-xs text-muted-foreground font-semibold">يوم إجازة ({dayOff})</span>
+                  )}
                   {!isToday && (
                     <span className="text-xs text-amber-600 font-semibold">تعديل يوم سابق</span>
                   )}

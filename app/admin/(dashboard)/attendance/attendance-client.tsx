@@ -21,13 +21,15 @@ type Props = {
   classId: string | null
   date: string
   today: string
+  /** Why this date is not a teaching day, when it is not. */
+  dayOff: string | null
   rows: RegisterRow[]
   editable: boolean
 }
 
 const ORDER: AttendanceStatus[] = ['present', 'late', 'absent', 'excused']
 
-export default function AttendanceClient({ classes, classId, date, today, rows, editable }: Props) {
+export default function AttendanceClient({ classes, classId, date, today, dayOff, rows, editable }: Props) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [changes, setChanges] = useState<Record<string, AttendanceStatus>>({})
@@ -128,7 +130,7 @@ export default function AttendanceClient({ classes, classId, date, today, rows, 
           <p className="font-bold">{formatDateAr(date)}{pending ? ' …' : ''}</p>
           <p className="text-sm text-muted-foreground">
             {recorded === 0
-              ? 'لم يسجّل أي معلم هذا اليوم بعد'
+              ? (dayOff ? `يوم إجازة (${dayOff}) — لا سجل متوقع` : 'لم يسجّل أي معلم هذا اليوم بعد')
               : `في المدرسة ${counts.present + counts.late} من ${recorded} (${inPct}%) · خارجها ${counts.absent + counts.excused} (${outPct}%)`}
           </p>
         </div>

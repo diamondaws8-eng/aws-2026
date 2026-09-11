@@ -4,6 +4,7 @@ import { eq, and } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import ClassRoster from './class-roster'
 import { today as schoolToday } from '@/lib/utils'
+import { getSchoolDaysConfig } from '@/lib/school-holidays'
 import { getClassPointsTotals } from '@/lib/points'
 import { getTeacherClassAccess } from '@/lib/teacher-access'
 import { termLabel } from '@/lib/academic'
@@ -62,6 +63,8 @@ export default async function ClassPage({ params }: { params: Promise<{ classId:
   // Get school settings
   const { getSchoolSettings } = await import('@/app/admin/(dashboard)/settings/actions-settings')
   const schoolSettings = await getSchoolSettings(classInfo.schoolId)
+  // Fridays, the stage's Saturdays and holidays — so the roster can say «يوم إجازة» under the date.
+  const schoolDays = await getSchoolDaysConfig(classInfo.schoolId, classInfo.gradeLevelId)
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
@@ -90,6 +93,7 @@ export default async function ClassPage({ params }: { params: Promise<{ classId:
         absenceLocks={absenceLocks}
         savedGrades={savedGrades}
         schoolSettings={schoolSettings}
+        schoolDays={schoolDays}
         termLabel={termLabel(school?.currentSemester, school?.academicYear)}
         teacherTemplates={teacher?.whatsappTemplates ? JSON.parse(teacher.whatsappTemplates as string) : { positive: [], negative: [] }}
       />
