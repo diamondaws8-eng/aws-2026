@@ -16,7 +16,7 @@ const nextConfig = {
      * is deliberately modest rather than generous; a full year's export is
      * larger still and wants a streaming upload, not a bigger argument.
      */
-    serverActions: { bodySizeLimit: '32mb' },
+    serverActions: { bodySizeLimit: '64mb' },
   },
   /**
    * Browser-side hardening for every response. The admin portal edits pupils'

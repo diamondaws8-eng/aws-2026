@@ -18,8 +18,39 @@ import type { LucideIcon } from 'lucide-react'
 // ── Backup file summary shape ───────────────────────────────────────────────────
 type BackupSummary = {
   timestamp?: string
-  raw: any
+  /** What travels to the server: the compressed bytes, or an old plain object. */
+  payload: any
   counts: Record<string, number>
+}
+
+/**
+ * The backup travels compressed in both directions.
+ *
+ * A real year of this school is around 138 MB of JSON, and a server action
+ * carries 32 MB — so an uncompressed file could be downloaded and then never
+ * restored. These rows are mostly repeated keys and short codes and gzip about
+ * tenfold, which puts a whole year comfortably inside the limit. Nothing is
+ * left out of the file to achieve it: the restore wipes the school before it
+ * writes, so a table missing from the file would be a table deleted.
+ */
+const gzipText = async (text: string): Promise<Uint8Array> => {
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))
+  return new Uint8Array(await new Response(stream).arrayBuffer())
+}
+
+const gunzipToText = async (buf: ArrayBuffer): Promise<string> => {
+  const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))
+  return await new Response(stream).text()
+}
+
+/** btoa cannot take a whole file as one call stack, so feed it in slices. */
+const bytesToBase64 = (bytes: Uint8Array): string => {
+  let binary = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
 }
 
 const RESTORE_TABLE_LABELS: Record<string, string> = {
@@ -347,13 +378,14 @@ export default function SettingsClient({
     try {
       const res = await exportFullBackup(schoolId)
       if (res.ok && res.data) {
-        const json = JSON.stringify(res.data, null, 2)
-        const blob = new Blob([json], { type: 'application/json' })
+        // No indentation: it was a third of the bytes and nobody reads the raw file.
+        const json = JSON.stringify(res.data)
+        const blob = new Blob([await gzipText(json)], { type: 'application/gzip' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
         const scoped = (res.data as any)?.scope?.type === 'grades'
-        a.download = `backup_midad_${scoped ? 'partial_' : ''}${new Date().toISOString().split('T')[0]}.json`
+        a.download = `backup_midad_${scoped ? 'partial_' : ''}${new Date().toISOString().split('T')[0]}.json.gz`
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
@@ -411,7 +443,11 @@ export default function SettingsClient({
     setRestoreResult(null)
     setConfirmPhrase('')
     try {
-      const text = await file.text()
+      // A gzip file starts with 1f 8b whatever it is called.
+      const head = new Uint8Array(await file.slice(0, 2).arrayBuffer())
+      const compressed = head[0] === 0x1f && head[1] === 0x8b
+      const bytes = compressed ? new Uint8Array(await file.arrayBuffer()) : null
+      const text = compressed ? await gunzipToText(bytes!.buffer as ArrayBuffer) : await file.text()
       const parsed = JSON.parse(text)
       if (!parsed || typeof parsed !== 'object' || !parsed.data || typeof parsed.data !== 'object') {
         setRestoreFileError('هذا الملف ليس نسخة احتياطية صالحة')
@@ -422,9 +458,15 @@ export default function SettingsClient({
       for (const key of Object.keys(RESTORE_TABLE_LABELS)) {
         counts[key] = Array.isArray(parsed.data[key]) ? parsed.data[key].length : 0
       }
-      setPendingRestore({ timestamp: parsed.timestamp, raw: parsed, counts })
+      // Send the compressed bytes when we have them: the parsed object is only
+      // here to show the owner what the file holds before he commits to it.
+      setPendingRestore({
+        timestamp: parsed.timestamp,
+        payload: compressed ? { gzipB64: bytesToBase64(bytes!) } : parsed,
+        counts,
+      })
     } catch {
-      setRestoreFileError('تعذّرت قراءة الملف — تأكد أنه ملف JSON صالح من ميزة النسخ الاحتياطي')
+      setRestoreFileError('تعذّرت قراءة الملف — تأكد أنه ملف نسخة احتياطية من هذه الشاشة (.json.gz أو .json)')
       setPendingRestore(null)
     }
   }
@@ -441,7 +483,7 @@ export default function SettingsClient({
     setRestoring(true)
     setRestoreResult(null)
     try {
-      const res = await restoreFullBackup(schoolId, pendingRestore.raw)
+      const res = await restoreFullBackup(schoolId, pendingRestore.payload)
       if (res.ok) {
         // Only the table counts are records. The result also carries diagnostic
         // figures (rows skipped, totals recomputed), and summing everything
@@ -1217,7 +1259,7 @@ export default function SettingsClient({
           {!pendingRestore && (
             <label className="inline-flex items-center gap-2 px-5 py-2.5 bg-muted hover:bg-muted/70 text-foreground font-semibold rounded-xl cursor-pointer transition-colors">
               <Upload className="size-4" /> اختيار ملف النسخة الاحتياطية
-              <input ref={restoreFileRef} type="file" accept="application/json,.json" onChange={handleRestoreFileChange} className="hidden" />
+              <input ref={restoreFileRef} type="file" accept="application/gzip,.gz,application/json,.json" onChange={handleRestoreFileChange} className="hidden" />
             </label>
           )}
 

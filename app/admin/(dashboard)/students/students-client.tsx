@@ -22,6 +22,29 @@ type ImportRow = {
   error?: string
   /** Set when this sheet gives the same mobile to more than one family name. */
   sharedWith?: string
+  /** Set when the national id is not the shape a Saudi id takes, or repeats. */
+  idIssue?: string
+}
+
+/**
+ * A Saudi national id is ten digits and begins with 1 (citizen) or 2 (resident).
+ *
+ * This warns and never blocks. The id is what stops a pupil being imported
+ * twice, so a wrong one is worth catching before the sheet goes in — but a
+ * school does sometimes enrol a child whose paperwork is not in the usual
+ * form, and refusing to enrol them over a number would be the worse mistake.
+ */
+const nationalIdIssue = (raw: string | undefined): string | undefined => {
+  const id = String(raw ?? '')
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/\.0+$/, '')
+    .trim()
+  if (!id) return 'بلا رقم هوية — لن يُكتشف تكراره إن رُفع الملف مرتين'
+  if (!/^[0-9]+$/.test(id)) return 'رقم الهوية فيه حروف أو رموز'
+  if (id.length !== 10) return `رقم الهوية ${id.length} خانة والمفروض ١٠`
+  if (!/^[12]/.test(id)) return 'رقم الهوية لا يبدأ بـ ١ أو ٢'
+  return undefined
 }
 
 /** The family name as a roll writes it: the last word of the full name. */
@@ -226,6 +249,19 @@ export default function StudentsClient({
       if (families && families.size > 1) r.sharedWith = [...families].join('، ')
     }
 
+    // The shape of each id, and any id written twice in the same sheet — the
+    // server refuses the second one, but it is far cheaper to fix the file.
+    const seen = new Map<string, number>()
+    for (const r of rows) {
+      const id = String(r.nationalId ?? '').trim()
+      if (id) seen.set(id, (seen.get(id) ?? 0) + 1)
+    }
+    for (const r of rows) {
+      const id = String(r.nationalId ?? '').trim()
+      if (id && (seen.get(id) ?? 0) > 1) r.idIssue = 'رقم الهوية مكرر داخل هذا الملف'
+      else r.idIssue = nationalIdIssue(r.nationalId)
+    }
+
     setImportRows(rows)
   }
 
@@ -284,6 +320,7 @@ export default function StudentsClient({
   const validCount   = importRows.filter(r => r.valid).length
   const invalidCount = importRows.filter(r => !r.valid).length
   const sharedPhoneRows = importRows.filter(r => r.sharedWith)
+  const idIssueRows = importRows.filter(r => r.idIssue)
 
   // ─────────────────────────────────────────────────────────────────────────────
   return (
@@ -614,6 +651,7 @@ export default function StudentsClient({
                       <span className="text-emerald-600 font-semibold inline-flex items-center gap-1"><CheckCircle2 className="size-3.5" /> صحيح: {validCount}</span>
                       {invalidCount > 0 && <span className="text-red-600 font-semibold inline-flex items-center gap-1"><XCircle className="size-3.5" /> خطأ: {invalidCount}</span>}
                       {sharedPhoneRows.length > 0 && <span className="text-amber-600 font-semibold inline-flex items-center gap-1"><AlertTriangle className="size-3.5" /> رقم مشترك: {sharedPhoneRows.length}</span>}
+                      {idIssueRows.length > 0 && <span className="text-amber-600 font-semibold inline-flex items-center gap-1"><IdCard className="size-3.5" /> هوية للمراجعة: {idIssueRows.length}</span>}
                     </div>
                   </div>
 
@@ -629,6 +667,22 @@ export default function StudentsClient({
                           <li key={i}>{r.fullName} — {r.parentPhone} — عائلات: {r.sharedWith}</li>
                         ))}
                         {sharedPhoneRows.length > 8 && <li>… و{sharedPhoneRows.length - 8} غيرهم</li>}
+                      </ul>
+                    </div>
+                  )}
+
+                  {idIssueRows.length > 0 && (
+                    <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      <p className="font-bold mb-1">أرقام هوية تحتاج مراجعة</p>
+                      <p className="text-xs mb-2">
+                        رقم الهوية هو ما يمنع تسجيل الطالب مرتين. صحّحه في الملف الآن إن أمكن —
+                        وإن كان الرقم صحيحاً على غير المعتاد فتجاهل التنبيه، فالاستيراد لن يتوقف.
+                      </p>
+                      <ul className="space-y-0.5 text-xs">
+                        {idIssueRows.slice(0, 8).map((r, i) => (
+                          <li key={i}>{r.fullName} — {r.nationalId || '—'} — {r.idIssue}</li>
+                        ))}
+                        {idIssueRows.length > 8 && <li>… و{idIssueRows.length - 8} غيرهم</li>}
                       </ul>
                     </div>
                   )}

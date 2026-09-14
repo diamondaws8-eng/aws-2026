@@ -539,6 +539,23 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
     }
     const school = access.school
 
+    /**
+     * A year of this school is about 138 MB of JSON — far past the 32 MB a
+     * server action will carry, which made restoring a real year impossible
+     * through this screen. The same rows gzip about tenfold (measured on this
+     * school's own data), so the file travels compressed and is opened here.
+     * A plain .json from an older export still arrives as an object and is
+     * used as it is.
+     */
+    if (backup && typeof backup === 'object' && typeof backup.gzipB64 === 'string') {
+      try {
+        const zlib = await import('node:zlib')
+        backup = JSON.parse(zlib.gunzipSync(Buffer.from(backup.gzipB64, 'base64')).toString('utf8'))
+      } catch {
+        return { ok: false, error: 'تعذّر فتح الملف المضغوط — قد يكون تالفاً' }
+      }
+    }
+
     if (!backup || typeof backup !== 'object' || !backup.data || typeof backup.data !== 'object') {
       return { ok: false, error: 'ملف النسخة الاحتياطية غير صالح أو تالف' }
     }
