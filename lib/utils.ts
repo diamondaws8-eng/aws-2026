@@ -126,8 +126,27 @@ export function gradeColor(pct: number): string {
  * A Saudi mobile written any of the ways people actually write it — 0501234567,
  * 501234567, +966 50 123 4567, 966501234567 — reduced to the same nine digits.
  */
+/**
+ * Arabic-Indic (٠-٩) and Persian (۰-۹) digits as the ASCII digits they mean.
+ * A number typed on an Arabic keyboard, or pasted from a government sheet,
+ * is the same number; stored as typed it would never match itself.
+ */
+export function asciiDigits(value: string | null | undefined): string {
+  return String(value ?? '')
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+}
+
+/** A Saudi mobile in the one spelling the school prints: 05XXXXXXXX. Anything else is returned tidied but unchanged. */
+export function canonicalMobile(phone: string | null | undefined): string {
+  const key = parentPhoneKey(phone)
+  return /^5\d{8}$/.test(key) ? `0${key}` : asciiDigits(phone).trim()
+}
+
 export function parentPhoneKey(phone: string | null | undefined): string {
-  let digits = (phone ?? '').replace(/\D/g, '')
+  let digits = asciiDigits(phone).replace(/\D/g, '')
+  // «00966…» is the international dialling form of the same number.
+  if (digits.startsWith('00')) digits = digits.slice(2)
   if (digits.startsWith('966')) digits = digits.slice(3)
   if (digits.startsWith('0')) digits = digits.slice(1)
   return digits
@@ -148,7 +167,7 @@ export function parentEmail(phone: string): string {
  * their number with the leading zero was told their password was wrong.
  */
 export function parentEmailCandidates(phone: string | null | undefined): string[] {
-  const raw = (phone ?? '').replace(/\D/g, '')
+  const raw = asciiDigits(phone).replace(/\D/g, '')
   const key = parentPhoneKey(phone)
   const forms = [key, raw, `0${key}`, `966${key}`].filter(Boolean)
   return [...new Set(forms)].map((d) => `${d}@parent.midad.local`)

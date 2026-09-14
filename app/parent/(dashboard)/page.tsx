@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { buildHonorBoards } from '@/lib/ranking'
 import Link from 'next/link'
 import { getMyChildren, getStudentDashboard } from './actions'
 import { NotificationBell } from '@/components/notification-bell'
@@ -240,8 +241,7 @@ export default async function ParentDashboardPage({
       {/* ── Class honour board ───────────────────────────────────────────────── */}
       {student.classId && (
         <HonorBoard
-          rows={honorRows}
-          childId={student.id}
+          boards={buildHonorBoards(honorRows, student.id)}
           childFirstName={student.fullName.split(' ')[0]}
           classSize={classSize}
         />

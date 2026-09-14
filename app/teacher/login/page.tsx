@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { asciiDigits } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { authClient } from '@/lib/auth-client'
@@ -20,13 +21,18 @@ export default function TeacherLogin() {
     setLoading(true)
 
     try {
+      // A teacher's login is their mobile number; the address behind it is
+      // built here, the same way the administration built it when the
+      // account was opened. A full address still works as typed.
+      const typed = email.trim()
+      const loginEmail = typed.includes('@') ? typed : `${asciiDigits(typed).replace(/\D/g, '')}@teacher.midad.local`
       const { error: signInError } = await authClient.signIn.email({
-        email,
+        email: loginEmail,
         password,
       })
 
       if (signInError) {
-        setError('البريد الإلكتروني أو كلمة المرور غير صحيحة')
+        setError('رقم الجوال أو كلمة المرور غير صحيحة')
       } else {
         router.push('/teacher')
         router.refresh()
@@ -59,15 +65,17 @@ export default function TeacherLogin() {
 
         <form onSubmit={handleLogin} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-foreground mb-2">البريد الإلكتروني</label>
+            <label className="block text-sm font-medium text-foreground mb-2">رقم الجوال</label>
             <input
-              type="email"
+              type="text"
+              inputMode="tel"
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 text-left"
               dir="ltr"
               required
-              placeholder="user@teacher.midad.local"
+              placeholder="05XXXXXXXX"
             />
           </div>
 

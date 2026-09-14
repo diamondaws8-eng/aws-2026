@@ -2,47 +2,30 @@
 
 import { useState } from 'react'
 import { Trophy } from 'lucide-react'
-import { rankWithTies, medalFor, LEADERBOARD_PERIODS, type LeaderboardPeriod } from '@/lib/ranking'
-import type { LeaderboardRow } from '@/lib/points'
-
-const TOP = 5
+import { medalFor, LEADERBOARD_PERIODS, type LeaderboardPeriod, type HonorBoardView } from '@/lib/ranking'
 
 /**
  * The class honour board as a family sees it: the top five by name, and their
- * own child's place always — never anyone else's place below the top. An
- * honour board celebrates; a full ranking in every home would shame the
- * pupils at the bottom in front of every family in the class.
+ * own child's place always — never anyone else's place below the top.
+ *
+ * The ranking and the cut both happen on the server (buildHonorBoards in
+ * lib/ranking.ts). This component receives five names per period and nothing
+ * else, so no other family's child is ever sent to this device.
  */
 export function HonorBoard({
-  rows,
-  childId,
+  boards,
   childFirstName,
   classSize,
 }: {
-  /** Every active pupil in the class, as the leaderboard returns them. */
-  rows: LeaderboardRow[]
-  childId: string
+  boards: Record<LeaderboardPeriod, HonorBoardView>
   childFirstName: string
   classSize: number
 }) {
   const [period, setPeriod] = useState<LeaderboardPeriod>('year')
+  const board = boards[period]
+  if (!board) return null
 
-  if (rows.length === 0) return null
-
-  // Inside one class every pupil had the same lessons, so raw points are the
-  // fair measure here.
-  const scoring = rows
-    .map((r) => ({ ...r, totalPoints: r.periods[period].points }))
-    .filter((r) => r.totalPoints > 0)
-  const ranked = rankWithTies(scoring)
-  const top = ranked.slice(0, TOP)
-  const mine = ranked.find((r) => r.id === childId)
-  // A child with no positive score is not on the list at all; they sit behind
-  // everyone who is, tied with the rest of the class on nothing.
-  const myRank = mine?.rank ?? ranked.length + 1
-  const myPoints = mine?.totalPoints ?? rows.find((r) => r.id === childId)?.periods[period].points ?? 0
-  const above = mine ? ranked.filter((r) => r.rank < mine.rank).pop() : ranked[ranked.length - 1]
-  const gap = above ? above.totalPoints - myPoints : 0
+  const { top, myRank, myPoints, gap, showMine } = board
 
   return (
     <div className="bg-card border border-border rounded-3xl p-5 shadow-sm">
@@ -53,7 +36,7 @@ export function HonorBoard({
           </span>
           لوحة شرف الفصل
         </h2>
-        <span className="text-xs text-muted-foreground">أعلى {Math.min(TOP, top.length)} من {classSize} طالباً</span>
+        <span className="text-xs text-muted-foreground">أعلى {top.length} من {classSize} طالباً</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 mb-4">
@@ -77,30 +60,27 @@ export function HonorBoard({
         </p>
       ) : (
         <div className="space-y-2">
-          {top.map((r) => {
-            const isMine = r.id === childId
-            return (
-              <div
-                key={r.id}
-                className={`flex items-center justify-between rounded-xl border px-3 py-2.5 ${
-                  isMine ? 'border-primary/40 bg-primary/5' : 'border-border'
-                }`}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="w-7 text-center text-lg">{medalFor(r.rank) ?? <span className="text-sm text-muted-foreground">{r.rank}</span>}</span>
-                  <span className={`truncate text-sm ${isMine ? 'font-bold' : 'font-semibold'}`}>
-                    {r.name}
-                    {isMine && <span className="text-xs text-primary font-bold"> — ابنك</span>}
-                  </span>
-                </div>
-                <span className="text-sm font-black text-primary shrink-0">+{r.totalPoints}</span>
+          {top.map((r, i) => (
+            <div
+              key={i}
+              className={`flex items-center justify-between rounded-xl border px-3 py-2.5 ${
+                r.isMine ? 'border-primary/40 bg-primary/5' : 'border-border'
+              }`}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="w-7 text-center text-lg">{medalFor(r.rank) ?? <span className="text-sm text-muted-foreground">{r.rank}</span>}</span>
+                <span className={`truncate text-sm ${r.isMine ? 'font-bold' : 'font-semibold'}`}>
+                  {r.name}
+                  {r.isMine && <span className="text-xs text-primary font-bold"> — ابنك</span>}
+                </span>
               </div>
-            )
-          })}
+              <span className="text-sm font-black text-primary shrink-0">+{r.points}</span>
+            </div>
+          ))}
         </div>
       )}
 
-      {top.length > 0 && (!mine || mine.rank > TOP) && (
+      {showMine && (
         <div className="mt-3 rounded-xl bg-muted/50 p-3 text-sm">
           <span className="font-bold">ترتيب {childFirstName}: {myRank} من {classSize}</span>
           <span className="text-muted-foreground"> · {myPoints > 0 ? '+' : ''}{myPoints} نقطة</span>

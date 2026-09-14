@@ -7,6 +7,17 @@ const nextConfig = {
   },
   // The server's name and version are nobody's business.
   poweredByHeader: false,
+  experimental: {
+    /**
+     * Restoring a backup hands the whole file to a server action, and Next
+     * caps an action body at 1 MB by default — which this school's file
+     * passes within the first weeks, making restore impossible exactly when
+     * it starts to matter. This raises the ceiling for every action, so it
+     * is deliberately modest rather than generous; a full year's export is
+     * larger still and wants a streaming upload, not a bigger argument.
+     */
+    serverActions: { bodySizeLimit: '32mb' },
+  },
   /**
    * Browser-side hardening for every response. The admin portal edits pupils'
    * records, so it must never be framed by another site (clickjacking), the

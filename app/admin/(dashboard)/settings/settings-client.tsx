@@ -465,8 +465,17 @@ export default function SettingsClient({
       } else {
         setRestoreResult({ ok: false, text: res.error || 'حدث خطأ أثناء الاستعادة' })
       }
-    } catch {
-      setRestoreResult({ ok: false, text: 'حدث خطأ غير متوقع أثناء الاستعادة' })
+    } catch (e) {
+      // A file larger than the action body limit fails before the server ever
+      // sees it. Saying so beats «خطأ غير متوقع», which sends the owner
+      // looking for a problem in the file's contents.
+      const tooBig = /body ?size|exceeded|413|too large/i.test(String((e as Error)?.message ?? ''))
+      setRestoreResult({
+        ok: false,
+        text: tooBig
+          ? 'الملف أكبر مما يقبله الاستيراد دفعةً واحدة. استعِد من نسخة أقدم وأصغر، أو استعِد من نسخة قاعدة البيانات لدى المزوّد.'
+          : 'حدث خطأ غير متوقع أثناء الاستعادة',
+      })
     } finally {
       setRestoring(false)
     }

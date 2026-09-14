@@ -18,6 +18,12 @@ export async function createSchool(data: { name: string; academicYear: string })
   if (!session?.user) return { error: 'Unauthorized' }
 
   const userId = session.user.id
+
+  // This deployment holds one school. Once it exists, nobody raises another —
+  // not the owner, not an admin account, not an account that belongs nowhere.
+  const [anySchool] = await db.select({ id: schools.id }).from(schools).limit(1)
+  if (anySchool) return { error: 'المدرسة مُنشأة بالفعل في هذا النظام' }
+
   const [owned] = await db.select({ id: schools.id }).from(schools).where(eq(schools.adminId, userId)).limit(1)
   if (owned) return { error: 'لديك مدرسة بالفعل' }
 

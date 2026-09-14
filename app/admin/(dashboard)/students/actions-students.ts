@@ -7,7 +7,7 @@ import {
   lessonRecords, behaviorCases, userNotifications, parentActivationLog,
 } from '@/lib/db/schema'
 import { eq, and, inArray, ne } from 'drizzle-orm'
-import { parentEmail, parentEmailCandidates } from '@/lib/utils'
+import { parentEmail, parentEmailCandidates, asciiDigits, canonicalMobile } from '@/lib/utils'
 import { normalizeGender } from '@/lib/gender'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/lib/auth'
@@ -24,6 +24,12 @@ import { logAudit } from '@/lib/audit'
  */
 // NOTE: not exported — a 'use server' file may only export async functions.
 const DEFAULT_PARENT_PASSWORD = '12345678'
+
+/** The family name as a roll writes it: the last word of the full name. */
+const familyName = (name: string | null | undefined): string => {
+  const parts = String(name ?? '').trim().split(/\s+/).filter(Boolean)
+  return parts.length ? parts[parts.length - 1] : ''
+}
 
 /** Unambiguous character set — no 0/O/1/l/I, so passwords can be read out loud. */
 function generateParentPassword() {
@@ -61,7 +67,7 @@ export async function addStudent(input: any) {
     // The same guard the bulk import uses. A national id already on the roll
     // means this pupil is being entered a second time — and a second copy is
     // counted twice in every register and shown twice to their own family.
-    const nid = String(input.nationalId ?? '').trim()
+    const nid = asciiDigits(input.nationalId).trim()
     if (nid) {
       const [clash] = await db
         .select({ fullName: students.fullName })
@@ -109,8 +115,8 @@ export async function addStudent(input: any) {
     await db.insert(students).values({
       schoolId:    input.schoolId,
       fullName:    input.fullName,
-      nationalId:  input.nationalId || null,
-      parentPhone: input.parentPhone || null,
+      nationalId:  nid || null,
+      parentPhone: input.parentPhone ? canonicalMobile(input.parentPhone) : null,
       gender:      input.gender,
       classId:     input.classId || null,
       parentUserId,
@@ -213,7 +219,7 @@ export async function editStudent(id: string, input: any) {
 
     // The same guard as adding: retyping one pupil's id onto another makes two
     // records that the registers and the family both see twice.
-    const nid = String(input.nationalId ?? '').trim()
+    const nid = asciiDigits(input.nationalId).trim()
     if (nid) {
       const [clash] = await db
         .select({ fullName: students.fullName })
@@ -267,7 +273,7 @@ export async function editStudent(id: string, input: any) {
     await db.update(students).set({
       fullName:    input.fullName,
       nationalId:  nid || null,
-      parentPhone: input.parentPhone || null,
+      parentPhone: input.parentPhone ? canonicalMobile(input.parentPhone) : null,
       gender,
       classId:     input.classId || null,
       parentUserId,
@@ -330,6 +336,12 @@ export async function importStudents(
       .filter(Boolean),
   )
   let skippedDuplicates = 0
+  /**
+   * Not failures — things the owner has to be told about rows that DID go in.
+   * A silent success that hands one family another family's child is worse
+   * than a row that refuses to import.
+   */
+  const warnings: string[] = []
 
   for (const row of rows) {
     try {
@@ -341,7 +353,7 @@ export async function importStudents(
 
       // Also catches the same id twice inside one file, since every accepted
       // id is added to the set below.
-      const nid = row.nationalId ? String(row.nationalId).replace(/\.0+$/, '').trim() : ''
+      const nid = row.nationalId ? asciiDigits(String(row.nationalId).replace(/\.0+$/, '')).trim() : ''
       if (nid && existingIds.has(nid)) {
         skippedDuplicates++
         errors.push(`${row.fullName.trim()} — مسجَّل من قبل بنفس رقم الهوية`)
@@ -373,7 +385,28 @@ export async function importStudents(
               .set({ role: 'parent', mustChangePassword: true, updatedAt: new Date() })
               .where(eq(user.email, parentEmailAddr))
           } catch (e) {
+            // Swallowed, this row still becomes a pupil — but with no login for
+            // the home. Say so, or the family is simply never contacted.
             console.error("Excel import signUpEmail Error:", e)
+            warnings.push(`${row.fullName.trim()} — تعذّر فتح حساب لولي الأمر. الطالب أُضيف، لكن لا يستطيع وليّه الدخول بعد.`)
+          }
+        } else {
+          /**
+           * The number already has a login. That is exactly right for a
+           * brother and a sister, and exactly wrong when a sheet carries a
+           * driver's or an office number for two unrelated pupils: whoever
+           * holds it would open the app and read another family's child.
+           * The names decide, and the owner is told rather than blocked —
+           * only he knows whether they are one family.
+           */
+          const siblings = await db
+            .select({ fullName: students.fullName })
+            .from(students)
+            .where(and(eq(students.parentUserId, existingUser.id), eq(students.schoolId, schoolId)))
+          const family = familyName(row.fullName)
+          const theirs = [...new Set(siblings.map((s) => familyName(s.fullName)).filter(Boolean))]
+          if (family && theirs.length && !theirs.includes(family)) {
+            warnings.push(`${row.fullName.trim()} — الرقم ${canonicalMobile(rawPhone)} مسجَّل لعائلة ${theirs.join('، ')}. صاحب الرقم سيرى الطالبين معاً؛ راجعه قبل الاعتماد.`)
           }
         }
         
@@ -388,8 +421,8 @@ export async function importStudents(
       await db.insert(students).values({
         schoolId,
         fullName:    row.fullName.trim(),
-        nationalId:  row.nationalId  ? String(row.nationalId).replace(/\.0+$/, '').trim()  : null,
-        parentPhone: row.parentPhone ? String(row.parentPhone).replace(/\.0+$/, '').trim() : null,
+        nationalId:  nid || null,
+        parentPhone: row.parentPhone ? canonicalMobile(String(row.parentPhone).replace(/\.0+$/, '')) : null,
         // Unknown stays unknown. Defaulting to male here is what turned a
         // missing column into a roll of boys.
         gender:      normalizeGender(row.gender),
@@ -417,7 +450,7 @@ export async function importStudents(
   revalidatePath('/admin/students')
   // Said out loud rather than buried: a school importing its girls' side
   // needs to know how many rows arrived without a readable gender.
-  return { created, failed, errors, unknownGender, skippedDuplicates }
+  return { created, failed, errors, warnings, unknownGender, skippedDuplicates }
 }
 
 // ── Require every parent to pick a new password ───────────────────────────────

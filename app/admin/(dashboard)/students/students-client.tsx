@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { parentPhoneKey } from '@/lib/utils'
 import Link from 'next/link'
 import { addStudent, deleteStudent, importStudents, resetParentPassword } from './actions-students'
 import { EmptyState } from '@/components/empty-state'
@@ -19,6 +20,14 @@ type ImportRow = {
   gender: string
   valid: boolean
   error?: string
+  /** Set when this sheet gives the same mobile to more than one family name. */
+  sharedWith?: string
+}
+
+/** The family name as a roll writes it: the last word of the full name. */
+const familyName = (name: string): string => {
+  const parts = String(name ?? '').trim().split(/\s+/).filter(Boolean)
+  return parts.length ? parts[parts.length - 1] : ''
 }
 
 // ── Template download ─────────────────────────────────────────────────────────
@@ -68,7 +77,8 @@ export default function StudentsClient({
   const [importRows, setImportRows]     = useState<ImportRow[]>([])
   const [importing, setImporting]       = useState(false)
   const [importClassId, setImportClassId] = useState('')
-  const [importResult, setImportResult] = useState<{ created: number; failed: number; errors: string[]; unknownGender?: number; skippedDuplicates?: number } | null>(null)
+  const [importResult, setImportResult] = useState<{ created: number; failed: number; errors: string[]; warnings?: string[]; unknownGender?: number; skippedDuplicates?: number } | null>(null)
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Parent password reset
@@ -195,38 +205,85 @@ export default function StudentsClient({
       })
     }
 
+    /**
+     * One mobile against two different family names in the same sheet. Noor
+     * exports carry a driver's or an office number now and then, and the
+     * import would quietly hang both pupils on one login — so whoever holds
+     * that number would open the app and read another family's child. Only
+     * the owner knows whether they are one family, so this warns and never
+     * blocks; real brothers and sisters share a number and a surname.
+     */
+    const familiesByPhone = new Map<string, Set<string>>()
+    for (const r of rows) {
+      const key = parentPhoneKey(r.parentPhone)
+      const family = familyName(r.fullName)
+      if (!key || !family) continue
+      if (!familiesByPhone.has(key)) familiesByPhone.set(key, new Set())
+      familiesByPhone.get(key)!.add(family)
+    }
+    for (const r of rows) {
+      const families = familiesByPhone.get(parentPhoneKey(r.parentPhone))
+      if (families && families.size > 1) r.sharedWith = [...families].join('، ')
+    }
+
     setImportRows(rows)
   }
 
   // ── Execute import ──────────────────────────────────────────────────────────
+  /**
+   * The whole school arrives in one sheet — three hundred pupils, most with a
+   * new parent account whose password must be hashed. One request for all of
+   * them outlives what a hosted function is allowed, and a request cut off
+   * half-way leaves the owner guessing which rows landed. So the sheet goes
+   * up in small batches, one after the other, with a running count; a batch
+   * that fails stops the run and the count says exactly how far it got.
+   */
+  const IMPORT_BATCH = 20
   const handleImport = async () => {
     const validRows = importRows.filter(r => r.valid)
     if (validRows.length === 0) return
 
     setImporting(true)
+    setImportProgress({ done: 0, total: validRows.length })
+    const total = { created: 0, failed: 0, errors: [] as string[], warnings: [] as string[], unknownGender: 0, skippedDuplicates: 0 }
     try {
-      const result = await importStudents(
-        validRows.map(r => ({
-          fullName:    r.fullName,
-          nationalId:  r.nationalId,
-          parentPhone: r.parentPhone,
-          gender:      r.gender,
-          classId:     importClassId || undefined,
-        })),
-        schoolId
-      )
-      setImportResult(result)
+      for (let i = 0; i < validRows.length; i += IMPORT_BATCH) {
+        const batch = validRows.slice(i, i + IMPORT_BATCH)
+        const result = await importStudents(
+          batch.map(r => ({
+            fullName:    r.fullName,
+            nationalId:  r.nationalId,
+            parentPhone: r.parentPhone,
+            gender:      r.gender,
+            classId:     importClassId || undefined,
+          })),
+          schoolId
+        )
+        total.created += result.created
+        total.failed += result.failed
+        total.errors.push(...result.errors)
+        total.warnings.push(...(result.warnings ?? []))
+        total.unknownGender += result.unknownGender ?? 0
+        total.skippedDuplicates += result.skippedDuplicates ?? 0
+        setImportProgress({ done: Math.min(i + batch.length, validRows.length), total: validRows.length })
+      }
+      setImportResult(total)
       setImportRows([])
       if (fileRef.current) fileRef.current.value = ''
     } catch {
-      alert('حدث خطأ أثناء الاستيراد')
+      const left = validRows.length - total.created - total.failed - total.skippedDuplicates
+      setImportResult({ ...total, errors: [...total.errors, `انقطع الاستيراد — أُضيف ${total.created} طالباً، وبقي ${left} لم يُرسَل. أعد رفع الملف: من أُضيف يُتخطى تلقائياً.`] })
+      setImportRows([])
+      if (fileRef.current) fileRef.current.value = ''
     } finally {
       setImporting(false)
+      setImportProgress(null)
     }
   }
 
   const validCount   = importRows.filter(r => r.valid).length
   const invalidCount = importRows.filter(r => !r.valid).length
+  const sharedPhoneRows = importRows.filter(r => r.sharedWith)
 
   // ─────────────────────────────────────────────────────────────────────────────
   return (
@@ -512,6 +569,14 @@ export default function StudentsClient({
                       </span>
                     )}
                   </div>
+                  {(importResult.warnings?.length ?? 0) > 0 && (
+                    <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      <p className="font-bold mb-1">راجع هذه الصفوف</p>
+                      <ul className="space-y-0.5 text-xs">
+                        {importResult.warnings!.map((w, i) => <li key={i}>{w}</li>)}
+                      </ul>
+                    </div>
+                  )}
                   {importResult.errors.length > 0 && (
                     <div className="mt-2 text-xs text-red-600 dark:text-red-400">
                       <p className="font-semibold mb-1">الصفوف الفاشلة:</p>
@@ -548,8 +613,25 @@ export default function StudentsClient({
                     <div className="flex gap-3 text-sm">
                       <span className="text-emerald-600 font-semibold inline-flex items-center gap-1"><CheckCircle2 className="size-3.5" /> صحيح: {validCount}</span>
                       {invalidCount > 0 && <span className="text-red-600 font-semibold inline-flex items-center gap-1"><XCircle className="size-3.5" /> خطأ: {invalidCount}</span>}
+                      {sharedPhoneRows.length > 0 && <span className="text-amber-600 font-semibold inline-flex items-center gap-1"><AlertTriangle className="size-3.5" /> رقم مشترك: {sharedPhoneRows.length}</span>}
                     </div>
                   </div>
+
+                  {sharedPhoneRows.length > 0 && (
+                    <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      <p className="font-bold mb-1">رقم جوال واحد لأكثر من عائلة</p>
+                      <p className="text-xs mb-2">
+                        صاحب الرقم سيفتح التطبيق ويرى أبناء العائلتين. إن كانوا إخوة فلا شيء عليك؛
+                        وإن كانوا عائلتين فصحّح الرقم في الملف قبل الاستيراد.
+                      </p>
+                      <ul className="space-y-0.5 text-xs">
+                        {sharedPhoneRows.slice(0, 8).map((r, i) => (
+                          <li key={i}>{r.fullName} — {r.parentPhone} — عائلات: {r.sharedWith}</li>
+                        ))}
+                        {sharedPhoneRows.length > 8 && <li>… و{sharedPhoneRows.length - 8} غيرهم</li>}
+                      </ul>
+                    </div>
+                  )}
 
                   <div className="border border-border rounded-2xl overflow-hidden">
                     <div className="overflow-x-auto max-h-72">
@@ -604,7 +686,7 @@ export default function StudentsClient({
                 className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity inline-flex items-center justify-center gap-2"
               >
                 {importing
-                  ? <><Loader2 className="size-4 animate-spin" /> جاري الاستيراد...</>
+                  ? <><Loader2 className="size-4 animate-spin" /> جاري الاستيراد{importProgress ? ` — ${importProgress.done} من ${importProgress.total}` : "..."}</>
                   : <>
                       <Upload className="size-4" />
                       {validCount > 0

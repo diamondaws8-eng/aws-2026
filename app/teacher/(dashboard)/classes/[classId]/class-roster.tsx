@@ -607,6 +607,8 @@ export default function ClassRoster({
                   <tbody className="divide-y divide-border">
                     {students.map((student, idx) => {
                       const att = attendance[student.id] || 'present'
+                      // Nobody marks the homework of a child who is not in the room.
+                      const out = att === 'absent' || att === 'excused'
                       const beh: Behavior | null = behavior[student.id] ?? null
                       const hw = homework[student.id] || 'done'
                       const mat = materials[student.id] || 'brought'
@@ -729,9 +731,10 @@ export default function ClassRoster({
                                   {BEH_BTNS.map(btn => (
                                     <button
                                       key={btn.key}
+                                      disabled={out}
                                       onClick={() => { touch(student.id); setBehavior(b => ({ ...b, [student.id]: btn.key })) }}
                                       title={btn.label}
-                                      className={`w-11 h-11 sm:w-9 sm:h-9 rounded-xl text-lg transition-all border flex-shrink-0 ${
+                                      className={`w-11 h-11 sm:w-9 sm:h-9 rounded-xl text-lg transition-all border flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
                                         beh === btn.key ? 'bg-primary/10 border-primary scale-110' : 'bg-card border-border hover:scale-105'
                                       }`}
                                     >{btn.emoji}</button>
@@ -757,8 +760,9 @@ export default function ClassRoster({
                                 {HW_BTNS.map(btn => (
                                   <button
                                     key={btn.key}
+                                    disabled={out}
                                     onClick={() => { touch(student.id); setHomework(h => ({ ...h, [student.id]: btn.key })) }}
-                                    className={`px-2 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all ${
+                                    className={`px-2 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                                       hw === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
                                   >{btn.label}</button>
@@ -774,8 +778,9 @@ export default function ClassRoster({
                                 {MAT_BTNS.map(btn => (
                                   <button
                                     key={btn.key}
+                                    disabled={out}
                                     onClick={() => { touch(student.id); setMaterials(m => ({ ...m, [student.id]: btn.key })) }}
-                                    className={`px-2 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all ${
+                                    className={`px-2 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                                       mat === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
                                   >{btn.label}</button>
@@ -791,8 +796,9 @@ export default function ClassRoster({
                                 {PART_BTNS.map(btn => (
                                   <button
                                     key={btn.key}
+                                    disabled={out}
                                     onClick={() => { touch(student.id); setParticipation(p => ({ ...p, [student.id]: btn.key })) }}
-                                    className={`px-2 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all ${
+                                    className={`px-2 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                                       part === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
                                   >{btn.label}</button>

@@ -1,6 +1,6 @@
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { user, teachers, students } from '@/lib/db/schema'
+import { user, teachers, students, schools } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -13,6 +13,10 @@ export default async function SetupLayout({ children }: { children: React.ReactN
   // Anyone who already belongs to a school (owner or staff) must not create another one.
   const access = await getAdminAccess()
   if (access) redirect('/admin')
+
+  // And once the school exists, this screen has no purpose for anyone at all.
+  const [anySchool] = await db.select({ id: schools.id }).from(schools).limit(1)
+  if (anySchool) redirect('/admin/login')
 
   // A teacher or parent who opens the admin portal used to land here and could
   // create a duplicate school by accident — send them to their own portal.

@@ -100,6 +100,23 @@ async function classIsConfigured(classId: string): Promise<boolean> {
   return !!row
 }
 
+/**
+ * Has this school begun assigning subjects at all?
+ *
+ * The open-class fallback below is for a school on its very first day, before
+ * anyone has been assigned anything. The moment the first subject gets a
+ * teacher, the school has started configuring and an unassigned class is a
+ * gap to fill — not an invitation. The admin dashboard lists those classes.
+ */
+async function schoolHasAnyAssignment(schoolId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: subjects.id })
+    .from(subjects)
+    .where(and(eq(subjects.schoolId, schoolId), isNotNull(subjects.teacherUserId)))
+    .limit(1)
+  return !!row
+}
+
 async function classIsAccessible(access: TeacherAccess, classId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: classes.id, gradeLevelId: classes.gradeLevelId })
@@ -113,7 +130,10 @@ async function classIsAccessible(access: TeacherAccess, classId: string): Promis
   // nobody has assigned its subjects yet.
   if (!teacherCoversGrade(access, row.gradeLevelId)) return false
 
-  if (!(await classIsConfigured(classId))) return true
+  if (!(await classIsConfigured(classId))) {
+    // Open only while the whole school has assigned nobody anywhere.
+    return !(await schoolHasAnyAssignment(access.schoolId))
+  }
 
   const [owns] = await db
     .select({ id: subjects.id })
@@ -126,8 +146,8 @@ async function classIsAccessible(access: TeacherAccess, classId: string): Promis
 /**
  * Same as requireTeacher, but also proves the caller may act on this specific
  * class — class ids arrive from the browser and must never be trusted on their
- * own. Once the class has an assigned subject, only its assigned teacher(s)
- * pass; see classIsConfigured above for the rollout-safe fallback.
+ * own. Only the class's assigned teacher(s) pass, unless the school has not
+ * assigned anyone anywhere yet; see classIsAccessible above.
  */
 export async function requireTeacherForClass(classId: string): Promise<TeacherAccess> {
   const access = await requireTeacher()
@@ -154,8 +174,10 @@ export async function getTeacherClassAccess(classId: string): Promise<TeacherCla
 }
 
 /**
- * Class ids this teacher may see in a listing: every class until it gains an
- * assigned subject, then only the ones they are themselves assigned to.
+ * Class ids this teacher may see in a listing: the ones they are assigned to,
+ * plus — only while the school has assigned nobody anywhere — every class in
+ * their stage. The same rule as classIsAccessible, so the list never offers a
+ * class the guard would refuse.
  */
 export async function getTeacherVisibleClassIds(schoolId: string, teacherUserId: string): Promise<Set<string>> {
   // Read the ceiling from the named teacher's own row rather than the session,
@@ -180,6 +202,9 @@ export async function getTeacherVisibleClassIds(schoolId: string, teacherUserId:
 
   const configuredClassIds = new Set(allSubjects.filter(s => s.teacherUserId).map(s => s.classId))
   const ownClassIds = new Set(allSubjects.filter(s => s.teacherUserId === teacherUserId).map(s => s.classId))
+  // Has the school begun assigning subjects at all? Until it has, a brand-new
+  // school would otherwise show every teacher nothing at all.
+  const schoolHasAnyAssignment = configuredClassIds.size > 0
 
   // The same two rules as classIsAccessible, in the same order: the stage
   // ceiling, then the subject rule. A listing that offered a class the guard
@@ -188,6 +213,6 @@ export async function getTeacherVisibleClassIds(schoolId: string, teacherUserId:
     allClasses
       .filter((c) => covers(c.gradeLevelId))
       .map((c) => c.id)
-      .filter((id) => !configuredClassIds.has(id) || ownClassIds.has(id)),
+      .filter((id) => ownClassIds.has(id) || (!configuredClassIds.has(id) && !schoolHasAnyAssignment)),
   )
 }

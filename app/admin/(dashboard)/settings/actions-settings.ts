@@ -128,13 +128,22 @@ export async function previewReset(scope: ResetScope): Promise<{ ok: true; count
   return { ok: true, counts }
 }
 
-/** Parents of this school's pupils — the accounts that exist for those pupils alone. */
+/**
+ * Parents of this school's pupils — the accounts that exist for those pupils
+ * alone — plus any parent account that no pupil anywhere points at: a trial
+ * left two of those behind, and an account nobody is attached to has no
+ * reason to keep a password on this system.
+ */
 async function parentUserIds(schoolId: string): Promise<string[]> {
   const rows = await db
     .selectDistinct({ id: students.parentUserId })
     .from(students)
     .where(eq(students.schoolId, schoolId))
-  return rows.map((r) => r.id).filter((v): v is string => !!v)
+  const orphans = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(and(eq(user.role, 'parent'), sql`NOT EXISTS (SELECT 1 FROM ${students} WHERE ${students.parentUserId} = ${user.id})`))
+  return [...new Set([...rows.map((r) => r.id).filter((v): v is string => !!v), ...orphans.map((o) => o.id)])]
 }
 
 export async function resetOperationalData(phrase: string, scope?: Partial<ResetScope>): Promise<{ ok: true; removed: ResetCounts } | { ok: false; error: string }> {
@@ -186,6 +195,11 @@ export async function resetOperationalData(phrase: string, scope?: Partial<Reset
         await tx.delete(schoolHolidays).where(and(eq(schoolHolidays.schoolId, schoolId), sqlNotNull(schoolHolidays.gradeLevelId)))
         // A pupil left in place would point at a class that no longer exists.
         if (!s.pupils) await tx.update(students).set({ classId: null }).where(eq(students.schoolId, schoolId))
+        // Likewise a kept teacher or staff member whose stage list named the
+        // deleted stages: the list is emptied so the new stages are assigned
+        // deliberately, not inherited from ids that no longer exist.
+        if (!s.teachers) await tx.update(teachers).set({ gradeLevelIds: '[]' }).where(eq(teachers.schoolId, schoolId))
+        if (!s.staff) await tx.update(schoolStaff).set({ gradeLevelIds: '[]' }).where(eq(schoolStaff.schoolId, schoolId))
       }
       // The owner's own account is never in this list; everything else that
       // signed in for the trial goes with its sessions.

@@ -236,20 +236,33 @@ export async function saveDailyRecords(
     .where(and(eq(subjects.classId, classId), eq(subjects.teacherUserId, userId)))
     .limit(1)
 
-  const lessonRows = records.map((rec) => ({
-    schoolId,
-    classId,
-    studentId: rec.studentId,
-    teacherUserId: userId,
-    subjectId: ownSubject?.id ?? null,
-    date,
-    behavior: rec.behavior,
-    homeworkStatus: rec.homeworkStatus,
-    materialsStatus: rec.materialsStatus,
-    participationStatus: rec.participationStatus,
-    teacherNote: rec.teacherNote || null,
-    pointsEarned: lessonPointsFor({ ...rec, date }, settings),
-  }))
+  // A pupil who was not in school was not in this lesson either. The roster
+  // sends its defaults («أنجز», «أحضر», «مشارك») for every row, so without
+  // this an absent child was credited with homework and participation — and
+  // the points for them — on the day nobody saw them. The register as stored
+  // (after the lock) decides, so a late arrival recorded by this teacher keeps
+  // its marks.
+  const lessonRows = records.map((rec) => {
+    const out = isOutOfSchool(stored.get(rec.studentId) ?? rec.attendanceStatus)
+    // null, not a new word like 'na': every reader of these columns already
+    // treats an empty status as "not assessed" — lib/points.ts skips it when
+    // scoring and its SQL CASE falls through to zero — and behaviour has used
+    // null for "unrated" since the beginning.
+    const marks = out
+      ? { behavior: null, homeworkStatus: null, materialsStatus: null, participationStatus: null }
+      : { behavior: rec.behavior, homeworkStatus: rec.homeworkStatus, materialsStatus: rec.materialsStatus, participationStatus: rec.participationStatus }
+    return {
+      schoolId,
+      classId,
+      studentId: rec.studentId,
+      teacherUserId: userId,
+      subjectId: ownSubject?.id ?? null,
+      date,
+      ...marks,
+      teacherNote: rec.teacherNote || null,
+      pointsEarned: out ? 0 : lessonPointsFor({ ...rec, date }, settings),
+    }
+  })
 
   await db
     .insert(lessonRecords)

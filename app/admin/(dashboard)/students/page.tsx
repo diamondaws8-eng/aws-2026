@@ -5,6 +5,9 @@ import StudentsClient from './students-client'
 import { requireAdminAccess, canViewGrade, canEditGrade } from '@/lib/admin-access'
 import { NotificationBell } from '@/components/notification-bell'
 
+// A batch of the pupil import hashes a parent password per row; give the route the room a hosted function allows.
+export const maxDuration = 60
+
 export const dynamic = 'force-dynamic'
 
 export default async function StudentsPage() {

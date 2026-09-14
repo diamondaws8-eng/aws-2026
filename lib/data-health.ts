@@ -1,5 +1,5 @@
 import { db } from '@/lib/db'
-import { classes, gradeLevels, students, subjects, schoolStaff, schoolYears, auditLog } from '@/lib/db/schema'
+import { classes, gradeLevels, students, subjects, schoolStaff, schoolYears, auditLog, teachers } from '@/lib/db/schema'
 import { and, eq, isNull, sql, desc } from 'drizzle-orm'
 import { parentActivation } from '@/lib/notifications'
 
@@ -22,8 +22,9 @@ const parseIds = (raw: string | null): string[] => {
  * Shown on the dashboard until they are done, with the page that does them.
  */
 export async function getDataHealth(schoolId: string): Promise<HealthItem[]> {
-  const [gradeRows, classRows, pupilCounts, unassigned, duplicates, staffRows, openYear, lastBackup, activation] = await Promise.all([
+  const [gradeRows, teacherSeats, classRows, pupilCounts, unassigned, duplicates, staffRows, openYear, lastBackup, activation] = await Promise.all([
     db.select({ id: gradeLevels.id, name: gradeLevels.name }).from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)),
+    db.select({ allGrades: teachers.allGrades, gradeLevelIds: teachers.gradeLevelIds }).from(teachers).where(eq(teachers.schoolId, schoolId)),
     db.select({ id: classes.id, name: classes.name, gradeLevelId: classes.gradeLevelId, promotesTo: classes.promotesToClassId })
       .from(classes).where(eq(classes.schoolId, schoolId)),
     db.select({ classId: students.classId, n: sql<number>`count(*)`.mapWith(Number) })
@@ -64,12 +65,34 @@ export async function getDataHealth(schoolId: string): Promise<HealthItem[]> {
     items.push({
       level: 'warn',
       title: `${noTeacher.length} فصل بلا معلم مسند لأي مادة`,
-      detail: noTeacher.slice(0, 6).map(label).join('، ') + (noTeacher.length > 6 ? '…' : '') + ' — يفتحها كل معلمي المرحلة حتى يُسند إليها معلم.',
+      detail: noTeacher.slice(0, 6).map(label).join('، ') + (noTeacher.length > 6 ? '…' : '') + ' — لا يفتحها أي معلم حتى يُسند إليها معلم مادة.',
       href: '/admin/grade-levels',
       action: 'إسناد المعلمين',
     })
   }
 
+  /**
+   * A teacher or a staff member whose stage list is empty, and who is not
+   * marked "all stages", can open the portal and find nothing at all — no
+   * classes, no pupils, no cases — with no message that says why. That is
+   * exactly the state everyone is left in after the stages are rebuilt,
+   * because the old stage ids die with them.
+   */
+  const strandedTeachers = teacherSeats.filter((t) => !t.allGrades && parseIds(t.gradeLevelIds).length === 0)
+  const strandedStaff = staffRows.filter((s) => !s.allGrades && parseIds(s.gradeLevelIds).length === 0)
+  if (strandedTeachers.length || strandedStaff.length) {
+    const who = [
+      strandedTeachers.length ? `${strandedTeachers.length} معلماً` : '',
+      strandedStaff.length ? `${strandedStaff.length} من فريق الإدارة` : '',
+    ].filter(Boolean).join(' و')
+    items.push({
+      level: 'warn',
+      title: `${who} بلا مرحلة مسندة`,
+      detail: 'يفتحون النظام فلا يجدون شيئاً. أسند لكل واحد مرحلته ليرى فصوله.',
+      href: strandedTeachers.length ? '/admin/teachers' : '/admin/staff',
+      action: 'إسناد المراحل',
+    })
+  }
   const empty = classRows.filter((c) => (countOf.get(c.id) ?? 0) === 0)
   const crowded = classRows.filter((c) => (countOf.get(c.id) ?? 0) > 40)
   if (empty.length || crowded.length) {

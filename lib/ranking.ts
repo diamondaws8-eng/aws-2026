@@ -52,3 +52,59 @@ export const MIN_LESSONS_FOR_SCHOOL_RANK = 3
 export function medalFor(rank: number): string | null {
   return rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : null
 }
+
+// ─── The honour board a family may see ───────────────────────────────────────
+/** One period of the board, already cut to what a home is allowed to read. */
+export type HonorBoardView = {
+  /** The names on the board: the top five only, never a full ranking. */
+  top: { name: string; rank: number; points: number; isMine: boolean }[]
+  myRank: number
+  myPoints: number
+  gap: number
+  /** The child is not among the names shown, so their place is stated apart. */
+  showMine: boolean
+}
+
+/**
+ * Rank a class and keep only what one family may read.
+ *
+ * This used to run in the browser, which meant the whole class — every
+ * pupil's name and points — was serialised into every parent's page and
+ * only then sliced to five. The slice is the point: an honour board
+ * celebrates the top, while a full ranking in every home shames the pupils
+ * at the bottom in front of the whole class. So it is cut here, before it
+ * ever leaves the server, and the names of everyone else never travel.
+ */
+export function buildHonorBoard<T extends { id: string; name: string; periods: Record<LeaderboardPeriod, { points: number }> }>(
+  rows: T[],
+  childId: string,
+  period: LeaderboardPeriod,
+  top = 5,
+): HonorBoardView {
+  // A pupil with nothing positive this period is not on the list at all.
+  const scoring = rows
+    .map((r) => ({ id: r.id, name: r.name, totalPoints: r.periods[period].points }))
+    .filter((r) => r.totalPoints > 0)
+  const ranked = rankWithTies(scoring)
+  const mine = ranked.find((r) => r.id === childId)
+  const myPoints = mine?.totalPoints ?? rows.find((r) => r.id === childId)?.periods[period].points ?? 0
+  const above = mine ? ranked.filter((r) => r.rank < mine.rank).pop() : ranked[ranked.length - 1]
+  const shown = ranked.slice(0, top)
+  return {
+    top: shown.map((r) => ({ name: r.name, rank: r.rank, points: r.totalPoints, isMine: r.id === childId })),
+    myRank: mine?.rank ?? ranked.length + 1,
+    myPoints,
+    gap: above ? above.totalPoints - myPoints : 0,
+    showMine: shown.length > 0 && (!mine || mine.rank > top),
+  }
+}
+
+/** Every period of the board, each already cut. */
+export function buildHonorBoards<T extends { id: string; name: string; periods: Record<LeaderboardPeriod, { points: number }> }>(
+  rows: T[],
+  childId: string,
+): Record<LeaderboardPeriod, HonorBoardView> {
+  return Object.fromEntries(
+    LEADERBOARD_PERIODS.map((p) => [p.key, buildHonorBoard(rows, childId, p.key)]),
+  ) as Record<LeaderboardPeriod, HonorBoardView>
+}
