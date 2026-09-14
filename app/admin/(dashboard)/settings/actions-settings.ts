@@ -583,6 +583,41 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
       pointsRecomputed: 0,
     }
 
+    /**
+     * The one way this screen can still empty a school.
+     *
+     * Everything below runs in one transaction, so a crash or a bad row rolls
+     * the deletes back and nothing is lost. But a file that is merely EMPTY
+     * fails at nothing: every insert is guarded by "if this table has rows",
+     * so an empty one is skipped, the deletes stand, and the transaction
+     * commits happily. Choosing a stale or half-written file would wipe the
+     * year and report success.
+     *
+     * So weigh the file against the school before touching anything. A
+     * restore exists to bring a school back, not to empty one — and if it
+     * would take most of the pupils away it is the wrong file, so say so with
+     * both numbers rather than proceeding.
+     */
+    const fileStudents = Array.isArray(d.students) ? d.students.length : 0
+    const [liveRow] = await db
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(students)
+      .where(eq(students.schoolId, schoolId))
+    const liveStudents = liveRow?.n ?? 0
+
+    if (liveStudents > 0 && fileStudents === 0) {
+      return {
+        ok: false as const,
+        error: `الملف لا يحتوي أي طالب، وفي النظام الآن ${liveStudents} طالباً. الاستعادة منه ستمحوهم جميعاً — تأكد أنك اخترت الملف الصحيح.`,
+      }
+    }
+    if (liveStudents > 0 && fileStudents * 2 < liveStudents) {
+      return {
+        ok: false as const,
+        error: `الملف فيه ${fileStudents} طالباً بينما في النظام ${liveStudents}. يبدو ملفاً قديماً أو ناقصاً، والاستعادة منه ستحذف الفرق. راجع تاريخ الملف؛ وإن كنت تقصد الرجوع إلى حالة أقدم فعلاً فاستعِدها من النسخة الليلية.`,
+      }
+    }
+
     await db.transaction(async (tx) => {
       // Restore the school's own editable fields — never trust id/adminId from the file
       const backupSchool = Array.isArray(d.schools) ? d.schools[0] : null
