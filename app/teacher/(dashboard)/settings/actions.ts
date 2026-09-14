@@ -38,7 +38,10 @@ export async function updateTeacherSettings(
     phone,
     whatsappTemplates: JSON.stringify({
       positive: cleanTemplates(input?.whatsappTemplates?.positive),
-      negative: cleanTemplates(input?.whatsappTemplates?.negative),
+      // A teacher keeps no warning templates of their own: those carry the
+      // school's voice and come from the administration's settings. Always
+      // empty here, so an older browser tab cannot smuggle one back in.
+      negative: [],
     }),
   }).where(eq(teachers.id, teacherId))
 

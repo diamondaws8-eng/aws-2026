@@ -168,29 +168,9 @@ export function TeacherSettingsClient({
           </div>
         </div>
 
-        {/* Negative */}
-        <div className="mb-6">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="font-semibold text-red-600">رسائل سلبية / تنبيه</h3>
-            <button onClick={() => addTemplate('negative')} className="text-sm bg-red-100 text-red-700 px-3 py-1 rounded-lg hover:bg-red-200">
-              + إضافة قالب
-            </button>
-          </div>
-          {templates.negative.length === 0 && <p className="text-xs text-muted-foreground mb-2">لا توجد قوالب خاصة بك.</p>}
-          <div className="space-y-3">
-            {templates.negative.map((tpl, i) => (
-              <div key={i} className="flex gap-2">
-                <textarea
-                  value={tpl}
-                  onChange={e => updateTemplate('negative', i, e.target.value)}
-                  className="w-full p-3 rounded-xl border border-border bg-background text-sm min-h-[80px]"
-                  placeholder="عذراً، نود تنبيهكم بأن الطالب {student}..."
-                />
-                <button onClick={() => removeTemplate('negative', i)} className="text-red-500 hover:bg-red-50 px-2 rounded-xl">✕</button>
-              </div>
-            ))}
-          </div>
-        </div>
+        {/* Warning texts belong to the administration, and every teacher sends
+            the same ones — so there is nothing personal to edit here. They
+            still appear in the WhatsApp window beside the school's own. */}
 
         <button onClick={handleSaveProfile} disabled={status === 'loading'}
           className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity">
