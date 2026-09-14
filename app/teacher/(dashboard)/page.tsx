@@ -108,6 +108,10 @@ export default async function TeacherDashboard() {
   // The day that was never opened — see lib/missed-days.ts for why it is only
   // the last school day and not the last week.
   const missed = await missedDaysForTeacher(teacher.schoolId, teacher.userId, todayStr)
+  // Two different asks: a register nobody took, and a lesson this teacher has
+  // not marked. The first is urgent and only ever the last school day.
+  const missedRegister = missed.filter((m) => m.kind === 'register')
+  const missedAssessment = missed.filter((m) => m.kind === 'assessment')
 
   const myClassCount = todayBase.length
   const myPupilCount = todayBase.length === visibleClasses.length
@@ -147,30 +151,64 @@ export default async function TeacherDashboard() {
             <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600 dark:bg-red-900/40">
               <History className="size-4" />
             </span>
-            <h2 className="text-lg font-bold text-red-800 dark:text-red-300">
-              {missed.length === 1 ? 'فصل لم يُسجَّل' : `${missed.length} فصول لم تُسجَّل`} — {formatDateAr(missed[0].date)}
-            </h2>
+            <h2 className="text-lg font-bold text-red-800 dark:text-red-300">أيام لم تكتمل</h2>
           </div>
-          <p className="text-xs text-red-800/80 dark:text-red-300/80 mb-3 leading-6">
-            لم يصل أهل هؤلاء الطلاب شيء عن ذلك اليوم. افتح الفصل وسجّله الآن وأنت تذكره —
-            وإن كان أقدم من ذلك فأبلغ الإدارة لتصحّحه، ولا تسجّل من الذاكرة ما لم تره.
+
+          {missedRegister.length > 0 && (
+            <div className="mt-3">
+              <p className="text-sm font-bold text-red-800 dark:text-red-300">
+                لم يُسجَّل الحضور — {formatDateAr(missedRegister[0].date)}
+              </p>
+              <p className="text-xs text-red-800/80 dark:text-red-300/80 mb-2 leading-6">
+                لم يفتح هذا الفصل أحد في ذلك اليوم، فلم يصل أهل الطلاب شيء. سجّله الآن وأنت تذكره.
+              </p>
+              <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {missedRegister.map((m) => (
+                  <li key={`${m.classId}|${m.date}`}>
+                    <Link
+                      href={`/teacher/classes/${m.classId}?date=${m.date}`}
+                      className="flex items-center gap-3 rounded-xl border border-red-300 bg-card p-3 transition-colors hover:bg-red-100/50 dark:border-red-900/50 dark:hover:bg-red-950/40"
+                    >
+                      <CircleDashed className="size-4 shrink-0 text-red-500" />
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold">{m.className}</span>
+                        {m.gradeName && <span className="block truncate text-xs text-muted-foreground">{m.gradeName}</span>}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {missedAssessment.length > 0 && (
+            <div className="mt-4">
+              <p className="text-sm font-bold text-amber-800 dark:text-amber-300">ينقص تقييمك لهذه الحصص</p>
+              <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mb-2 leading-6">
+                الحضور مسجَّل من زميل، فلن تحتاج أن تتذكّره — يبقى عليك الواجب والأدوات والمشاركة والسلوك.
+              </p>
+              <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {missedAssessment.map((m) => (
+                  <li key={`${m.classId}|${m.date}`}>
+                    <Link
+                      href={`/teacher/classes/${m.classId}?date=${m.date}`}
+                      className="flex items-center justify-between gap-2 rounded-xl border border-amber-300 bg-card p-3 transition-colors hover:bg-amber-100/50 dark:border-amber-900/50 dark:hover:bg-amber-950/40"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold">{m.className}</span>
+                        {m.gradeName && <span className="block truncate text-xs text-muted-foreground">{m.gradeName}</span>}
+                      </span>
+                      <span className="shrink-0 text-xs font-semibold text-amber-700 dark:text-amber-400">{m.date.slice(5).replace('-', '/')}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <p className="mt-3 text-[11px] text-red-800/70 dark:text-red-300/70">
+            ما هو أقدم من ذلك تصحّحه الإدارة بسبب مكتوب — لا تسجّل من الذاكرة ما لم تره.
           </p>
-          <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {missed.map((m) => (
-              <li key={`${m.classId}|${m.date}`}>
-                <Link
-                  href={`/teacher/classes/${m.classId}?date=${m.date}`}
-                  className="flex items-center gap-3 rounded-xl border border-red-200 bg-card p-3 transition-colors hover:bg-red-100/50 dark:border-red-900/50 dark:hover:bg-red-950/40"
-                >
-                  <CircleDashed className="size-4 shrink-0 text-red-500" />
-                  <span className="min-w-0">
-                    <span className="block truncate font-semibold">{m.className}</span>
-                    {m.gradeName && <span className="block truncate text-xs text-muted-foreground">{m.gradeName}</span>}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
         </div>
       )}
 

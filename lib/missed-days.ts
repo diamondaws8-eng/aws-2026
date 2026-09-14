@@ -22,23 +22,37 @@ export type MissedDay = {
   className: string
   gradeName: string | null
   date: string
+  /**
+   * 'register' — nobody took the register that day, so the family heard
+   * nothing and the attendance is genuinely gone.
+   * 'assessment' — a colleague took the register, so the attendance is on
+   * record; what is missing is this teacher's own marks for their lesson.
+   */
+  kind: 'register' | 'assessment'
 }
 
 /**
- * One school day — yesterday, in effect. Not a week.
+ * How far back to look, and why the answer has two numbers.
  *
- * Two things were measured before settling on this. Over seven days a teacher
- * of eight classes met thirty-one red lines, which is a wall nobody reads and
- * so protects nothing. And the deeper objection: a register filled in a week
- * late is not recovered, it is invented — nobody remembers who was absent last
- * Tuesday — and the invention reaches the family as fact, which is worse than
- * the gap it covers.
+ * Attendance is shared: the first teacher to open a class fixes the day for
+ * everyone, and getRosterForDay hands that register to whoever opens it
+ * afterwards. So the honest limit is not "how long ago" but "is the register
+ * there".
  *
- * Yesterday is the one day a teacher can honestly reconstruct. Anything older
- * belongs to the administration, which has a correction screen that demands a
- * reason and records who gave it.
+ * Where a colleague already took it, nothing has to be remembered — the
+ * absences are on the screen and this teacher only adds their own lesson
+ * marks. That is safe to offer for a week.
+ *
+ * Where nobody took it at all, the attendance does not exist anywhere, and a
+ * teacher filling it days later is not recovering it but inventing it — the
+ * invention then reaches the family as fact. Only the most recent school day
+ * is offered for that; anything older belongs to the administration's
+ * correction screen, which demands a written reason and records who gave it.
+ *
+ * (Measured first: a flat seven-day window put thirty-one red lines in front
+ * of a teacher of eight classes, which is a wall nobody reads.)
  */
-const LOOKBACK_SCHOOL_DAYS = 1
+const LOOKBACK_SCHOOL_DAYS = 7
 
 export async function missedDaysForTeacher(
   schoolId: string,
@@ -98,27 +112,43 @@ export async function missedDaysForTeacher(
   const windowDays = [...new Set([...daysByStage.values()].flat())]
   if (windowDays.length === 0) return []
 
-  // What this teacher has already recorded — the same measure the dashboard's
-  // card for today uses, so "done" means the same thing on both.
-  const done = await db
-    .selectDistinct({ classId: lessonRecords.classId, date: lessonRecords.date })
-    .from(lessonRecords)
-    .where(
-      and(
-        eq(lessonRecords.teacherUserId, teacherUserId),
-        inArray(lessonRecords.classId, mine.map((c) => c.classId)),
-        inArray(lessonRecords.date, windowDays),
-        gte(lessonRecords.date, floor),
+  const classIds = mine.map((c) => c.classId)
+  const [done, registered] = await Promise.all([
+    // What this teacher has already assessed — the same measure the dashboard's
+    // card for today uses, so "done" means the same thing on both.
+    db
+      .selectDistinct({ classId: lessonRecords.classId, date: lessonRecords.date })
+      .from(lessonRecords)
+      .where(
+        and(
+          eq(lessonRecords.teacherUserId, teacherUserId),
+          inArray(lessonRecords.classId, classIds),
+          inArray(lessonRecords.date, windowDays),
+          gte(lessonRecords.date, floor),
+        ),
       ),
-    )
+    // Whether the register exists at all that day, by ANY teacher — this is
+    // what decides whether an older gap can be filled honestly.
+    db
+      .selectDistinct({ classId: dailyRecords.classId, date: dailyRecords.date })
+      .from(dailyRecords)
+      .where(and(inArray(dailyRecords.classId, classIds), inArray(dailyRecords.date, windowDays))),
+  ])
   const recorded = new Set(done.map((r) => `${r.classId}|${r.date}`))
+  const hasRegister = new Set(registered.map((r) => `${r.classId}|${r.date}`))
+  // The one day an untaken register may still be taken from memory.
+  const latestSchoolDay = windowDays.slice().sort().pop() ?? null
 
   const missed: MissedDay[] = []
   for (const c of mine) {
     for (const date of daysByStage.get(c.gradeLevelId) ?? []) {
-      if (!recorded.has(`${c.classId}|${date}`)) {
-        missed.push({ classId: c.classId, className: c.className, gradeName: c.gradeName, date })
-      }
+      const key = `${c.classId}|${date}`
+      if (recorded.has(key)) continue
+      const kind: 'register' | 'assessment' = hasRegister.has(key) ? 'assessment' : 'register'
+      // An untaken register older than the last school day is not this
+      // teacher's to reconstruct.
+      if (kind === 'register' && date !== latestSchoolDay) continue
+      missed.push({ classId: c.classId, className: c.className, gradeName: c.gradeName, date, kind })
     }
   }
   // Newest first: yesterday is the one still worth fixing today.
