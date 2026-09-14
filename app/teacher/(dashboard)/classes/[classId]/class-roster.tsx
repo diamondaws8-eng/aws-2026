@@ -86,8 +86,10 @@ const MAT_BTNS: { key: Materials; label: string; cls: string }[] = [
 ]
 
 const PART_BTNS: { key: Participation; label: string; cls: string }[] = [
-  { key: 'active',   label: '🌟 مشارك',  cls: 'bg-sky-50 text-sky-700 border-sky-300' },
-  { key: 'inactive', label: '😴 غير مشارك', cls: 'bg-slate-50 text-slate-700 border-slate-300' },
+  // Filled, not tinted: down a column of thirty pupils a pale background is
+  // invisible, and the teacher cannot tell what they have already marked.
+  { key: 'active',   label: '🌟 مشارك',  cls: 'bg-violet-600 text-white border-violet-600 shadow-sm' },
+  { key: 'inactive', label: '😴 غير مشارك', cls: 'bg-slate-600 text-white border-slate-600 shadow-sm' },
   { key: 'na',       label: '—',        cls: 'bg-muted text-muted-foreground border-border' },
 ]
 
@@ -269,15 +271,17 @@ export default function ClassRoster({
     const mat: Record<string, Materials> = {}
     const part: Record<string, Participation> = {}
     const nt: Record<string, string> = {}
-    // Behaviour has no default on purpose: a pupil nobody rated stays unrated
-    // (see handleSaveDay). Pre-filling 'good' here was what quietly awarded a
-    // behaviour point per lesson to every untouched row.
+    // Behaviour starts at «جيد» with the rest: the school's rule is that a
+    // pupil is well-behaved until a teacher says otherwise, so the teacher
+    // marks the exceptions instead of rating thirty children from blank.
     students.forEach(s => {
-      att[s.id] = 'present'; hw[s.id] = 'done'; mat[s.id] = 'brought'; part[s.id] = 'active'
+      att[s.id] = 'present'; beh[s.id] = 'good'; hw[s.id] = 'done'; mat[s.id] = 'brought'; part[s.id] = 'active'
     })
     recs.forEach(r => {
       att[r.studentId] = r.attendanceStatus as AttStatus
-      if (r.behavior) beh[r.studentId] = r.behavior as Behavior
+      // A stored row wins, including a blank one from before behaviour had a
+      // default — otherwise reopening an old day would invent a rating.
+      beh[r.studentId] = (r.behavior || 'good') as Behavior
       hw[r.studentId] = (r.homeworkStatus || 'done') as Homework
       mat[r.studentId] = (r.materialsStatus || 'brought') as Materials
       part[r.studentId] = (r.participationStatus || 'active') as Participation
@@ -317,7 +321,7 @@ export default function ClassRoster({
       const hw: Record<string, Homework> = {}
       const mat: Record<string, Materials> = {}
       const part: Record<string, Participation> = {}
-      students.forEach(s => { att[s.id] = 'present'; hw[s.id] = 'done'; mat[s.id] = 'brought'; part[s.id] = 'active' })
+      students.forEach(s => { att[s.id] = 'present'; beh[s.id] = 'good'; hw[s.id] = 'done'; mat[s.id] = 'brought'; part[s.id] = 'active' })
       setAttendance(att); setBehavior(beh); setHomework(hw); setMaterials(mat); setParticipation(part); setNotes({})
       setLocks({})
       setLateArrivals(new Set())

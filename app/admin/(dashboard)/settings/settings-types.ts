@@ -11,6 +11,8 @@ export type SchoolSettings = {
     attendance_present: number
     attendance_absent: number
     attendance_late: number
+    /** غياب بعذر — a day the school was told about is not a day to punish. */
+    attendance_excused: number
     behavior_excellent: number
     behavior_good: number
     behavior_bad: number
@@ -31,8 +33,11 @@ export const DEFAULT_SETTINGS: SchoolSettings = {
   features: { attendance: true, behavior: true, homework: true, materials: true, participation: true },
   points: {
     attendance_present: 1,
-    attendance_absent: -1,
+    // Nothing is taken from a pupil who was not there. The day simply earns
+    // nothing: no attendance point, and no lesson marks either.
+    attendance_absent: 0,
     attendance_late: 0,
+    attendance_excused: 2,
     behavior_excellent: 2,
     behavior_good: 1,
     behavior_bad: -2,

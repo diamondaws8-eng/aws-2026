@@ -864,6 +864,7 @@ export default function SettingsClient({
                 <PointInput label="✅ حضور"  value={settings.points.attendance_present} onChange={v => setPoint('attendance_present', v)} color="border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/10" />
                 <PointInput label="❌ غياب"  value={settings.points.attendance_absent}  onChange={v => setPoint('attendance_absent', v)}  color="border-red-200 bg-red-50/50 dark:bg-red-950/10" />
                 <PointInput label="⏰ تأخر"  value={settings.points.attendance_late}    onChange={v => setPoint('attendance_late', v)}    color="border-amber-200 bg-amber-50/50 dark:bg-amber-950/10" />
+                <PointInput label="📄 غياب بعذر" value={settings.points.attendance_excused} onChange={v => setPoint('attendance_excused', v)} color="border-sky-200 bg-sky-50/50 dark:bg-sky-950/10" />
               </div>
             )}
           </div>

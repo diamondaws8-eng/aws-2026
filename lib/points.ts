@@ -107,7 +107,8 @@ export function deriveAttendanceEntries(rec: DailyStatuses, settings: SchoolSett
   if (f.attendance !== false) {
     if (rec.attendanceStatus === 'present') add('attendance', p.attendance_present ?? 1, 'حضور اليوم')
     else if (rec.attendanceStatus === 'late') add('attendance', p.attendance_late ?? 0, 'تأخر')
-    else if (rec.attendanceStatus === 'absent') add('attendance', p.attendance_absent ?? -1, 'غياب بدون عذر')
+    else if (rec.attendanceStatus === 'absent') add('attendance', p.attendance_absent ?? 0, 'غياب بدون عذر')
+    else if (rec.attendanceStatus === 'excused') add('attendance', p.attendance_excused ?? 2, 'غياب بعذر')
   }
 
   return out
@@ -208,7 +209,8 @@ export async function resyncSchoolPoints(schoolId: string, settings: SchoolSetti
       ? sql`CASE ${dailyRecords.attendanceStatus}
           WHEN 'present' THEN ${p.attendance_present ?? 1}::int
           WHEN 'late'    THEN ${p.attendance_late ?? 0}::int
-          WHEN 'absent'  THEN ${p.attendance_absent ?? -1}::int
+          WHEN 'absent'  THEN ${p.attendance_absent ?? 0}::int
+          WHEN 'excused' THEN ${p.attendance_excused ?? 2}::int
           ELSE 0 END`
       : sql`0`
 
