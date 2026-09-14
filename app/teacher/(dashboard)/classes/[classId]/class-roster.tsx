@@ -94,7 +94,17 @@ const PART_BTNS: { key: Participation; label: string; cls: string }[] = [
 ]
 
 // ── Points calculation ─────────────────────────────────────────────────────────
-function calcPoints(att: AttStatus, beh: Behavior | null, hw: Homework, mat: Materials, part: Participation, settings: any): number {
+/**
+ * The number the teacher watches while marking, and it must equal what the
+ * save will store — a preview that disagrees with the record teaches the
+ * teacher to distrust both.
+ *
+ * This mirrors dailyPointsFor + lessonPointsFor in lib/points.ts, which cannot
+ * be imported here because that module opens the database. Change one, change
+ * the other: they drifted once already, and «غائب» went on earning points on
+ * screen after the server had stopped awarding them.
+ */
+function calcPoints(att: AttStatus, beh: Behavior | null, hw: Homework | null, mat: Materials | null, part: Participation | null, settings: any): number {
   let total = 0
   const f = settings?.features || {}
   const p = settings?.points || {}
@@ -102,7 +112,8 @@ function calcPoints(att: AttStatus, beh: Behavior | null, hw: Homework, mat: Mat
   if (f.attendance !== false) {
     if (att === 'present') total += (p.attendance_present ?? 1)
     else if (att === 'late') total += (p.attendance_late ?? 0)
-    else if (att === 'absent') total += (p.attendance_absent ?? -1)
+    else if (att === 'absent') total += (p.attendance_absent ?? 0)
+    else if (att === 'excused') total += (p.attendance_excused ?? 2)
   }
 
   if (f.behavior !== false) {
@@ -611,15 +622,22 @@ export default function ClassRoster({
                   <tbody className="divide-y divide-border">
                     {students.map((student, idx) => {
                       const att = attendance[student.id] || 'present'
+                      const lock = locks[student.id]
+                      const arrived = !!lock && lateArrivals.has(student.id)
+                      // What the register will actually say for this pupil: a
+                      // colleague's lock wins unless this teacher saw them arrive.
+                      const effectiveAtt: AttStatus = lock && !arrived ? (lock.status as AttStatus) : arrived ? 'late' : att
                       // Nobody marks the homework of a child who is not in the room.
-                      const out = att === 'absent' || att === 'excused'
+                      const out = effectiveAtt === 'absent' || effectiveAtt === 'excused'
                       const beh: Behavior | null = behavior[student.id] ?? null
                       const hw = homework[student.id] || 'done'
                       const mat = materials[student.id] || 'brought'
                       const part = participation[student.id] || 'active'
-                      const lock = locks[student.id]
-                      const arrived = !!lock && lateArrivals.has(student.id)
-                      const previewPts = calcPoints(lock && !arrived ? (lock.status as AttStatus) : arrived ? 'late' : att, beh, hw, mat, part, schoolSettings)
+                      // The save stores nothing for the four lesson marks of a
+                      // pupil who was out, so the preview must not count them.
+                      const previewPts = out
+                        ? calcPoints(effectiveAtt, null, null, null, null, schoolSettings)
+                        : calcPoints(effectiveAtt, beh, hw, mat, part, schoolSettings)
                       const totalPts = points[student.id] ?? 0
                       const phone = student.parentPhone?.replace(/\D/g, '') || ''
 
