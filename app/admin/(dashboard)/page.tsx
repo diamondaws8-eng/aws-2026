@@ -22,6 +22,14 @@ import { AbsenceTodayCard, AbsenceTodayCardSkeleton } from '@/components/absence
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * Nine queries of its own. Awaited inside the page's JSX it started only after
+ * every other read had returned; on its own it streams in beside them.
+ */
+async function DataHealthSection({ schoolId }: { schoolId: string }) {
+  return <DataHealthCard items={await getDataHealth(schoolId)} />
+}
+
 export default async function AdminDashboardPage({
   searchParams,
 }: {
@@ -525,7 +533,11 @@ export default async function AdminDashboardPage({
 
       {/* Only whole-school accounts see the school's own gaps: a deputy cannot
           assign a counsellor or take a backup, so the list would only nag. */}
-      {access.viewAllGrades && <DataHealthCard items={await getDataHealth(school.id)} />}
+      {access.viewAllGrades && (
+        <Suspense fallback={null}>
+          <DataHealthSection schoolId={school.id} />
+        </Suspense>
+      )}
 
       <HeroStats
         studentCount={studentCount.value}

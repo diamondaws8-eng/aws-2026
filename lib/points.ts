@@ -393,6 +393,13 @@ export async function getLeaderboard(schoolId: string, classIds?: string[] | nul
   const weekFrom = clamp(daysAgo(6))
 
   const yearFilter = (col: AnyPgColumn) => (since ? sql`FILTER (WHERE ${col} >= ${since})` : sql``)
+  /**
+   * The same boundary as a WHERE, so the index can be used. Identical results:
+   * every sum and count below is already filtered to >= since (month and week
+   * are clamped to it above), so no row this removes could have contributed.
+   * When the school has set no start date, nothing is excluded — as before.
+   */
+  const sinceFilter = (col: AnyPgColumn) => (since ? gte(col, since) : undefined)
   const sums = (col: SQL, dateCol: AnyPgColumn) => ({
     year: sql<number>`COALESCE(SUM(${col}) ${yearFilter(dateCol)}, 0)`.mapWith(Number),
     month: sql<number>`COALESCE(SUM(${col}) FILTER (WHERE ${dateCol} >= ${monthFrom}), 0)`.mapWith(Number),
@@ -424,7 +431,7 @@ export async function getLeaderboard(schoolId: string, classIds?: string[] | nul
         ...counts(dailyRecords.date),
       })
       .from(dailyRecords)
-      .where(eq(dailyRecords.schoolId, schoolId))
+      .where(and(eq(dailyRecords.schoolId, schoolId), sinceFilter(dailyRecords.date)))
       .groupBy(dailyRecords.studentId),
 
     db.select({
@@ -433,7 +440,7 @@ export async function getLeaderboard(schoolId: string, classIds?: string[] | nul
         ...counts(lessonRecords.date),
       })
       .from(lessonRecords)
-      .where(eq(lessonRecords.schoolId, schoolId))
+      .where(and(eq(lessonRecords.schoolId, schoolId), sinceFilter(lessonRecords.date)))
       .groupBy(lessonRecords.studentId),
 
     db.select({
@@ -441,7 +448,7 @@ export async function getLeaderboard(schoolId: string, classIds?: string[] | nul
         ...sums(sql`${studentPoints.points}`, studentPoints.date),
       })
       .from(studentPoints)
-      .where(eq(studentPoints.schoolId, schoolId))
+      .where(and(eq(studentPoints.schoolId, schoolId), sinceFilter(studentPoints.date)))
       .groupBy(studentPoints.studentId),
 
     // Loaded lazily: the settings module imports this file for resyncSchoolPoints.
