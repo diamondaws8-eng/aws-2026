@@ -46,9 +46,24 @@ jobs:
             | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
           echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client-17
-          pg_dump --version
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+
+          # Not `pg_dump`: /usr/bin/pg_dump is a wrapper that prefers the
+          # client the runner already had (16.15), and pg_dump refuses to dump
+          # a server newer than itself. Name the binary, then check it really
+          # is 17 — a silent downgrade here means no backup at all.
+          PG_DUMP=/usr/lib/postgresql/17/bin/pg_dump
+          if [ ! -x "$PG_DUMP" ]; then
+            echo "::error::postgresql-client-17 did not install $PG_DUMP"
+            exit 1
+          fi
+          "$PG_DUMP" --version
+          case "$("$PG_DUMP" --version)" in
+            *" 17."*) ;;
+            *) echo "::error::Expected pg_dump 17, got: $("$PG_DUMP" --version)" ; exit 1 ;;
+          esac
+          echo "PG_DUMP=$PG_DUMP" >> "$GITHUB_ENV"
 
       - name: Take the dump and encrypt it
         env:
@@ -87,7 +102,12 @@ jobs:
           STAMP="$(date -u +%Y-%m-%d)"
           # Custom format: compressed, and pg_restore can pick single tables.
           # Ownership and grants belong to the old project, not a new one.
-          pg_dump --no-owner --no-privileges --format=custom --file=db.dump "$DATABASE_URL"
+          # Carried from the install step through GITHUB_ENV; fall back to the
+          # same path rather than dying on an unbound variable.
+          PG_DUMP="${PG_DUMP:-/usr/lib/postgresql/17/bin/pg_dump}"
+          if [ ! -x "$PG_DUMP" ]; then echo "::error::pg_dump 17 is missing at $PG_DUMP"; exit 1; fi
+
+          "$PG_DUMP" --no-owner --no-privileges --format=custom --file=db.dump "$DATABASE_URL"
 
           SIZE=$(stat -c%s db.dump)
           echo "dump size: $SIZE bytes"
