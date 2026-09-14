@@ -188,6 +188,14 @@ export default function ClassRoster({
   // Opens on the day that was asked for, while the navigator still treats
   // today as its ceiling — the two are different things.
   const [selectedDate, setSelectedDate] = useState(startDate ?? initialDate)
+  /**
+   * Saving a day tells families their child was absent. That is not a thing to
+   * do by brushing a button, so it is read back first — how many present, how
+   * many absent, how many rows were never looked at — and only then written.
+   */
+  const [confirmSave, setConfirmSave] = useState(false)
+  /** What the save actually did, held until the teacher decides where to go next. */
+  const [savedDone, setSavedDone] = useState<{ absent: number; excused: number; late: number; refreshed: number } | null>(null)
 
   // Per-student daily state
   const [attendance, setAttendance] = useState<Record<string, AttStatus>>({})
@@ -391,7 +399,13 @@ export default function ClassRoster({
         setTimeout(() => setSavedMsg(''), 4000)
         return
       }
-      setSavedMsg(refreshed > 0 ? `✓ تم حفظ اليوم بنجاح — وحُدّثت حالة حضور ${refreshed} من السجل المشترك` : '✓ تم حفظ اليوم بنجاح')
+      setSavedMsg('')
+      setSavedDone({
+        absent: records.filter((r) => r.attendanceStatus === 'absent').length,
+        excused: records.filter((r) => r.attendanceStatus === 'excused').length,
+        late: records.filter((r) => r.attendanceStatus === 'late').length,
+        refreshed,
+      })
       setLateArrivals(new Set())
       dirtyRef.current = new Set()
       // An absence another teacher recorded stands: show exactly whose it was.
@@ -413,7 +427,6 @@ export default function ClassRoster({
         data.pointsSummary.forEach((p: any) => { pts[p.studentId] = p.total })
         setPoints(pts)
       }
-      setTimeout(() => setSavedMsg(''), 3000)
     } catch {
       setSavedMsg('❌ فشل الحفظ')
     } finally {
@@ -550,6 +563,95 @@ export default function ClassRoster({
           ))}
         </div>
       </div>
+
+      {/* Read it back before it goes to the families. */}
+      {confirmSave && (() => {
+        const counts = students.reduce(
+          (acc, st) => {
+            const lock = locks[st.id]
+            const arrived = !!lock && lateArrivals.has(st.id)
+            const eff = lock && !arrived ? (lock.status as AttStatus) : arrived ? 'late' : (attendance[st.id] || 'present')
+            acc[eff] = (acc[eff] ?? 0) + 1
+            return acc
+          },
+          {} as Record<string, number>,
+        )
+        const unreviewed = students.length - reviewed.size
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-3xl bg-card border border-border p-6 shadow-xl">
+              <h3 className="text-lg font-bold mb-1">تأكيد حفظ اليوم</h3>
+              <p className="text-sm text-muted-foreground mb-4">{classInfo.name} — {selectedDate}</p>
+
+              <ul className="space-y-2 text-sm mb-4">
+                {[
+                  { k: 'present', label: 'حاضر', cls: 'text-emerald-600' },
+                  { k: 'late', label: 'متأخر', cls: 'text-amber-600' },
+                  { k: 'excused', label: 'غياب بعذر', cls: 'text-sky-600' },
+                  { k: 'absent', label: 'غائب', cls: 'text-red-600' },
+                ].map((r) => (
+                  <li key={r.k} className="flex items-center justify-between rounded-xl border border-border px-3 py-2">
+                    <span>{r.label}</span>
+                    <span className={`font-bold tabular-nums ${r.cls}`}>{counts[r.k] ?? 0}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {(counts.absent ?? 0) > 0 && (
+                <p className="mb-3 rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-800 leading-6">
+                  سيصل إشعار غياب إلى أهل {counts.absent} من الطلاب. تأكّد من الأسماء قبل التأكيد.
+                </p>
+              )}
+              {unreviewed > 0 && (
+                <p className="mb-3 rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 leading-6">
+                  {unreviewed} من {students.length} لم تُراجَع، وستُحفظ بالقيم الافتراضية.
+                </p>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setConfirmSave(false); handleSaveDay() }}
+                  disabled={saving}
+                  className="flex-1 py-3 rounded-xl bg-primary text-primary-foreground font-bold disabled:opacity-50"
+                >{saving ? 'جاري الحفظ...' : 'تأكيد الحفظ'}</button>
+                <button
+                  onClick={() => setConfirmSave(false)}
+                  className="px-5 py-3 rounded-xl bg-muted font-semibold"
+                >إلغاء</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* And what it did, with the two ways out. */}
+      {savedDone && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl bg-card border border-border p-6 shadow-xl text-center">
+            <div className="mx-auto mb-3 flex size-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 text-2xl">✓</div>
+            <h3 className="text-lg font-bold mb-1">
+              {savedDone.absent > 0 ? 'تم حفظ اليوم وإرسال الغياب' : 'تم حفظ اليوم'}
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4 leading-7">
+              {classInfo.name} — {selectedDate}
+              {savedDone.absent > 0 && <><br />وصل إشعار الغياب إلى أهل {savedDone.absent} من الطلاب.</>}
+              {savedDone.excused > 0 && <><br />و{savedDone.excused} بعذر.</>}
+              {savedDone.late > 0 && <><br />و{savedDone.late} متأخر.</>}
+              {savedDone.refreshed > 0 && <><br />وحُدّثت حالة حضور {savedDone.refreshed} من السجل المشترك.</>}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSavedDone(null)}
+                className="flex-1 py-3 rounded-xl bg-muted font-semibold"
+              >تعديل</button>
+              <button
+                onClick={() => { setSavedDone(null); router.push('/teacher/classes') }}
+                className="flex-1 py-3 rounded-xl bg-primary text-primary-foreground font-bold"
+              >الرجوع للفصول</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Daily Tab ── */}
       {activeTab === 'daily' && (
@@ -889,7 +991,7 @@ export default function ClassRoster({
                 <div className="flex items-center gap-3">
                   {savedMsg && <span className={`text-sm font-semibold ${savedMsg.startsWith('❌') ? 'text-red-600' : 'text-emerald-600'}`}>{savedMsg}</span>}
                   <button
-                    onClick={handleSaveDay}
+                    onClick={() => setConfirmSave(true)}
                     disabled={saving}
                     className="px-8 py-2.5 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity"
                   >{saving ? 'جاري الحفظ...' : '💾 حفظ اليوم'}</button>

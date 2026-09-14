@@ -8,7 +8,7 @@ type GradeWithClasses = {
   id: string
   name: string
   orderIndex: number
-  classes: { id: string; name: string; studentCount: number }[]
+  classes: { id: string; name: string; studentCount: number; recordedToday?: boolean }[]
 }
 
 export default function GradeSelector({ grades }: { grades: GradeWithClasses[] }) {
@@ -18,6 +18,8 @@ export default function GradeSelector({ grades }: { grades: GradeWithClasses[] }
   const [selectedGradeId, setSelectedGradeId] = useState<string | null>(
     initialGrade || (grades.length > 0 ? grades[0].id : null)
   )
+  /** The class whose already-sent register the teacher is about to reopen. */
+  const [confirmEdit, setConfirmEdit] = useState<{ id: string; name: string } | null>(null)
 
   const selectedGrade = grades.find(g => g.id === selectedGradeId)
 
@@ -66,18 +68,50 @@ export default function GradeSelector({ grades }: { grades: GradeWithClasses[] }
                     </span>
                   </div>
                   
+                  <p className={`mb-4 text-xs font-semibold ${cls.recordedToday ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {cls.recordedToday ? '✓ سُجِّل اليوم' : '• لم يُسجَّل اليوم بعد'}
+                  </p>
+
                   <div className="mt-auto">
-                    <Link
-                      href={`/teacher/classes/${cls.id}`}
-                      className="block w-full text-center bg-primary text-primary-foreground py-2.5 rounded-xl font-semibold hover:bg-primary/90 transition-colors"
-                    >
-                      فتح
-                    </Link>
+                    {cls.recordedToday ? (
+                      <button
+                        onClick={() => setConfirmEdit({ id: cls.id, name: cls.name })}
+                        className="block w-full text-center bg-amber-500 text-white py-2.5 rounded-xl font-semibold hover:bg-amber-600 transition-colors"
+                      >
+                        تعديل
+                      </button>
+                    ) : (
+                      <Link
+                        href={`/teacher/classes/${cls.id}`}
+                        className="block w-full text-center bg-primary text-primary-foreground py-2.5 rounded-xl font-semibold hover:bg-primary/90 transition-colors"
+                      >
+                        فتح
+                      </Link>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {confirmEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl bg-card border border-border p-6 shadow-xl">
+            <h3 className="text-lg font-bold mb-2">تعديل سجل {confirmEdit.name}</h3>
+            <p className="text-sm text-muted-foreground leading-7 mb-4">
+              هذا الفصل سُجِّل اليوم بالفعل، وما فيه وصل إلى أولياء الأمور ودخل في إحصاءات
+              المدرسة. أي تغيير تحفظه سيحدّثهما معاً، والنقاط تبقى محسوبة مرة واحدة لليوم.
+            </p>
+            <div className="flex gap-2">
+              <Link
+                href={`/teacher/classes/${confirmEdit.id}`}
+                className="flex-1 text-center py-3 rounded-xl bg-primary text-primary-foreground font-bold"
+              >فتح للتعديل</Link>
+              <button onClick={() => setConfirmEdit(null)} className="px-5 py-3 rounded-xl bg-muted font-semibold">إلغاء</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

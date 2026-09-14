@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
-import { gradeLevels, classes, students } from '@/lib/db/schema'
-import { eq, and, count } from 'drizzle-orm'
+import { gradeLevels, classes, students, dailyRecords } from '@/lib/db/schema'
+import { eq, and, count, inArray } from 'drizzle-orm'
+import { today as schoolToday } from '@/lib/utils'
 import { redirect } from 'next/navigation'
 import GradeSelector from './grade-selector'
 import { requireTeacher, getTeacherVisibleClassIds } from '@/lib/teacher-access'
@@ -34,6 +35,21 @@ export default async function TeacherClassesPage() {
   const visibleClassIds = await getTeacherVisibleClassIds(teacher.schoolId, teacher.userId)
   const visibleClasses = classesData.filter(c => visibleClassIds.has(c.id))
 
+  /**
+   * Which classes already hold a register for today — by any teacher, since
+   * attendance is shared. A class that has one is opened to be corrected,
+   * and correcting what families were already told deserves a pause first.
+   */
+  const todayStr = schoolToday()
+  const allClassIds = [...visibleClassIds]
+  const recordedRows = allClassIds.length
+    ? await db
+        .selectDistinct({ classId: dailyRecords.classId })
+        .from(dailyRecords)
+        .where(and(inArray(dailyRecords.classId, allClassIds), eq(dailyRecords.date, todayStr)))
+    : []
+  const recordedToday = new Set(recordedRows.map((r) => r.classId))
+
   const gradesWithClasses = gradesData
     .map(grade => {
       const gradeClasses = visibleClasses.filter(c => c.gradeLevelId === grade.id)
@@ -44,7 +60,9 @@ export default async function TeacherClassesPage() {
         classes: gradeClasses.map(c => ({
           id: c.id,
           name: c.name,
-          studentCount: countByClass.get(c.id) ?? 0
+          studentCount: countByClass.get(c.id) ?? 0,
+          // Already has today's register — opening it is an edit, not a first entry.
+          recordedToday: recordedToday.has(c.id),
         }))
       }
     })
