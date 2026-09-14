@@ -14,63 +14,75 @@ export const dynamic = 'force-dynamic'
 export default async function ClassPage({ params }: { params: Promise<{ classId: string }> }) {
   const { classId } = await params
 
-  // A class id is just a URL segment — proves nothing on its own. This also
-  // enforces the per-subject restriction once the admin has assigned one
-  // (see lib/teacher-access.ts for the rollout-safe fallback).
-  const result = await getTeacherClassAccess(classId)
-  if (result.status === 'no-session') redirect('/teacher/login')
-  if (result.status === 'forbidden') redirect('/teacher/classes')
-  const { userId, schoolId, fullName } = result.access
-
-  const [classInfo] = await db.select().from(classes).where(eq(classes.id, classId)).limit(1)
-  if (!classInfo) redirect('/teacher/classes')
-
-  const [gradeLevel] = await db.select().from(gradeLevels).where(eq(gradeLevels.id, classInfo.gradeLevelId)).limit(1)
-  const [school] = await db.select().from(schools).where(eq(schools.id, schoolId)).limit(1)
-
-  const [teacher] = await db.select().from(teachers).where(eq(teachers.userId, userId)).limit(1)
-
-  const studentList = await db
-    .select()
-    .from(students)
-    .where(eq(students.classId, classId))
-
   // The grades tab is not offered any more (the school records no marks
   // here); its panel and actions stay, so flipping this flag brings it back.
   // While it is off, the two queries that only fed it are not run.
   const GRADES_TAB_ENABLED = false
-  // The grades tab only ever writes under the caller's own subject (see
-  // saveGrades) — the dropdown offers exactly that set, not a colleague's.
-  const subjectList = GRADES_TAB_ENABLED
-    ? await db
-        .select()
-        .from(subjects)
-        .where(and(eq(subjects.classId, classId), eq(subjects.teacherUserId, userId)))
-    : []
-
   const today = schoolToday()
 
-  // Shared attendance + this teacher's own assessment for the day.
-  const { getRosterForDay } = await import('@/lib/daily-roster')
-  const todayRecords = await getRosterForDay(classId, today, userId)
+  // This page is the one a teacher opens every lesson, so it asks the database
+  // in two rounds instead of thirteen one-after-another trips. Round one: the
+  // permission check and the class row are independent lookups, and the module
+  // loads alongside them. Reading the class row before the guard returns costs
+  // one discarded read for a request that is about to be redirected; nothing
+  // from it is used until the guard below has passed.
+  //
+  // A class id is just a URL segment — proves nothing on its own. The check
+  // also enforces the per-subject restriction once the admin has assigned one
+  // (see lib/teacher-access.ts for the rollout-safe fallback).
+  const [result, [classInfo], [roster, actions, settingsMod]] = await Promise.all([
+    getTeacherClassAccess(classId),
+    db.select().from(classes).where(eq(classes.id, classId)).limit(1),
+    Promise.all([
+      import('@/lib/daily-roster'),
+      import('../../actions'),
+      import('@/app/admin/(dashboard)/settings/actions-settings'),
+    ]),
+  ])
+  if (result.status === 'no-session') redirect('/teacher/login')
+  if (result.status === 'forbidden') redirect('/teacher/classes')
+  const { userId, schoolId, fullName } = result.access
+  if (!classInfo) redirect('/teacher/classes')
 
-  // Points come from each day's record plus manual awards (see lib/points.ts)
-  const totalsByStudent = await getClassPointsTotals(classId)
+  // Round two: everything else depends on the class and the teacher, never on
+  // each other, so it all travels together.
+  const [
+    [gradeLevel],
+    [school],
+    [teacher],
+    studentList,
+    subjectList,
+    todayRecords,
+    totalsByStudent,
+    savedGrades,
+    absenceLocks,
+    schoolSettings,
+    schoolDays,
+  ] = await Promise.all([
+    db.select().from(gradeLevels).where(eq(gradeLevels.id, classInfo.gradeLevelId)).limit(1),
+    db.select().from(schools).where(eq(schools.id, schoolId)).limit(1),
+    db.select().from(teachers).where(eq(teachers.userId, userId)).limit(1),
+    db.select().from(students).where(eq(students.classId, classId)),
+    // The grades tab only ever writes under the caller's own subject (see
+    // saveGrades) — the dropdown offers exactly that set, not a colleague's.
+    GRADES_TAB_ENABLED
+      ? db.select().from(subjects).where(and(eq(subjects.classId, classId), eq(subjects.teacherUserId, userId)))
+      : Promise.resolve([]),
+    // Shared attendance + this teacher's own assessment for the day.
+    roster.getRosterForDay(classId, today, userId),
+    // Points come from each day's record plus manual awards (see lib/points.ts)
+    getClassPointsTotals(classId),
+    GRADES_TAB_ENABLED ? actions.getSavedGrades(classId) : Promise.resolve([]),
+    // Students another teacher already marked absent today: the roster shows
+    // why instead of letting this teacher silently overwrite it.
+    actions.getAbsenceLocks(classId, today),
+    settingsMod.getSchoolSettings(classInfo.schoolId),
+    // Fridays, the stage's Saturdays and holidays — so the roster can say
+    // «يوم إجازة» under the date.
+    getSchoolDaysConfig(classInfo.schoolId, classInfo.gradeLevelId),
+  ])
+
   const pointsSummary = Object.entries(totalsByStudent).map(([studentId, total]) => ({ studentId, total }))
-
-  // Get saved grades
-  const { getSavedGrades, getAbsenceLocks } = await import('../../actions')
-  const savedGrades = GRADES_TAB_ENABLED ? await getSavedGrades(classId) : []
-
-  // Students another teacher already marked absent today: the roster shows why
-  // instead of letting this teacher silently overwrite it.
-  const absenceLocks = await getAbsenceLocks(classId, today)
-
-  // Get school settings
-  const { getSchoolSettings } = await import('@/app/admin/(dashboard)/settings/actions-settings')
-  const schoolSettings = await getSchoolSettings(classInfo.schoolId)
-  // Fridays, the stage's Saturdays and holidays — so the roster can say «يوم إجازة» under the date.
-  const schoolDays = await getSchoolDaysConfig(classInfo.schoolId, classInfo.gradeLevelId)
 
   return (
     <div className="flex flex-col min-h-screen">

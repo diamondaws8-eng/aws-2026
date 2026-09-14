@@ -31,7 +31,6 @@ import type { LucideIcon } from 'lucide-react'
 
 import { ThemeToggle } from '@/components/theme-toggle'
 import { BrandLogo } from '@/components/brand-logo'
-import { MotionLayer } from '@/components/motion-layer'
 import { UnreadDot, inboxHrefFor } from '@/components/notification-bell'
 
 // ─── Nav config per role ──────────────────────────────────────────────────────
@@ -167,7 +166,6 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
 
   return (
     <div data-portal={role} className="portal-shell flex min-h-screen">
-      <MotionLayer />
       {/* Mobile Overlay */}
       {isOpen && isMobile && (
         <div 

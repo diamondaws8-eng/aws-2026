@@ -578,9 +578,10 @@
     opacity: 0.5;
   }
   @keyframes aurora-drift {
-    0%   { transform: translate3d(0, 0, 0) scale(1); }
-    50%  { transform: translate3d(-6vw, 4vw, 0) scale(1.12); }
-    100% { transform: translate3d(4vw, -5vw, 0) scale(0.94); }
+    /* Translation only — scaling a 70px blur re-renders it on every frame. */
+    0%   { transform: translate3d(0, 0, 0); }
+    50%  { transform: translate3d(-6vw, 4vw, 0); }
+    100% { transform: translate3d(4vw, -5vw, 0); }
   }
   
   /* Everything that sits on the aurora must be above it — written with
@@ -588,15 +589,8 @@
   :where(.portal-shell > *:not(.aurora)) { position: relative; z-index: 1; }
   .portal-shell { background-attachment: scroll; }
   
-  /* Spotlight: the pointer lights the card it is over */
-  .portal-shell :where(.bg-card.border, .bg-card.border-border) {
-    background-image: radial-gradient(
-      360px circle at var(--mx, -200px) var(--my, -200px),
-      color-mix(in oklch, var(--primary) 9%, transparent),
-      transparent 55%
-    );
-    transition: box-shadow 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
-  }
+  /* The pointer spotlight was removed: it repainted a whole card on every
+     mouse move, and left a gradient on every card even when nothing moved. */
   
   /* 3D tilt targets */
   [data-tilt] {
@@ -635,51 +629,25 @@
   }
   
   /* Animated gradient text and surfaces */
+  /* The gradient stays; it no longer slides forever. An endless
+     background-position animation repaints its box on every frame of the
+     day, which on a phone is battery spent on something nobody watches. */
   .text-gradient,
   .gradient-live {
     background-size: 200% 200%;
-    animation: gradient-shift 8s ease infinite;
-  }
-  @keyframes gradient-shift {
-    0%   { background-position: 0% 50%; }
-    50%  { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
+    background-position: 0% 50%;
   }
   
   /* Page entrance + staggered children */
+  /* One short fade for the page. The staggered entrance of every child and
+     of every table row was the same work repeated hundreds of times on a
+     roster of 300 pupils, and it held the content back by up to 0.8s. */
   .page-enter {
-    animation: portal-rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  }
-  .page-enter > * > * {
-    animation: portal-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  }
-  .page-enter > * > *:nth-child(1)  { animation-delay: 0.02s; }
-  .page-enter > * > *:nth-child(2)  { animation-delay: 0.07s; }
-  .page-enter > * > *:nth-child(3)  { animation-delay: 0.12s; }
-  .page-enter > * > *:nth-child(4)  { animation-delay: 0.17s; }
-  .page-enter > * > *:nth-child(5)  { animation-delay: 0.22s; }
-  .page-enter > * > *:nth-child(6)  { animation-delay: 0.27s; }
-  .page-enter > * > *:nth-child(n+7) { animation-delay: 0.32s; }
-  /* Rows of a table arrive one after another too */
-  .portal-shell :where(table tbody tr) {
-    animation: row-in 0.35s ease-out both;
-  }
-  .portal-shell :where(table tbody tr:nth-child(1))  { animation-delay: 0.03s; }
-  .portal-shell :where(table tbody tr:nth-child(2))  { animation-delay: 0.06s; }
-  .portal-shell :where(table tbody tr:nth-child(3))  { animation-delay: 0.09s; }
-  .portal-shell :where(table tbody tr:nth-child(4))  { animation-delay: 0.12s; }
-  .portal-shell :where(table tbody tr:nth-child(5))  { animation-delay: 0.15s; }
-  .portal-shell :where(table tbody tr:nth-child(6))  { animation-delay: 0.18s; }
-  .portal-shell :where(table tbody tr:nth-child(7))  { animation-delay: 0.21s; }
-  .portal-shell :where(table tbody tr:nth-child(8))  { animation-delay: 0.24s; }
-  .portal-shell :where(table tbody tr:nth-child(n+9)) { animation-delay: 0.27s; }
-  @keyframes row-in {
-    from { opacity: 0; transform: translateX(6px); }
-    to   { opacity: 1; transform: translateX(0); }
+    animation: portal-rise 0.24s ease-out both;
   }
   
   /* The bell rings while something is unread */
-  .bell-live { animation: bell-ring 2.6s ease-in-out infinite; transform-origin: 50% 0; }
+  .bell-live { animation: bell-ring 2.6s ease-in-out 4; transform-origin: 50% 0; }
   @keyframes bell-ring {
     0%, 60%, 100% { transform: rotate(0); }
     64% { transform: rotate(12deg); }
@@ -705,9 +673,16 @@
     50% { transform: translate3d(0, -14px, 0) rotate(3deg); }
   }
   
+  /* On a touch screen the orbs keep their colour and stop moving. Three
+     blurred fields drifting for ever is work the phone does with its battery
+     for something nobody is looking at, and the login page is the one screen
+     where a parent is waiting to get in. */
+  @media (hover: none) {
+    .aurora-orb, .float-slow, .float-slower { animation: none; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .aurora-orb, .page-enter, .page-enter > * > *, .portal-shell :where(table tbody tr),
-    .bell-live, .text-gradient, .gradient-live, .float-slow, .float-slower {
+    .aurora-orb, .page-enter, .bell-live, .float-slow, .float-slower {
       animation: none !important;
     }
     [data-tilt] { transform: none !important; }

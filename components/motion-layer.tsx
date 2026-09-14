@@ -9,15 +9,18 @@ import { useEffect } from 'react'
  * asked their system for less motion:
  *  - aurora: a few blurred colour fields drifting slowly behind the page in
  *    the portal's own hues (pure CSS animation on transform);
- *  - spotlight: cards light up where the pointer is (two CSS variables set
- *    from one delegated mousemove listener — no per-card handlers);
  *  - tilt: anything marked data-tilt leans toward the pointer in 3D and
  *    settles back when it leaves.
+ *
+ * There is no pointer listener unless the page actually has a tilt target,
+ * so the portals — where people work all day — carry none of this.
  */
 export function MotionLayer() {
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     if (!window.matchMedia('(pointer: fine)').matches) return
+
+    if (!document.querySelector('[data-tilt]')) return
 
     let raf = 0
     let last: { el: HTMLElement; x: number; y: number } | null = null
@@ -27,20 +30,16 @@ export function MotionLayer() {
       if (!last) return
       const { el, x, y } = last
       const r = el.getBoundingClientRect()
-      el.style.setProperty('--mx', `${x - r.left}px`)
-      el.style.setProperty('--my', `${y - r.top}px`)
-      if (el.hasAttribute('data-tilt')) {
-        const px = (x - r.left) / r.width - 0.5
-        const py = (y - r.top) / r.height - 0.5
-        const max = Number(el.getAttribute('data-tilt') || 6)
-        el.style.transform = `perspective(900px) rotateX(${(-py * max).toFixed(2)}deg) rotateY(${(px * max).toFixed(2)}deg) translateY(-4px)`
-        el.style.setProperty('--glare-x', `${(px + 0.5) * 100}%`)
-        el.style.setProperty('--glare-y', `${(py + 0.5) * 100}%`)
-      }
+      const px = (x - r.left) / r.width - 0.5
+      const py = (y - r.top) / r.height - 0.5
+      const max = Number(el.getAttribute('data-tilt') || 6)
+      el.style.transform = `perspective(900px) rotateX(${(-py * max).toFixed(2)}deg) rotateY(${(px * max).toFixed(2)}deg) translateY(-4px)`
+      el.style.setProperty('--glare-x', `${(px + 0.5) * 100}%`)
+      el.style.setProperty('--glare-y', `${(py + 0.5) * 100}%`)
     }
 
     const onMove = (e: MouseEvent) => {
-      const target = (e.target as HTMLElement | null)?.closest<HTMLElement>('[data-tilt], .bg-card')
+      const target = (e.target as HTMLElement | null)?.closest<HTMLElement>('[data-tilt]')
       if (!target) return
       last = { el: target, x: e.clientX, y: e.clientY }
       if (!raf) raf = requestAnimationFrame(apply)
