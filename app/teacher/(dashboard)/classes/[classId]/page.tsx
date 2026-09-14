@@ -11,14 +11,27 @@ import { termLabel } from '@/lib/academic'
 
 export const dynamic = 'force-dynamic'
 
-export default async function ClassPage({ params }: { params: Promise<{ classId: string }> }) {
+export default async function ClassPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ classId: string }>
+  searchParams?: Promise<{ date?: string }>
+}) {
   const { classId } = await params
+  const asked = (await searchParams)?.date
 
   // The grades tab is not offered any more (the school records no marks
   // here); its panel and actions stay, so flipping this flag brings it back.
   // While it is off, the two queries that only fed it are not run.
   const GRADES_TAB_ENABLED = false
   const today = schoolToday()
+  /**
+   * A day asked for by the link from «لم يُسجَّل أمس». Only a real past day is
+   * honoured — a future date, or anything that is not a date at all, falls
+   * back to today rather than showing a register that cannot be saved.
+   */
+  const startDate = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) && asked <= today ? asked : today
 
   // This page is the one a teacher opens every lesson, so it asks the database
   // in two rounds instead of thirteen one-after-another trips. Round one: the
@@ -69,13 +82,13 @@ export default async function ClassPage({ params }: { params: Promise<{ classId:
       ? db.select().from(subjects).where(and(eq(subjects.classId, classId), eq(subjects.teacherUserId, userId)))
       : Promise.resolve([]),
     // Shared attendance + this teacher's own assessment for the day.
-    roster.getRosterForDay(classId, today, userId),
+    roster.getRosterForDay(classId, startDate, userId),
     // Points come from each day's record plus manual awards (see lib/points.ts)
     getClassPointsTotals(classId),
     GRADES_TAB_ENABLED ? actions.getSavedGrades(classId) : Promise.resolve([]),
     // Students another teacher already marked absent today: the roster shows
     // why instead of letting this teacher silently overwrite it.
-    actions.getAbsenceLocks(classId, today),
+    actions.getAbsenceLocks(classId, startDate),
     settingsMod.getSchoolSettings(classInfo.schoolId),
     // Fridays, the stage's Saturdays and holidays — so the roster can say
     // «يوم إجازة» under the date.
@@ -103,6 +116,7 @@ export default async function ClassPage({ params }: { params: Promise<{ classId:
         schoolName={school?.name || ''}
         subjects={subjectList.map(s => ({ id: s.id, name: s.name }))}
         initialDate={today}
+        startDate={startDate}
         initialRecords={todayRecords}
         pointsSummary={pointsSummary.map(p => ({
           studentId: p.studentId,

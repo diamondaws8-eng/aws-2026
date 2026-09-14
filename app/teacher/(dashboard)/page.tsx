@@ -1,13 +1,14 @@
 import { db } from '@/lib/db'
 import { students, classes, gradeLevels, lessonRecords, subjects } from '@/lib/db/schema'
 import { eq, and, count, inArray } from 'drizzle-orm'
-import { CalendarCheck, CircleDashed } from 'lucide-react'
+import { CalendarCheck, CircleDashed, History } from 'lucide-react'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { formatDateAr, today } from '@/lib/utils'
 import { requireTeacher, getTeacherVisibleClassIds } from '@/lib/teacher-access'
 import { getSchoolDaysConfig } from '@/lib/school-holidays'
 import { nonSchoolDayReason } from '@/lib/school-days'
+import { missedDaysForTeacher } from '@/lib/missed-days'
 
 import { StatCard } from '@/components/stat-card'
 import { EmptyState } from '@/components/empty-state'
@@ -104,6 +105,10 @@ export default async function TeacherDashboard() {
   const pendingCount = todayList.filter((c) => !c.done && !c.off).length
   const allOff = todayList.length > 0 && todayList.every((c) => c.off)
   const offLabel = allOff ? (todayList[0].off === 'الجمعة' || todayList[0].off === 'السبت' ? `اليوم ${todayList[0].off} — لا تسجيل` : `إجازة: ${todayList[0].off}`) : null
+  // The day that was never opened — see lib/missed-days.ts for why it is only
+  // the last school day and not the last week.
+  const missed = await missedDaysForTeacher(teacher.schoolId, teacher.userId, todayStr)
+
   const myClassCount = todayBase.length
   const myPupilCount = todayBase.length === visibleClasses.length
     ? myPupils
@@ -135,6 +140,39 @@ export default async function TeacherDashboard() {
           trend={{ value: 0, label: pendingCount ? 'اضغط الفصل أدناه لتسجيله' : offLabel ?? 'كل فصولك مسجَّلة لهذا اليوم' }}
         />
       </div>
+
+      {missed.length > 0 && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-5 dark:border-red-900/50 dark:bg-red-950/20">
+          <div className="flex items-center gap-3 mb-1">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600 dark:bg-red-900/40">
+              <History className="size-4" />
+            </span>
+            <h2 className="text-lg font-bold text-red-800 dark:text-red-300">
+              {missed.length === 1 ? 'فصل لم يُسجَّل' : `${missed.length} فصول لم تُسجَّل`} — {formatDateAr(missed[0].date)}
+            </h2>
+          </div>
+          <p className="text-xs text-red-800/80 dark:text-red-300/80 mb-3 leading-6">
+            لم يصل أهل هؤلاء الطلاب شيء عن ذلك اليوم. افتح الفصل وسجّله الآن وأنت تذكره —
+            وإن كان أقدم من ذلك فأبلغ الإدارة لتصحّحه، ولا تسجّل من الذاكرة ما لم تره.
+          </p>
+          <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {missed.map((m) => (
+              <li key={`${m.classId}|${m.date}`}>
+                <Link
+                  href={`/teacher/classes/${m.classId}?date=${m.date}`}
+                  className="flex items-center gap-3 rounded-xl border border-red-200 bg-card p-3 transition-colors hover:bg-red-100/50 dark:border-red-900/50 dark:hover:bg-red-950/40"
+                >
+                  <CircleDashed className="size-4 shrink-0 text-red-500" />
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold">{m.className}</span>
+                    {m.gradeName && <span className="block truncate text-xs text-muted-foreground">{m.gradeName}</span>}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {todayList.length > 0 && (
         <div className="bg-card border border-border rounded-2xl p-5">

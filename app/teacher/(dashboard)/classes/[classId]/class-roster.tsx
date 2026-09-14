@@ -30,7 +30,10 @@ type Props = {
   teacherName: string
   schoolName: string
   subjects: Subject[]
+  /** Today — the ceiling for the date navigator; never a past day. */
   initialDate: string
+  /** The day to open on, when arriving from a link about a missed day. */
+  startDate?: string
   initialRecords: DailyRecord[]
   pointsSummary: PointSummary[]
   savedGrades?: any[]
@@ -173,7 +176,7 @@ function formatDateArabic(dateStr: string): string {
 
 // ── MAIN COMPONENT ─────────────────────────────────────────────────────────────
 export default function ClassRoster({
-  classInfo, students, teacherName, schoolName, subjects, initialDate, initialRecords, pointsSummary, savedGrades, absenceLocks, schoolSettings, teacherTemplates, termLabel, schoolDays
+  classInfo, students, teacherName, schoolName, subjects, initialDate, startDate, initialRecords, pointsSummary, savedGrades, absenceLocks, schoolSettings, teacherTemplates, termLabel, schoolDays
 }: Props) {
   const router = useRouter()
   // A roster only needs to distinguish boys from girls where it actually
@@ -182,7 +185,9 @@ export default function ClassRoster({
   const isMixedClass =
     students.some(s => s.gender === 'male') && students.some(s => s.gender === 'female')
   const [activeTab, setActiveTab] = useState<'daily' | 'grades' | 'points'>('daily')
-  const [selectedDate, setSelectedDate] = useState(initialDate)
+  // Opens on the day that was asked for, while the navigator still treats
+  // today as its ceiling — the two are different things.
+  const [selectedDate, setSelectedDate] = useState(startDate ?? initialDate)
 
   // Per-student daily state
   const [attendance, setAttendance] = useState<Record<string, AttStatus>>({})
