@@ -56,6 +56,18 @@ jobs:
           PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
           set -euo pipefail
+
+          # A value pasted into a GitHub secret keeps whatever came with it. A
+          # line copied from a Windows file carries a carriage return, and the
+          # connection string then ends in "/postgres\r" — Postgres answers
+          # 'database "postgres" does not exist' and the newline is invisible in
+          # the log. Strip the whitespace here rather than asking anyone to
+          # paste perfectly. The passphrase is stripped for the same reason and
+          # a better one: a stray newline would silently become part of the
+          # encryption key, and every restore typed by hand would then fail.
+          DATABASE_URL="$(printf '%s' "${DATABASE_URL:-}" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          PASSPHRASE="$(printf '%s' "${PASSPHRASE:-}" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+
           if [ -z "${DATABASE_URL:-}" ]; then
             echo "::error::BACKUP_DATABASE_URL is not set — add it in Settings → Secrets and variables → Actions."
             exit 1
@@ -67,6 +79,10 @@ jobs:
           case "$DATABASE_URL" in
             *:6543/*) echo "::error::That is the transaction pooler (port 6543). pg_dump needs port 5432." ; exit 1 ;;
           esac
+
+          # Say what we are about to connect to, with the password removed, so
+          # a failure names itself instead of hiding in a FATAL from Postgres.
+          echo "connecting to: $(printf '%s' "$DATABASE_URL" | sed -E 's#://[^:]+:[^@]*@#://***:***@#')"
 
           STAMP="$(date -u +%Y-%m-%d)"
           # Custom format: compressed, and pg_restore can pick single tables.
