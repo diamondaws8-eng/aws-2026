@@ -1,0 +1,100 @@
+# A full copy of the school's database, every night, kept outside Supabase.
+#
+# Why this exists: the project is on Supabase's free plan, which takes no
+# backups at all (Database → Backups says so in as many words). Until that is
+# upgraded this workflow is the ONLY copy of the school year, and it stays
+# useful afterwards too — Supabase deletes a project's backups along with the
+# project, so a copy that lives somewhere else is the one that survives a
+# mistake in the account.
+#
+# The dump is encrypted before it is stored, because this repository is public
+# and a workflow artifact on a public repository can be downloaded by anyone.
+# The file holds pupils' names, national ids, guardians' mobile numbers and
+# password hashes; it must never be readable without the passphrase.
+#
+# Two repository secrets are required — Settings → Secrets and variables →
+# Actions → New repository secret:
+#   BACKUP_DATABASE_URL  the connection string with port 5432, NOT 6543.
+#                        pg_dump needs a session connection; the transaction
+#                        pooler the app uses cannot serve a dump.
+#   BACKUP_PASSPHRASE    a long random passphrase. Save it in a password
+#                        manager: without it the backups cannot be read, and
+#                        GitHub will not show it to you again.
+name: nightly-backup
+
+on:
+  schedule:
+    # 22:00 UTC = 01:00 in Riyadh, after the school day is recorded.
+    - cron: '0 22 * * *'
+  # So it can be run by hand from the Actions tab, which is also how the first
+  # one should be taken — never trust a backup you have not seen succeed.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install the matching PostgreSQL client
+        run: |
+          set -euo pipefail
+          # The database is PostgreSQL 17; an older pg_dump refuses to dump it.
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+
+      - name: Take the dump and encrypt it
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::BACKUP_DATABASE_URL is not set — add it in Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          if [ -z "${PASSPHRASE:-}" ]; then
+            echo "::error::BACKUP_PASSPHRASE is not set — add it in Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          case "$DATABASE_URL" in
+            *:6543/*) echo "::error::That is the transaction pooler (port 6543). pg_dump needs port 5432." ; exit 1 ;;
+          esac
+
+          STAMP="$(date -u +%Y-%m-%d)"
+          # Custom format: compressed, and pg_restore can pick single tables.
+          # Ownership and grants belong to the old project, not a new one.
+          pg_dump --no-owner --no-privileges --format=custom --file=db.dump "$DATABASE_URL"
+
+          SIZE=$(stat -c%s db.dump)
+          echo "dump size: $SIZE bytes"
+          # A dump that succeeds but holds nothing is worse than no dump at all,
+          # because it looks like protection. Refuse it loudly.
+          if [ "$SIZE" -lt 20000 ]; then
+            echo "::error::The dump is only $SIZE bytes — that is too small to be a real's database. Not storing it."
+            exit 1
+          fi
+
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+              --passphrase "$PASSPHRASE" \
+              -o "aws-backup-$STAMP.dump.gpg" db.dump
+          rm -f db.dump
+          ls -lh "aws-backup-$STAMP.dump.gpg"
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+
+      - name: Keep it
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-backup-${{ env.STAMP }}
+          path: '*.dump.gpg'
+          # The longest a free plan keeps an artifact. Supabase Pro adds its own
+          # seven days on top of this, from a different place.
+          retention-days: 90
+          if-no-files-found: error
