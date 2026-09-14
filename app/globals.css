@@ -378,9 +378,11 @@
     animation: portal-pop 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
 
-  /* Page content settles in */
+  /* Page content settles in — opacity only. A transform here would make this
+     element the containing block for every fixed dialog inside it, and they
+     would centre on the page instead of the window. */
   .portal-shell :where(main > *) {
-    animation: portal-rise 0.32s ease-out both;
+    animation: portal-fade 0.28s ease-out both;
   }
 
   /* Empty states and dashed drop zones */
@@ -642,8 +644,10 @@
   /* One short fade for the page. The staggered entrance of every child and
      of every table row was the same work repeated hundreds of times on a
      roster of 300 pupils, and it held the content back by up to 0.8s. */
+  /* Opacity only, for the same reason as main > * above: this wrapper holds
+     every dialog in the portal, and a transform on it moves them off-screen. */
   .page-enter {
-    animation: portal-rise 0.24s ease-out both;
+    animation: portal-fade 0.24s ease-out both;
   }
   
   /* The bell rings while something is unread */
