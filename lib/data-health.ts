@@ -22,9 +22,11 @@ const parseIds = (raw: string | null): string[] => {
  * Shown on the dashboard until they are done, with the page that does them.
  */
 export async function getDataHealth(schoolId: string): Promise<HealthItem[]> {
-  const [gradeRows, teacherSeats, classRows, pupilCounts, unassigned, duplicates, staffRows, openYear, lastBackup, activation] = await Promise.all([
+  const [gradeRows, teacherSeats, assignedTeacherRows, classRows, pupilCounts, unassigned, duplicates, staffRows, openYear, lastBackup, activation] = await Promise.all([
     db.select({ id: gradeLevels.id, name: gradeLevels.name }).from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)),
-    db.select({ allGrades: teachers.allGrades, gradeLevelIds: teachers.gradeLevelIds }).from(teachers).where(eq(teachers.schoolId, schoolId)),
+    db.select({ userId: teachers.userId, fullName: teachers.fullName, allGrades: teachers.allGrades, gradeLevelIds: teachers.gradeLevelIds }).from(teachers).where(eq(teachers.schoolId, schoolId)),
+    // Teachers who hold at least one subject: the only ones who can open a class.
+    db.selectDistinct({ userId: subjects.teacherUserId }).from(subjects).where(and(eq(subjects.schoolId, schoolId), sql`${subjects.teacherUserId} IS NOT NULL`)),
     db.select({ id: classes.id, name: classes.name, gradeLevelId: classes.gradeLevelId, promotesTo: classes.promotesToClassId })
       .from(classes).where(eq(classes.schoolId, schoolId)),
     db.select({ classId: students.classId, n: sql<number>`count(*)`.mapWith(Number) })
@@ -93,6 +95,25 @@ export async function getDataHealth(schoolId: string): Promise<HealthItem[]> {
       action: 'إسناد المراحل',
     })
   }
+  /**
+   * A teacher with no subject can open nothing: since the school assigned its
+   * first subject, an unassigned class is closed rather than open, so a
+   * teacher nobody assigned signs in to «لا توجد فصول مسندة إليك بعد» and no
+   * register of theirs can ever be taken. Fifteen of nineteen were in that
+   * state on the day this check was written.
+   */
+  const assignedIds = new Set(assignedTeacherRows.map((r) => r.userId))
+  const subjectless = teacherSeats.filter((t) => !assignedIds.has(t.userId))
+  if (subjectless.length) {
+    items.push({
+      level: 'warn',
+      title: `${subjectless.length} معلماً بلا مادة مسندة`,
+      detail: subjectless.slice(0, 6).map((t) => t.fullName).join('، ') + (subjectless.length > 6 ? '…' : '') + ' — لا يفتح أحدهم أي فصل حتى يُسند إلى مادة في فصل.',
+      href: '/admin/grade-levels',
+      action: 'إسناد المواد',
+    })
+  }
+
   const empty = classRows.filter((c) => (countOf.get(c.id) ?? 0) === 0)
   const crowded = classRows.filter((c) => (countOf.get(c.id) ?? 0) > 40)
   if (empty.length || crowded.length) {

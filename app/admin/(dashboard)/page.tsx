@@ -534,7 +534,7 @@ export default async function AdminDashboardPage({
       {/* Only whole-school accounts see the school's own gaps: a deputy cannot
           assign a counsellor or take a backup, so the list would only nag. */}
       {access.viewAllGrades && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<div className="skeleton h-16 rounded-2xl" aria-hidden />}>
           <DataHealthSection schoolId={school.id} />
         </Suspense>
       )}

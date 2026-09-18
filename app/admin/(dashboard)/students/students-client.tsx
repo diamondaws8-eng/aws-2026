@@ -251,13 +251,21 @@ export default function StudentsClient({
 
     // The shape of each id, and any id written twice in the same sheet — the
     // server refuses the second one, but it is far cheaper to fix the file.
+    // Folded the same way the server folds before comparing — Arabic digits
+    // and Excel's ".0" — or ١١٨٢٨٧٦٦٦٢ and 1182876662 pass the preview as two
+    // pupils and only the server catches the second.
+    const foldId = (raw: string | undefined) => String(raw ?? '')
+      .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+      .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+      .replace(/\.0+$/, '')
+      .trim()
     const seen = new Map<string, number>()
     for (const r of rows) {
-      const id = String(r.nationalId ?? '').trim()
+      const id = foldId(r.nationalId)
       if (id) seen.set(id, (seen.get(id) ?? 0) + 1)
     }
     for (const r of rows) {
-      const id = String(r.nationalId ?? '').trim()
+      const id = foldId(r.nationalId)
       if (id && (seen.get(id) ?? 0) > 1) r.idIssue = 'رقم الهوية مكرر داخل هذا الملف'
       else r.idIssue = nationalIdIssue(r.nationalId)
     }
@@ -282,8 +290,11 @@ export default function StudentsClient({
     setImporting(true)
     setImportProgress({ done: 0, total: validRows.length })
     const total = { created: 0, failed: 0, errors: [] as string[], warnings: [] as string[], unknownGender: 0, skippedDuplicates: 0 }
+    // Index of the batch in flight — read by the catch to keep what was never sent.
+    let sentUpTo = 0
     try {
       for (let i = 0; i < validRows.length; i += IMPORT_BATCH) {
+        sentUpTo = i
         const batch = validRows.slice(i, i + IMPORT_BATCH)
         const result = await importStudents(
           batch.map(r => ({
@@ -307,10 +318,13 @@ export default function StudentsClient({
       setImportRows([])
       if (fileRef.current) fileRef.current.value = ''
     } catch {
-      const left = validRows.length - total.created - total.failed - total.skippedDuplicates
-      setImportResult({ ...total, errors: [...total.errors, `انقطع الاستيراد — أُضيف ${total.created} طالباً، وبقي ${left} لم يُرسَل. أعد رفع الملف: من أُضيف يُتخطى تلقائياً.`] })
-      setImportRows([])
-      if (fileRef.current) fileRef.current.value = ''
+      // Keep the rows that were never sent (the batch that broke and all
+      // after it) so the owner presses «استيراد» again instead of re-uploading
+      // — the skip-if-already-there rule only helps rows that carry a national
+      // id, and the broken batch may have landed partly.
+      const remainder = validRows.slice(sentUpTo)
+      setImportResult({ ...total, errors: [...total.errors, `انقطع الاستيراد بعد ${sentUpTo} صفاً — أُضيف ${total.created}. بقي ${remainder.length} في المعاينة؛ اضغط «استيراد» مرة أخرى ليُرسَل الباقي. ما سُجِّل من قبل برقم هويته يُتخطى.`] })
+      setImportRows(remainder)
     } finally {
       setImporting(false)
       setImportProgress(null)

@@ -977,7 +977,7 @@ export default function ClassRoster({
                                     disabled={out}
                                     onClick={() => { touch(student.id); setHomework(h => ({ ...h, [student.id]: btn.key })) }}
                                     className={`px-2 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                                      hw === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
+                                      hw === btn.key && !out ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
                                   >{btn.label}</button>
                                 ))}
@@ -995,7 +995,7 @@ export default function ClassRoster({
                                     disabled={out}
                                     onClick={() => { touch(student.id); setMaterials(m => ({ ...m, [student.id]: btn.key })) }}
                                     className={`px-2 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                                      mat === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
+                                      mat === btn.key && !out ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
                                   >{btn.label}</button>
                                 ))}
@@ -1013,7 +1013,9 @@ export default function ClassRoster({
                                     disabled={out}
                                     onClick={() => { touch(student.id); setParticipation(p => ({ ...p, [student.id]: btn.key })) }}
                                     className={`px-2 py-3 sm:py-1 min-h-11 sm:min-h-0 rounded-lg text-xs font-semibold border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                                      part === btn.key ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
+                                      // A pupil who was out has no mark to show as chosen: the save
+                                      // stores null, so the row must not read as «مشارك».
+                                      part === btn.key && !out ? btn.cls : 'bg-card text-muted-foreground border-border hover:bg-muted'
                                     }`}
                                   >{btn.label}</button>
                                 ))}

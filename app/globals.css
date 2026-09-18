@@ -400,12 +400,6 @@
   }
 }
 
-@keyframes portal-rise {
-  from { opacity: 0; transform: translateY(8px); }
-  /* `none`, not translateY(0): a retained transform would make every fixed
-     modal position against the page instead of the window. */
-  to { opacity: 1; transform: none; }
-}
 @keyframes portal-fade {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -588,7 +582,9 @@
   
   /* Everything that sits on the aurora must be above it — written with
      :where() so a fixed sidebar or an absolute button keeps its own position */
-  :where(.portal-shell > *:not(.aurora)) { position: relative; z-index: 1; }
+  /* No aurora in the portals any more, so nothing here needs lifting — and
+     a z-index on <main> would put every dialog inside a page beneath the
+     sidebar. Deliberately nothing. */
   .portal-shell { background-attachment: scroll; }
   
   /* The pointer spotlight was removed: it repainted a whole card on every
