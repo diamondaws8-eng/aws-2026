@@ -62,7 +62,7 @@ export async function missedDaysForTeacher(
 ): Promise<MissedDay[]> {
   // Only classes this teacher is actually assigned to. A class nobody has been
   // given is the administration's gap to fill, not this teacher's to answer for.
-  const mine = await db
+  const mineRows = await db
     .select({
       classId: classes.id,
       className: classes.name,
@@ -73,6 +73,8 @@ export async function missedDaysForTeacher(
     .innerJoin(classes, eq(classes.id, subjects.classId))
     .leftJoin(gradeLevels, eq(gradeLevels.id, classes.gradeLevelId))
     .where(and(eq(subjects.schoolId, schoolId), eq(subjects.teacherUserId, teacherUserId)))
+  // A teacher with two subjects in one class must not see the class twice.
+  const mine = [...new Map(mineRows.map((c) => [c.classId, c])).values()]
   if (mine.length === 0) return []
 
   /**
@@ -103,8 +105,9 @@ export async function missedDaysForTeacher(
     stages.map(async (gid) => {
       const cfg = await getSchoolDaysConfig(schoolId, gid)
       // Today is still being taught; a teacher is not late for a lesson that
-      // has not finished. Ask for one extra day and drop it.
-      const days = lastSchoolDays(lookback + 1, cfg, today).filter((d) => d < today && d >= floor)
+      // has not finished. Drop it, then keep exactly `lookback` days — on a
+      // Friday nothing is dropped and the window would otherwise be one long.
+      const days = lastSchoolDays(lookback + 1, cfg, today).filter((d) => d < today && d >= floor).slice(-lookback)
       daysByStage.set(gid, days)
     }),
   )
@@ -136,17 +139,22 @@ export async function missedDaysForTeacher(
   ])
   const recorded = new Set(done.map((r) => `${r.classId}|${r.date}`))
   const hasRegister = new Set(registered.map((r) => `${r.classId}|${r.date}`))
-  // The one day an untaken register may still be taken from memory.
-  const latestSchoolDay = windowDays.slice().sort().pop() ?? null
+  // The one day an untaken register may still be taken from memory — per
+  // stage, because a stage that does not teach on Saturday has an earlier
+  // "yesterday" than one that does, and the union's latest day would hide
+  // its untaken Thursday.
+  const latestByStage = new Map<string | null, string | null>()
+  for (const [gid, days] of daysByStage) latestByStage.set(gid, days.length ? days[days.length - 1] : null)
 
   const missed: MissedDay[] = []
   for (const c of mine) {
+    const latestSchoolDay = latestByStage.get(c.gradeLevelId) ?? null
     for (const date of daysByStage.get(c.gradeLevelId) ?? []) {
       const key = `${c.classId}|${date}`
       if (recorded.has(key)) continue
       const kind: 'register' | 'assessment' = hasRegister.has(key) ? 'assessment' : 'register'
-      // An untaken register older than the last school day is not this
-      // teacher's to reconstruct.
+      // An untaken register older than the stage's last school day is not
+      // this teacher's to reconstruct.
       if (kind === 'register' && date !== latestSchoolDay) continue
       missed.push({ classId: c.classId, className: c.className, gradeName: c.gradeName, date, kind })
     }

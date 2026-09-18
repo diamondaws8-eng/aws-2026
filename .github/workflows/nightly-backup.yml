@@ -107,7 +107,12 @@ jobs:
           PG_DUMP="${PG_DUMP:-/usr/lib/postgresql/17/bin/pg_dump}"
           if [ ! -x "$PG_DUMP" ]; then echo "::error::pg_dump 17 is missing at $PG_DUMP"; exit 1; fi
 
-          "$PG_DUMP" --no-owner --no-privileges --format=custom --file=db.dump "$DATABASE_URL"
+          # --schema=public: every table the school owns lives there, logins
+          # included, and it is exactly what the runbook restores. Without it
+          # the dump carried Supabase's own auth/storage/realtime schemas —
+          # never restored, and large enough that an EMPTIED public schema
+          # still sailed past the size floor below.
+          "$PG_DUMP" --no-owner --no-privileges --format=custom --schema=public --file=db.dump "$DATABASE_URL"
 
           SIZE=$(stat -c%s db.dump)
           echo "dump size: $SIZE bytes"

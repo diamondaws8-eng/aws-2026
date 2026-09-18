@@ -3,7 +3,7 @@ import { classes, gradeLevels, students, subjects, teachers, schools } from '@/l
 import { eq, and } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import ClassRoster from './class-roster'
-import { today as schoolToday } from '@/lib/utils'
+import { today as schoolToday, isValidDateString } from '@/lib/utils'
 import { getSchoolDaysConfig } from '@/lib/school-holidays'
 import { getClassPointsTotals } from '@/lib/points'
 import { getTeacherClassAccess } from '@/lib/teacher-access'
@@ -31,7 +31,9 @@ export default async function ClassPage({
    * honoured — a future date, or anything that is not a date at all, falls
    * back to today rather than showing a register that cannot be saved.
    */
-  const startDate = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) && asked <= today ? asked : today
+  // isValidDateString also refuses 2026-06-31, which the shape check let
+  // through and the browser then rolled over to July.
+  const startDate = isValidDateString(asked) && asked <= today ? asked : today
 
   // This page is the one a teacher opens every lesson, so it asks the database
   // in two rounds instead of thirteen one-after-another trips. Round one: the

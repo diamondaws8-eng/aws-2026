@@ -531,6 +531,21 @@ export async function exportFullBackup(schoolId: string) {
 // part of the backup — if an account was deleted after the backup was taken,
 // the restored row comes back but that person will not be able to log in
 // until the admin re-creates their account.
+/**
+ * Insert rows a slice at a time.
+ *
+ * Postgres accepts at most 65,535 bind parameters in one statement. A
+ * daily_records row is 17 columns, so a single INSERT holds about 3,850 of
+ * them — twelve school days of this school. The restore used to send each
+ * table as ONE statement; a real backup failed at the insert and the
+ * transaction undid everything, so the button worked only on small files.
+ * 500 rows is under 9,000 parameters for the widest table.
+ */
+async function insertInChunks(tx: { insert: typeof db.insert }, table: Parameters<typeof db.insert>[0], rows: Record<string, unknown>[], size = 500) {
+  for (let i = 0; i < rows.length; i += size) {
+    await tx.insert(table).values(rows.slice(i, i + size) as never)
+  }
+}
 export async function restoreFullBackup(schoolId: string, backup: any) {
   try {
     const access = await getAdminAccess()
@@ -645,43 +660,43 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
       // Re-insert everything from the backup, preserving original ids so
       // cross-table references (class -> grade level, subject -> class, ...) stay intact
       if (Array.isArray(d.gradeLevels) && d.gradeLevels.length) {
-        await tx.insert(gradeLevels).values(d.gradeLevels.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        await insertInChunks(tx, gradeLevels, d.gradeLevels.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
         counts.gradeLevels = d.gradeLevels.length
       }
       if (Array.isArray(d.classes) && d.classes.length) {
-        await tx.insert(classes).values(d.classes.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        await insertInChunks(tx, classes, d.classes.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
         counts.classes = d.classes.length
       }
       if (Array.isArray(d.teachers) && d.teachers.length) {
-        await tx.insert(teachers).values(d.teachers.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        await insertInChunks(tx, teachers, d.teachers.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
         counts.teachers = d.teachers.length
       }
       if (Array.isArray(d.students) && d.students.length) {
-        await tx.insert(students).values(d.students.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        await insertInChunks(tx, students, d.students.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
         counts.students = d.students.length
       }
       if (Array.isArray(d.subjects) && d.subjects.length) {
-        await tx.insert(subjects).values(d.subjects.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        await insertInChunks(tx, subjects, d.subjects.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
         counts.subjects = d.subjects.length
       }
       if (Array.isArray(d.attendance) && d.attendance.length) {
-        await tx.insert(attendance).values(d.attendance.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        await insertInChunks(tx, attendance, d.attendance.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
         counts.attendance = d.attendance.length
       }
       if (Array.isArray(d.gradeEntries) && d.gradeEntries.length) {
-        await tx.insert(gradeEntries).values(d.gradeEntries.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        await insertInChunks(tx, gradeEntries, d.gradeEntries.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
         counts.gradeEntries = d.gradeEntries.length
       }
       if (Array.isArray(d.notifications) && d.notifications.length) {
-        await tx.insert(notifications).values(d.notifications.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), expiresAt: toDate(r.expiresAt) })))
+        await insertInChunks(tx, notifications, d.notifications.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), expiresAt: toDate(r.expiresAt) })))
         counts.notifications = d.notifications.length
       }
       if (Array.isArray(d.dailyRecords) && d.dailyRecords.length) {
-        await tx.insert(dailyRecords).values(d.dailyRecords.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), updatedAt: toDate(r.updatedAt) })))
+        await insertInChunks(tx, dailyRecords, d.dailyRecords.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), updatedAt: toDate(r.updatedAt) })))
         counts.dailyRecords = d.dailyRecords.length
       }
       if (Array.isArray(d.lessonRecords) && d.lessonRecords.length) {
-        await tx.insert(lessonRecords).values(d.lessonRecords.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), updatedAt: toDate(r.updatedAt) })))
+        await insertInChunks(tx, lessonRecords, d.lessonRecords.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), updatedAt: toDate(r.updatedAt) })))
         counts.lessonRecords = d.lessonRecords.length
       }
       // A file taken before assessments moved out of the register carries them
@@ -707,7 +722,7 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
             updatedAt: toDate(r.updatedAt),
           }))
         if (rebuilt.length) {
-          await tx.insert(lessonRecords).values(rebuilt)
+          await insertInChunks(tx, lessonRecords, rebuilt)
           counts.lessonRecords = rebuilt.length
         }
       }
@@ -719,7 +734,7 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
       if (Array.isArray(d.studentPoints) && d.studentPoints.length) {
         const manualOnly = d.studentPoints.filter((r: any) => r.type === 'manual')
         if (manualOnly.length) {
-          await tx.insert(studentPoints).values(manualOnly.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+          await insertInChunks(tx, studentPoints, manualOnly.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
         }
         counts.studentPoints = manualOnly.length
         counts.studentPointsSkipped = d.studentPoints.length - manualOnly.length

@@ -458,6 +458,21 @@ export default function SettingsClient({
       for (const key of Object.keys(RESTORE_TABLE_LABELS)) {
         counts[key] = Array.isArray(parsed.data[key]) ? parsed.data[key].length : 0
       }
+      /**
+       * The hosting platform (Vercel Functions) refuses any request body over
+       * 4.5 MB before the application sees it, whatever next.config allows.
+       * Gzip keeps a file under that for the first weeks of a year; beyond it
+       * the in-app button cannot carry the file, and the honest answer is the
+       * nightly pg_dump, which the runbook restores with pg_restore. Refuse
+       * here with that answer instead of letting the platform reply 413.
+       */
+      const PLATFORM_LIMIT = 4.5 * 1024 * 1024
+      const wireSize = compressed ? Math.ceil((bytes!.length * 4) / 3) : text.length
+      if (wireSize > PLATFORM_LIMIT) {
+        setRestoreFileError(`الملف ${(wireSize / 1024 / 1024).toFixed(1)} ميغابايت، والاستضافة لا تقبل أكثر من ٤٫٥ ميغابايت في طلب واحد. استعِد هذا الحجم من النسخة الليلية بأمر pg_restore كما في دليل الاستعادة، أو من نسخة أقدم وأصغر.`)
+        setPendingRestore(null)
+        return
+      }
       // Send the compressed bytes when we have them: the parsed object is only
       // here to show the owner what the file holds before he commits to it.
       setPendingRestore({
