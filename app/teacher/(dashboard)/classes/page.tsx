@@ -1,7 +1,9 @@
 import { db } from '@/lib/db'
-import { gradeLevels, classes, students, dailyRecords } from '@/lib/db/schema'
+import { gradeLevels, classes, students, lessonRecords } from '@/lib/db/schema'
 import { eq, and, count, inArray } from 'drizzle-orm'
 import { today as schoolToday } from '@/lib/utils'
+import { getSchoolDaysConfig } from '@/lib/school-holidays'
+import { nonSchoolDayReason } from '@/lib/school-days'
 import { redirect } from 'next/navigation'
 import GradeSelector from './grade-selector'
 import { requireTeacher, getTeacherVisibleClassIds } from '@/lib/teacher-access'
@@ -36,19 +38,31 @@ export default async function TeacherClassesPage() {
   const visibleClasses = classesData.filter(c => visibleClassIds.has(c.id))
 
   /**
-   * Which classes already hold a register for today — by any teacher, since
-   * attendance is shared. A class that has one is opened to be corrected,
-   * and correcting what families were already told deserves a pause first.
+   * Which classes THIS teacher has already recorded today. Attendance is
+   * shared, but a teacher's own duty is their lesson marks, and the dashboard
+   * and lib/missed-days.ts both measure it by lesson_records — so this must
+   * too, or a colleague's period would show as this teacher's done work and
+   * offer them «تعديل» for a lesson they never entered.
    */
   const todayStr = schoolToday()
   const allClassIds = [...visibleClassIds]
   const recordedRows = allClassIds.length
     ? await db
-        .selectDistinct({ classId: dailyRecords.classId })
-        .from(dailyRecords)
-        .where(and(inArray(dailyRecords.classId, allClassIds), eq(dailyRecords.date, todayStr)))
+        .selectDistinct({ classId: lessonRecords.classId })
+        .from(lessonRecords)
+        .where(and(
+          eq(lessonRecords.teacherUserId, teacher.userId),
+          inArray(lessonRecords.classId, allClassIds),
+          eq(lessonRecords.date, todayStr),
+        ))
     : []
   const recordedToday = new Set(recordedRows.map((r) => r.classId))
+  // A Friday, a Saturday the stage does not teach on, or a holiday: the card
+  // says so instead of pressing for a register that the roster will lock.
+  const offByGrade = new Map<string, string | null>()
+  for (const g of gradesData) {
+    offByGrade.set(g.id, nonSchoolDayReason(todayStr, await getSchoolDaysConfig(teacher.schoolId, g.id)))
+  }
 
   const gradesWithClasses = gradesData
     .map(grade => {
@@ -61,8 +75,9 @@ export default async function TeacherClassesPage() {
           id: c.id,
           name: c.name,
           studentCount: countByClass.get(c.id) ?? 0,
-          // Already has today's register — opening it is an edit, not a first entry.
+          // Already carries this teacher's marks for today — opening it is an edit.
           recordedToday: recordedToday.has(c.id),
+          offToday: offByGrade.get(grade.id) ?? null,
         }))
       }
     })

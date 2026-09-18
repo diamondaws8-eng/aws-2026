@@ -108,7 +108,7 @@ export function deriveAttendanceEntries(rec: DailyStatuses, settings: SchoolSett
     if (rec.attendanceStatus === 'present') add('attendance', p.attendance_present ?? 1, 'حضور اليوم')
     else if (rec.attendanceStatus === 'late') add('attendance', p.attendance_late ?? 0, 'تأخر')
     else if (rec.attendanceStatus === 'absent') add('attendance', p.attendance_absent ?? 0, 'غياب بدون عذر')
-    else if (rec.attendanceStatus === 'excused') add('attendance', p.attendance_excused ?? 2, 'غياب بعذر')
+    else if (rec.attendanceStatus === 'excused') add('attendance', p.attendance_excused ?? 1, 'غياب بعذر')
   }
 
   return out
@@ -162,7 +162,8 @@ export function maxPossiblePoints(settings: SchoolSettings, days: number, lesson
   const f = settings.features
   const p = settings.points
   const best = (...vals: (number | undefined)[]) => Math.max(0, ...vals.map((v) => v ?? 0))
-  const perDay = f.attendance !== false ? best(p.attendance_present, p.attendance_late) : 0
+  // Every status the register can hold, or a pupil could score above 100%.
+  const perDay = f.attendance !== false ? best(p.attendance_present, p.attendance_late, p.attendance_excused) : 0
   const perLesson =
     (f.behavior !== false ? best(p.behavior_excellent, p.behavior_good) : 0) +
     (f.homework !== false ? best(p.homework_done) : 0) +
@@ -210,7 +211,7 @@ export async function resyncSchoolPoints(schoolId: string, settings: SchoolSetti
           WHEN 'present' THEN ${p.attendance_present ?? 1}::int
           WHEN 'late'    THEN ${p.attendance_late ?? 0}::int
           WHEN 'absent'  THEN ${p.attendance_absent ?? 0}::int
-          WHEN 'excused' THEN ${p.attendance_excused ?? 2}::int
+          WHEN 'excused' THEN ${p.attendance_excused ?? 1}::int
           ELSE 0 END`
       : sql`0`
 

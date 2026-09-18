@@ -32,7 +32,9 @@ export type BlockedAbsence = {
   at: string | null
 }
 
-export type SaveDailyResult = { ok: true; blocked: BlockedAbsence[] } | { ok: false; error: string }
+export type SaveDailyResult =
+  | { ok: true; blocked: BlockedAbsence[]; /** Homes that received an absence notice from this save. */ notified: number }
+  | { ok: false; error: string }
 
 // ── Save full daily records for a class ──────────────────────────────────────
 export type DailyStudentRecord = {
@@ -82,7 +84,7 @@ export async function saveDailyRecords(
   const { getSchoolSettings } = await import('@/app/admin/(dashboard)/settings/actions-settings')
   const settings = await getSchoolSettings(schoolId)
 
-  if (records.length === 0) return { ok: true, blocked: [] }
+  if (records.length === 0) return { ok: true, blocked: [], notified: 0 }
 
   // Student ids come from the browser too — keep only those really in this class.
   const enrolled = await db
@@ -91,7 +93,7 @@ export async function saveDailyRecords(
     .where(and(eq(students.classId, classId), inArray(students.id, records.map(r => r.studentId))))
   const enrolledIds = new Set(enrolled.map(s => s.id))
   records = records.filter(r => enrolledIds.has(r.studentId))
-  if (records.length === 0) return { ok: true, blocked: [] }
+  if (records.length === 0) return { ok: true, blocked: [], notified: 0 }
 
   // What is already on the register decides what this save may still change.
   const existing = await db
@@ -286,6 +288,10 @@ export async function saveDailyRecords(
   // Only for today, and only for a plain absence: an authorised leave is
   // already known at home, and announcing a correction to a day three weeks ago
   // would fill three hundred pockets with news nobody can act on.
+  // Counted, not guessed: the screen used to announce "N families will be
+  // told" from a raw tally of absent rows, while this block tells only the
+  // NEWLY absent, only for today, only where a parent has a login.
+  let notified = 0
   if (newlyAbsentIds.length > 0 && date === schoolToday()) {
     const { notify, notifiedTodayFor } = await import('@/lib/notifications')
     // The owner of an absence may undo it and a later period write a fresh one;
@@ -296,9 +302,10 @@ export async function saveDailyRecords(
       .from(students)
       .where(and(eq(students.classId, classId), inArray(students.id, newlyAbsentIds)))
 
+    const toTell = absentees.filter((s) => !!s.parentUserId && !alreadyTold.has(s.id))
+    notified = toTell.length
     await notify(
-      absentees
-        .filter((s) => !!s.parentUserId && !alreadyTold.has(s.id))
+      toTell
         .map((s) => ({
           schoolId,
           recipientUserId: s.parentUserId!,
@@ -389,7 +396,7 @@ export async function saveDailyRecords(
   }
 
   revalidatePath(`/teacher/classes/${classId}`)
-  return { ok: true, blocked: await describeAbsences(classId, date, blockedIds) }
+  return { ok: true, blocked: await describeAbsences(classId, date, blockedIds) , notified }
 }
 
 /** Names for the students whose standing absence overrode what was submitted. */

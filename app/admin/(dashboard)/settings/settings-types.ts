@@ -37,7 +37,10 @@ export const DEFAULT_SETTINGS: SchoolSettings = {
     // nothing: no attendance point, and no lesson marks either.
     attendance_absent: 0,
     attendance_late: 0,
-    attendance_excused: 2,
+    // Equal to presence, not above it. The ceiling of a day's points is the
+    // best status a pupil can reach, and if an excused absence scored more than
+    // being in class, every pupil who came would sit at half marks for ever.
+    attendance_excused: 1,
     behavior_excellent: 2,
     behavior_good: 1,
     behavior_bad: -2,

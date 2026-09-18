@@ -8,7 +8,7 @@ type GradeWithClasses = {
   id: string
   name: string
   orderIndex: number
-  classes: { id: string; name: string; studentCount: number; recordedToday?: boolean }[]
+  classes: { id: string; name: string; studentCount: number; recordedToday?: boolean; offToday?: string | null }[]
 }
 
 export default function GradeSelector({ grades }: { grades: GradeWithClasses[] }) {
@@ -68,12 +68,14 @@ export default function GradeSelector({ grades }: { grades: GradeWithClasses[] }
                     </span>
                   </div>
                   
-                  <p className={`mb-4 text-xs font-semibold ${cls.recordedToday ? 'text-emerald-600' : 'text-amber-600'}`}>
-                    {cls.recordedToday ? '✓ سُجِّل اليوم' : '• لم يُسجَّل اليوم بعد'}
+                  <p className={`mb-4 text-xs font-semibold ${cls.offToday ? 'text-muted-foreground' : cls.recordedToday ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {cls.offToday
+                      ? (cls.offToday === 'الجمعة' || cls.offToday === 'السبت' ? `اليوم ${cls.offToday} — لا تسجيل` : `إجازة: ${cls.offToday}`)
+                      : cls.recordedToday ? '✓ سجّلته اليوم' : '• لم تسجّله اليوم بعد'}
                   </p>
 
                   <div className="mt-auto">
-                    {cls.recordedToday ? (
+                    {cls.recordedToday && !cls.offToday ? (
                       <button
                         onClick={() => setConfirmEdit({ id: cls.id, name: cls.name })}
                         className="block w-full text-center bg-amber-500 text-white py-2.5 rounded-xl font-semibold hover:bg-amber-600 transition-colors"

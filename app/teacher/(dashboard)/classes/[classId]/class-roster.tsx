@@ -116,7 +116,7 @@ function calcPoints(att: AttStatus, beh: Behavior | null, hw: Homework | null, m
     if (att === 'present') total += (p.attendance_present ?? 1)
     else if (att === 'late') total += (p.attendance_late ?? 0)
     else if (att === 'absent') total += (p.attendance_absent ?? 0)
-    else if (att === 'excused') total += (p.attendance_excused ?? 2)
+    else if (att === 'excused') total += (p.attendance_excused ?? 1)
   }
 
   if (f.behavior !== false) {
@@ -195,7 +195,7 @@ export default function ClassRoster({
    */
   const [confirmSave, setConfirmSave] = useState(false)
   /** What the save actually did, held until the teacher decides where to go next. */
-  const [savedDone, setSavedDone] = useState<{ absent: number; excused: number; late: number; refreshed: number } | null>(null)
+  const [savedDone, setSavedDone] = useState<{ absent: number; excused: number; late: number; refreshed: number; notified: number; blocked: number } | null>(null)
 
   // Per-student daily state
   const [attendance, setAttendance] = useState<Record<string, AttStatus>>({})
@@ -303,9 +303,12 @@ export default function ClassRoster({
     })
     recs.forEach(r => {
       att[r.studentId] = r.attendanceStatus as AttStatus
-      // A stored row wins, including a blank one from before behaviour had a
-      // default — otherwise reopening an old day would invent a rating.
-      beh[r.studentId] = (r.behavior || 'good') as Behavior
+      // A stored row wins — including a blank one. A day saved with the
+      // behaviour unrated (an absent pupil, or any row from before 'good'
+      // became the default) reopens unrated; `|| 'good'` here would invent a
+      // rating and the next save would write it as fact.
+      if (r.behavior) beh[r.studentId] = r.behavior as Behavior
+      else delete beh[r.studentId]
       hw[r.studentId] = (r.homeworkStatus || 'done') as Homework
       mat[r.studentId] = (r.materialsStatus || 'brought') as Materials
       part[r.studentId] = (r.participationStatus || 'active') as Participation
@@ -355,6 +358,38 @@ export default function ClassRoster({
     }
   }
 
+  /**
+   * The shared register as it stands this second. A colleague may have saved a
+   * period since this screen loaded; the card that asks "are these the right
+   * numbers?" must show the register as it is, or the teacher confirms one
+   * thing and the save writes another. Rows this teacher touched keep their
+   * value — that is what dirtyRef is for.
+   */
+  const refreshSharedRegister = async (): Promise<number> => {
+    try {
+      const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${selectedDate}`)
+      const data = await res.json()
+      const next: Record<string, AttStatus> = { ...attendance }
+      let refreshed = 0
+      for (const r of (data.records ?? []) as DailyRecord[]) {
+        if (dirtyRef.current.has(r.studentId)) continue
+        const status = r.attendanceStatus as AttStatus
+        if (next[r.studentId] !== status) { next[r.studentId] = status; refreshed++ }
+      }
+      setLocks(Object.fromEntries(((data.absenceLocks ?? []) as AbsenceLock[]).map(l => [l.studentId, l])))
+      if (refreshed > 0) setAttendance(next)
+      return refreshed
+    } catch {
+      // Offline: the card shows what is on screen, and the save re-reads anyway.
+      return 0
+    }
+  }
+
+  const openConfirm = async () => {
+    await refreshSharedRegister()
+    setConfirmSave(true)
+  }
+
   const handleSaveDay = async () => {
     setSaving(true)
     try {
@@ -400,12 +435,6 @@ export default function ClassRoster({
         return
       }
       setSavedMsg('')
-      setSavedDone({
-        absent: records.filter((r) => r.attendanceStatus === 'absent').length,
-        excused: records.filter((r) => r.attendanceStatus === 'excused').length,
-        late: records.filter((r) => r.attendanceStatus === 'late').length,
-        refreshed,
-      })
       setLateArrivals(new Set())
       dirtyRef.current = new Set()
       // An absence another teacher recorded stands: show exactly whose it was.
@@ -417,16 +446,32 @@ export default function ClassRoster({
           return next
         })
       }
-      // Refresh points
-      const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${selectedDate}`)
-      const data = await res.json()
-      setLocks(Object.fromEntries(((data.absenceLocks ?? []) as AbsenceLock[]).map(l => [l.studentId, l])))
-      if (data.pointsSummary) {
-        const pts: Record<string, number> = {}
-        students.forEach(s => { pts[s.id] = 0 })
-        data.pointsSummary.forEach((p: any) => { pts[p.studentId] = p.total })
-        setPoints(pts)
-      }
+      // The day is saved from here on. Refreshing the points afterwards is a
+      // courtesy, and a dropped connection during it must not be reported as
+      // a failed save — the family notices already went out.
+      try {
+        const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${selectedDate}`)
+        const data = await res.json()
+        setLocks(Object.fromEntries(((data.absenceLocks ?? []) as AbsenceLock[]).map(l => [l.studentId, l])))
+        if (data.pointsSummary) {
+          const pts: Record<string, number> = {}
+          students.forEach(s => { pts[s.id] = 0 })
+          data.pointsSummary.forEach((p: any) => { pts[p.studentId] = p.total })
+          setPoints(pts)
+        }
+      } catch { /* the register is saved; the totals refresh on the next open */ }
+      // What was written, as the server counted it. Refused rows are shown
+      // here too — the notice under the table would sit behind this card.
+      const blockedIds = new Set(saved.blocked.map((b) => b.studentId))
+      const written = (st: string) => records.filter((r) => !blockedIds.has(r.studentId) && r.attendanceStatus === st).length
+      setSavedDone({
+        absent: written('absent'),
+        excused: written('excused'),
+        late: written('late'),
+        refreshed,
+        notified: saved.notified,
+        blocked: saved.blocked.length,
+      })
     } catch {
       setSavedMsg('❌ فشل الحفظ')
     } finally {
@@ -459,8 +504,8 @@ export default function ClassRoster({
     ...(f.attendance !== false ? [
       { label: 'حضور', pts: pv.attendance_present ?? 1 },
       { label: 'تأخر', pts: pv.attendance_late ?? 0 },
-      { label: 'غياب', pts: pv.attendance_absent ?? -1 },
-      { label: 'غياب بعذر', pts: 0 },
+      { label: 'غياب', pts: pv.attendance_absent ?? 0 },
+      { label: 'غياب بعذر', pts: pv.attendance_excused ?? 1 },
     ] : []),
     ...(f.behavior !== false ? [
       { label: 'سلوك ممتاز', pts: pv.behavior_excellent ?? 2 },
@@ -599,7 +644,7 @@ export default function ClassRoster({
 
               {(counts.absent ?? 0) > 0 && (
                 <p className="mb-3 rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-800 leading-6">
-                  سيصل إشعار غياب إلى أهل {counts.absent} من الطلاب. تأكّد من الأسماء قبل التأكيد.
+                  {counts.absent} غائب. يصل إشعار الغياب إلى أهل من يُسجَّل غائباً لأول مرة اليوم — تأكّد من الأسماء قبل التأكيد.
                 </p>
               )}
               {unreviewed > 0 && (
@@ -630,15 +675,25 @@ export default function ClassRoster({
           <div className="w-full max-w-md rounded-3xl bg-card border border-border p-6 shadow-xl text-center">
             <div className="mx-auto mb-3 flex size-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 text-2xl">✓</div>
             <h3 className="text-lg font-bold mb-1">
-              {savedDone.absent > 0 ? 'تم حفظ اليوم وإرسال الغياب' : 'تم حفظ اليوم'}
+              {savedDone.notified > 0 ? 'تم حفظ اليوم وإرسال الغياب' : 'تم حفظ اليوم'}
             </h3>
             <p className="text-sm text-muted-foreground mb-4 leading-7">
               {classInfo.name} — {selectedDate}
-              {savedDone.absent > 0 && <><br />وصل إشعار الغياب إلى أهل {savedDone.absent} من الطلاب.</>}
+              {savedDone.absent > 0 && <><br />{savedDone.absent} غائب.</>}
+              {savedDone.notified > 0
+                ? <><br />وصل إشعار الغياب إلى أهل {savedDone.notified} من الطلاب.</>
+                : savedDone.absent > 0
+                  ? <><br />لم يُرسَل إشعار جديد: الغياب مسجَّل من قبل، أو اليوم ليس اليوم، أو لا حساب لولي الأمر.</>
+                  : null}
               {savedDone.excused > 0 && <><br />و{savedDone.excused} بعذر.</>}
               {savedDone.late > 0 && <><br />و{savedDone.late} متأخر.</>}
               {savedDone.refreshed > 0 && <><br />وحُدّثت حالة حضور {savedDone.refreshed} من السجل المشترك.</>}
             </p>
+            {savedDone.blocked > 0 && (
+              <p className="mb-4 rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-800 leading-6 text-start">
+                🔒 {savedDone.blocked} من الطلاب لم يتغيّر حضورهم: سجّل زميلك غيابهم قبلك، وتفاصيلهم تحت الجدول بعد إغلاق هذه البطاقة.
+              </p>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={() => setSavedDone(null)}
@@ -991,7 +1046,7 @@ export default function ClassRoster({
                 <div className="flex items-center gap-3">
                   {savedMsg && <span className={`text-sm font-semibold ${savedMsg.startsWith('❌') ? 'text-red-600' : 'text-emerald-600'}`}>{savedMsg}</span>}
                   <button
-                    onClick={() => setConfirmSave(true)}
+                    onClick={openConfirm}
                     disabled={saving}
                     className="px-8 py-2.5 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity"
                   >{saving ? 'جاري الحفظ...' : '💾 حفظ اليوم'}</button>
