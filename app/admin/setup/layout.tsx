@@ -14,12 +14,11 @@ export default async function SetupLayout({ children }: { children: React.ReactN
   const access = await getAdminAccess()
   if (access) redirect('/admin')
 
-  // And once the school exists, this screen has no purpose for anyone at all.
-  const [anySchool] = await db.select({ id: schools.id }).from(schools).limit(1)
-  if (anySchool) redirect('/admin/login')
-
   // A teacher or parent who opens the admin portal used to land here and could
   // create a duplicate school by accident — send them to their own portal.
+  // This comes BEFORE the school-exists bounce below, or a teacher who typed
+  // valid credentials into the admin login would be thrown back onto it with
+  // no word of why.
   const [me] = await db.select({ role: user.role }).from(user).where(eq(user.id, session.user.id)).limit(1)
   if (me?.role === 'teacher') redirect('/teacher')
   if (me?.role === 'parent') redirect('/parent')
@@ -29,6 +28,10 @@ export default async function SetupLayout({ children }: { children: React.ReactN
   if (asTeacher) redirect('/teacher')
   const [asParent] = await db.select({ id: students.id }).from(students).where(eq(students.parentUserId, session.user.id)).limit(1)
   if (asParent) redirect('/parent')
+
+  // And once the school exists, this screen has no purpose for anyone at all.
+  const [anySchool] = await db.select({ id: schools.id }).from(schools).limit(1)
+  if (anySchool) redirect('/admin/login')
 
   return <>{children}</>
 }

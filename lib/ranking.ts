@@ -95,7 +95,10 @@ export function buildHonorBoard<T extends { id: string; name: string; periods: R
     myRank: mine?.rank ?? ranked.length + 1,
     myPoints,
     gap: above ? above.totalPoints - myPoints : 0,
-    showMine: shown.length > 0 && (!mine || mine.rank > top),
+    // The child's own line appears whenever their name is not among the rows
+    // shown — a tie at rank 1 across forty pupils puts most of them outside the
+    // five rows while their rank is still 1.
+    showMine: shown.length > 0 && !shown.some((r) => r.id === childId),
   }
 }
 

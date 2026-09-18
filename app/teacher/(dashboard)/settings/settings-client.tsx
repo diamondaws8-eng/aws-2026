@@ -169,8 +169,9 @@ export function TeacherSettingsClient({
         </div>
 
         {/* Warning texts belong to the administration, and every teacher sends
-            the same ones — so there is nothing personal to edit here. They
-            still appear in the WhatsApp window beside the school's own. */}
+            the same ones — so there is nothing personal to edit here. The
+            roster offers only the thanks message; warnings go through the
+            administration's own screens. */}
 
         <button onClick={handleSaveProfile} disabled={status === 'loading'}
           className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity">
