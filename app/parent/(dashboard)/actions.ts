@@ -135,10 +135,16 @@ export async function getStudentDashboard(studentId: string) {
   // What the child COULD have earned in the same period — the rating on the
   // parent's screen is points over this, not points per day. See
   // maxPossiblePoints for why per-day misled.
+  // Only lessons the child was in: an absent day writes a row with every mark
+  // null so the day is complete, and that row must not raise the ceiling.
   const [{ lessons }] = await db
     .select({ lessons: sql<number>`COUNT(*)`.mapWith(Number) })
     .from(lessonRecords)
-    .where(and(eq(lessonRecords.studentId, studentId), since ? gte(lessonRecords.date, since) : undefined))
+    .where(and(
+      eq(lessonRecords.studentId, studentId),
+      since ? gte(lessonRecords.date, since) : undefined,
+      sql`(${lessonRecords.behavior} IS NOT NULL OR ${lessonRecords.homeworkStatus} IS NOT NULL OR ${lessonRecords.materialsStatus} IS NOT NULL OR ${lessonRecords.participationStatus} IS NOT NULL)`,
+    ))
   const { getSchoolSettings } = await import('@/app/admin/(dashboard)/settings/actions-settings')
   const settings = await getSchoolSettings(student.schoolId)
   const possiblePoints = maxPossiblePoints(

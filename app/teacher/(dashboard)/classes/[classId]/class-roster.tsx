@@ -20,6 +20,12 @@ type DailyRecord = {
   participationStatus: string | null
   teacherNote: string | null
   pointsEarned: number
+  /**
+   * true when THIS teacher has a lesson row for the pupil that day. The
+   * shared register puts a row in front of every teacher with the lesson
+   * fields empty; only a row that is genuinely mine can say "unrated".
+   */
+  mine?: boolean
 }
 type PointSummary = { studentId: string; total: number }
 type Subject = { id: string; name: string }
@@ -303,12 +309,19 @@ export default function ClassRoster({
     })
     recs.forEach(r => {
       att[r.studentId] = r.attendanceStatus as AttStatus
-      // A stored row wins — including a blank one. A day saved with the
-      // behaviour unrated (an absent pupil, or any row from before 'good'
-      // became the default) reopens unrated; `|| 'good'` here would invent a
-      // rating and the next save would write it as fact.
-      if (r.behavior) beh[r.studentId] = r.behavior as Behavior
-      else delete beh[r.studentId]
+      // Only THIS teacher's own row can override the default. A colleague's
+      // register puts a row here for every pupil with behaviour null — that
+      // is "not mine yet", not "unrated", and dropping the default on it
+      // handed the second teacher of the day a whole class with nothing
+      // selected. My own stored blank does stay blank (an absent pupil, or a
+      // day saved before 'good' was the default) so a re-save cannot invent
+      // a rating.
+      if (r.mine) {
+        if (r.behavior) beh[r.studentId] = r.behavior as Behavior
+        else delete beh[r.studentId]
+      } else if (r.behavior) {
+        beh[r.studentId] = r.behavior as Behavior
+      }
       hw[r.studentId] = (r.homeworkStatus || 'done') as Homework
       mat[r.studentId] = (r.materialsStatus || 'brought') as Materials
       part[r.studentId] = (r.participationStatus || 'active') as Participation
@@ -331,8 +344,10 @@ export default function ClassRoster({
   const navigateDate = async (newDate: string) => {
     if (newDate > initialDate) return // can't go to future
     setLoadingDate(true)
-    // A notice about colleagues' locks belongs to the day it was produced on.
+    // A notice about colleagues' locks belongs to the day it was produced on,
+    // and so does a failure message.
     setBlockedNotice([])
+    setSavedMsg('')
     try {
       const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${newDate}`)
       const data = await res.json()
@@ -369,15 +384,20 @@ export default function ClassRoster({
     try {
       const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${selectedDate}`)
       const data = await res.json()
-      const next: Record<string, AttStatus> = { ...attendance }
-      let refreshed = 0
-      for (const r of (data.records ?? []) as DailyRecord[]) {
-        if (dirtyRef.current.has(r.studentId)) continue
-        const status = r.attendanceStatus as AttStatus
-        if (next[r.studentId] !== status) { next[r.studentId] = status; refreshed++ }
-      }
       setLocks(Object.fromEntries(((data.absenceLocks ?? []) as AbsenceLock[]).map(l => [l.studentId, l])))
-      if (refreshed > 0) setAttendance(next)
+      // Applied to the state as it is WHEN the fetch lands, not as it was when
+      // the button was pressed: a row the teacher corrected during those two
+      // seconds is dirty by then and must not be reverted to the server copy.
+      let refreshed = 0
+      setAttendance((prev) => {
+        const next = { ...prev }
+        for (const r of (data.records ?? []) as DailyRecord[]) {
+          if (dirtyRef.current.has(r.studentId)) continue
+          const status = r.attendanceStatus as AttStatus
+          if (next[r.studentId] !== status) { next[r.studentId] = status; refreshed++ }
+        }
+        return refreshed > 0 ? next : prev
+      })
       return refreshed
     } catch {
       // Offline: the card shows what is on screen, and the save re-reads anyway.
@@ -385,8 +405,13 @@ export default function ClassRoster({
     }
   }
 
+  /** True while the shared register is being read back before the card opens. */
+  const [checking, setChecking] = useState(false)
   const openConfirm = async () => {
-    await refreshSharedRegister()
+    if (checking || saving) return
+    setSavedMsg('')
+    setChecking(true)
+    try { await refreshSharedRegister() } finally { setChecking(false) }
     setConfirmSave(true)
   }
 
@@ -446,22 +471,10 @@ export default function ClassRoster({
           return next
         })
       }
-      // The day is saved from here on. Refreshing the points afterwards is a
-      // courtesy, and a dropped connection during it must not be reported as
-      // a failed save — the family notices already went out.
-      try {
-        const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${selectedDate}`)
-        const data = await res.json()
-        setLocks(Object.fromEntries(((data.absenceLocks ?? []) as AbsenceLock[]).map(l => [l.studentId, l])))
-        if (data.pointsSummary) {
-          const pts: Record<string, number> = {}
-          students.forEach(s => { pts[s.id] = 0 })
-          data.pointsSummary.forEach((p: any) => { pts[p.studentId] = p.total })
-          setPoints(pts)
-        }
-      } catch { /* the register is saved; the totals refresh on the next open */ }
       // What was written, as the server counted it. Refused rows are shown
       // here too — the notice under the table would sit behind this card.
+      // The card is shown NOW: the register is saved and the families are told;
+      // nothing below is worth making the teacher wait for.
       const blockedIds = new Set(saved.blocked.map((b) => b.studentId))
       const written = (st: string) => records.filter((r) => !blockedIds.has(r.studentId) && r.attendanceStatus === st).length
       setSavedDone({
@@ -472,8 +485,25 @@ export default function ClassRoster({
         notified: saved.notified,
         blocked: saved.blocked.length,
       })
+      setSaving(false)
+      // Refreshing the points afterwards is a courtesy: bounded, and a dropped
+      // connection during it is not a failed save — the notices already went.
+      try {
+        const ctl = new AbortController()
+        const t = setTimeout(() => ctl.abort(), 8000)
+        const res = await fetch(`/api/daily-records?classId=${classInfo.id}&date=${selectedDate}`, { signal: ctl.signal })
+        clearTimeout(t)
+        const data = await res.json()
+        setLocks(Object.fromEntries(((data.absenceLocks ?? []) as AbsenceLock[]).map(l => [l.studentId, l])))
+        if (data.pointsSummary) {
+          const pts: Record<string, number> = {}
+          students.forEach(s => { pts[s.id] = 0 })
+          data.pointsSummary.forEach((p: any) => { pts[p.studentId] = p.total })
+          setPoints(pts)
+        }
+      } catch { /* the register is saved; the totals refresh on the next open */ }
     } catch {
-      setSavedMsg('❌ فشل الحفظ')
+      setSavedMsg('❌ فشل الحفظ — لم يُحفظ شيء. أعد المحاولة، وإن تكرر فسجّل الدخول من جديد.')
     } finally {
       setSaving(false)
     }
@@ -1047,9 +1077,9 @@ export default function ClassRoster({
                   {savedMsg && <span className={`text-sm font-semibold ${savedMsg.startsWith('❌') ? 'text-red-600' : 'text-emerald-600'}`}>{savedMsg}</span>}
                   <button
                     onClick={openConfirm}
-                    disabled={saving}
+                    disabled={saving || checking}
                     className="px-8 py-2.5 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity"
-                  >{saving ? 'جاري الحفظ...' : '💾 حفظ اليوم'}</button>
+                  >{saving ? 'جاري الحفظ...' : checking ? 'جاري قراءة السجل...' : '💾 حفظ اليوم'}</button>
                 </div>
               </div>
               )}

@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { dailyRecords, students, classes, gradeLevels } from '@/lib/db/schema'
+import { dailyRecords, lessonRecords, students, classes, gradeLevels } from '@/lib/db/schema'
 import { and, eq, inArray } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { getAdminAccess, canEditGrade } from '@/lib/admin-access'
@@ -114,6 +114,22 @@ export async function correctAttendance(
         updatedAt: now,
       },
     })
+
+  /**
+   * The rule the teachers' save keeps — a pupil who was not in school was not
+   * in any lesson — must hold after a correction too, or the office marking a
+   * child absent leaves six lesson rows still crediting homework and
+   * participation for a day the child was not there. Marks are cleared on the
+   * way OUT of school; on the way back in nothing is invented, the teachers
+   * re-mark what they saw.
+   */
+  const nowOut = applied.filter((a) => isOut(a.to)).map((a) => a.id)
+  if (nowOut.length) {
+    await db
+      .update(lessonRecords)
+      .set({ behavior: null, homeworkStatus: null, materialsStatus: null, participationStatus: null, pointsEarned: 0, updatedAt: now })
+      .where(and(eq(lessonRecords.classId, classId), eq(lessonRecords.date, date), inArray(lessonRecords.studentId, nowOut)))
+  }
 
   const label = (s: string | null) => (s ? ATTENDANCE_STATUS[s as AttendanceStatus]?.label ?? s : 'غير مسجَّل')
   await logAudit(access, 'admin.attendance.correct', `${cls.gradeName ? `${cls.gradeName} — ` : ''}فصل ${cls.name} — ${date}`, {

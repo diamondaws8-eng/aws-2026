@@ -303,8 +303,9 @@ export async function saveDailyRecords(
       .where(and(eq(students.classId, classId), inArray(students.id, newlyAbsentIds)))
 
     const toTell = absentees.filter((s) => !!s.parentUserId && !alreadyTold.has(s.id))
-    notified = toTell.length
-    await notify(
+    // notify() returns how many rows it actually wrote (0 if the insert
+    // failed), and that is the only number a "sent" message may show.
+    notified = await notify(
       toTell
         .map((s) => ({
           schoolId,

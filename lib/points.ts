@@ -413,6 +413,15 @@ export async function getLeaderboard(schoolId: string, classIds?: string[] | nul
     nMonth: sql<number>`COUNT(*) FILTER (WHERE ${dateCol} >= ${monthFrom})`.mapWith(Number),
     nWeek: sql<number>`COUNT(*) FILTER (WHERE ${dateCol} >= ${weekFrom})`.mapWith(Number),
   })
+  // Lesson rows that were real lessons for the pupil. An out-of-school day
+  // writes a row with every mark null so the day is complete; counting it as
+  // a lesson would raise the ceiling for a lesson the child was not in.
+  const attended = sql`(${lessonRecords.behavior} IS NOT NULL OR ${lessonRecords.homeworkStatus} IS NOT NULL OR ${lessonRecords.materialsStatus} IS NOT NULL OR ${lessonRecords.participationStatus} IS NOT NULL)`
+  const lessonCounts = (dateCol: AnyPgColumn) => ({
+    nYear: sql<number>`COUNT(*) FILTER (WHERE ${attended}${since ? sql` AND ${dateCol} >= ${since}` : sql``})`.mapWith(Number),
+    nMonth: sql<number>`COUNT(*) FILTER (WHERE ${attended} AND ${dateCol} >= ${monthFrom})`.mapWith(Number),
+    nWeek: sql<number>`COUNT(*) FILTER (WHERE ${attended} AND ${dateCol} >= ${weekFrom})`.mapWith(Number),
+  })
 
   const [roster, attendance, lessons, manual, settings] = await Promise.all([
     db.select({
@@ -440,7 +449,7 @@ export async function getLeaderboard(schoolId: string, classIds?: string[] | nul
     db.select({
         studentId: lessonRecords.studentId,
         ...sums(sql`${lessonRecords.pointsEarned}`, lessonRecords.date),
-        ...counts(lessonRecords.date),
+        ...lessonCounts(lessonRecords.date),
       })
       .from(lessonRecords)
       .where(and(eq(lessonRecords.schoolId, schoolId), sinceFilter(lessonRecords.date)))
