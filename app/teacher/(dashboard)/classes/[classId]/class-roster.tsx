@@ -783,7 +783,7 @@ export default function ClassRoster({
               <div
                 ref={topBarRef}
                 onScroll={syncFromTop}
-                className="overflow-x-scroll overflow-y-hidden rounded-full border border-border bg-muted/40"
+                className="roster-hscroll overflow-x-scroll overflow-y-hidden rounded-full border border-border bg-muted/40"
                 aria-label="تمرير الجدول يميناً ويساراً"
                 title="اسحب لتحريك الجدول يميناً ويساراً"
               >
