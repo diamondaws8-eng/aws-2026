@@ -200,6 +200,41 @@ export default function ClassRoster({
    * many absent, how many rows were never looked at — and only then written.
    */
   const [confirmSave, setConfirmSave] = useState(false)
+
+  /**
+   * A second horizontal scrollbar, at the top of the register.
+   *
+   * The table is about 1,240px wide and thirty rows tall. Its own scrollbar
+   * sits at the bottom of that box, so on any ordinary screen a teacher who
+   * wants the Participation column has to scroll to the last pupil, drag
+   * sideways, and scroll back up. This bar mirrors the table's scroll and
+   * stays pinned under the tabs while the page scrolls, so sideways is
+   * always one drag away. It is only drawn when the table actually overflows.
+   */
+  const tableWrapRef = useRef<HTMLDivElement | null>(null)
+  const topBarRef = useRef<HTMLDivElement | null>(null)
+  const [tableScroll, setTableScroll] = useState<{ width: number; overflow: boolean }>({ width: 0, overflow: false })
+  useEffect(() => {
+    const wrap = tableWrapRef.current
+    if (!wrap) return
+    const measure = () => setTableScroll({ width: wrap.scrollWidth, overflow: wrap.scrollWidth > wrap.clientWidth + 1 })
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(wrap)
+    const table = wrap.firstElementChild
+    if (table) ro.observe(table)
+    return () => ro.disconnect()
+  }, [students.length, activeTab])
+  // Each side pushes its position to the other; the equality check stops the
+  // two scroll events from feeding each other for ever.
+  const syncFromTop = () => {
+    const a = topBarRef.current, b = tableWrapRef.current
+    if (a && b && b.scrollLeft !== a.scrollLeft) b.scrollLeft = a.scrollLeft
+  }
+  const syncFromTable = () => {
+    const a = topBarRef.current, b = tableWrapRef.current
+    if (a && b && a.scrollLeft !== b.scrollLeft) a.scrollLeft = b.scrollLeft
+  }
   /** What the save actually did, held until the teacher decides where to go next. */
   const [savedDone, setSavedDone] = useState<{ absent: number; excused: number; late: number; refreshed: number; notified: number; blocked: number } | null>(null)
 
@@ -741,6 +776,21 @@ export default function ClassRoster({
       {/* ── Daily Tab ── */}
       {activeTab === 'daily' && (
         <div className="flex-1">
+          {/* Sideways, from the top: mirrors the table's scrollbar and stays
+              pinned under the tabs as the page scrolls. */}
+          {tableScroll.overflow && (
+            <div className="sticky top-0 max-md:top-12 z-10 bg-background/95 backdrop-blur-sm px-4 pt-2 pb-1">
+              <div
+                ref={topBarRef}
+                onScroll={syncFromTop}
+                className="overflow-x-scroll overflow-y-hidden rounded-full border border-border bg-muted/40"
+                aria-label="تمرير الجدول يميناً ويساراً"
+                title="اسحب لتحريك الجدول يميناً ويساراً"
+              >
+                <div style={{ width: tableScroll.width }} className="h-px" />
+              </div>
+            </div>
+          )}
           {/* A day the stage does not teach on: the register is closed, and it
               says why. Fridays and Saturdays by rule, holidays by name. */}
           {dayOff && (
@@ -791,7 +841,7 @@ export default function ClassRoster({
           ) : (
             <>
               <fieldset disabled={!!dayOff} className={`min-w-0 border-0 p-0 m-0 ${dayOff ? 'opacity-60' : ''}`} aria-disabled={!!dayOff}>
-              <div className="overflow-x-auto">
+              <div ref={tableWrapRef} onScroll={syncFromTable} className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/60 text-muted-foreground font-semibold text-xs sticky top-0 z-10">
                     <tr>
