@@ -854,7 +854,9 @@ export default function SettingsClient({
 
           {shownHolidays.length === 0 ? (
             <p className="text-sm text-muted-foreground bg-muted/40 rounded-xl p-4 mt-5 max-w-3xl">
-              لا توجد إجازات مسجَّلة. أضف إجازات العيد واليوم الوطني ونصف العام حتى لا تُحسب أياماً مهملة.
+              {canEditScope
+                ? 'لا توجد إجازات مسجَّلة. أضف إجازات العيد واليوم الوطني ونصف العام حتى لا تُحسب أياماً مهملة.'
+                : 'لا توجد إجازات مسجَّلة في هذا التقويم.'}
             </p>
           ) : (
             <div className="space-y-2 mt-5 max-w-3xl">

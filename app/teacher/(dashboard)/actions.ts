@@ -78,7 +78,7 @@ export async function saveDailyRecords(
     const { nonSchoolDayReason, closedDayPhrase } = await import('@/lib/school-days')
     const [cls] = await db.select({ gradeLevelId: classesTable.gradeLevelId }).from(classesTable).where(eq(classesTable.id, classId)).limit(1)
     const off = nonSchoolDayReason(date, await getSchoolDaysConfig(schoolId, cls?.gradeLevelId ?? null))
-    if (off) return { ok: false, error: `${closedDayPhrase(off)} — لا يُسجَّل فيه حضور` }
+    if (off) return { ok: false, error: `${closedDayPhrase(off)} — لا يُسجَّل في هذا اليوم حضور` }
   }
 
   const { getSchoolSettings } = await import('@/app/admin/(dashboard)/settings/actions-settings')
@@ -313,7 +313,7 @@ export async function saveDailyRecords(
           kind: 'absence' as const,
           title: `غياب: ${s.fullName}`,
           body: `تم تسجيل غياب ${s.fullName} اليوم ${formatDateAr(date)}. إن كان هناك عذر فيرجى التواصل مع المدرسة.`,
-          href: '/parent',
+          href: `/parent?child=${s.id}`,
           entityId: s.id,
           actorName: access.fullName,
         })),
@@ -376,7 +376,7 @@ export async function saveDailyRecords(
             body: late
               ? `وصل ${s.fullName} إلى المدرسة اليوم ${formatDateAr(date)} متأخراً، وعُدِّل تسجيل الغياب السابق إلى «حاضر (متأخر)».`
               : `عُدِّل تسجيل غياب ${s.fullName} اليوم ${formatDateAr(date)}: الطالب حاضر، ونعتذر عن الإشعار السابق.`,
-            href: '/parent',
+            href: `/parent?child=${s.id}`,
             entityId: s.id,
             actorName: access.fullName,
           }
@@ -510,7 +510,7 @@ export async function addManualPoints(
     const { nonSchoolDayReason, closedDayPhrase } = await import('@/lib/school-days')
     const [cls] = await db.select({ gradeLevelId: classesTable.gradeLevelId }).from(classesTable).where(eq(classesTable.id, classId)).limit(1)
     const off = nonSchoolDayReason(today, await getSchoolDaysConfig(schoolId, cls?.gradeLevelId ?? null))
-    if (off) throw new Error(`${closedDayPhrase(off)} — لا تُمنح نقاط فيه`)
+    if (off) throw new Error(`${closedDayPhrase(off)} — لا تُمنح نقاط في هذا اليوم`)
   }
 
   await db.insert(studentPoints).values({

@@ -146,7 +146,7 @@ export default function AttendanceClient({ classes, classId, date, today, dayOff
             correction column missing. */}
         {dayOff && recorded > 0 && (
           <p className="mt-3 text-sm rounded-xl p-3 inline-flex items-center gap-2 w-full bg-amber-50 text-amber-800">
-            <CalendarX className="size-4 shrink-0" /> {closedDayPhrase(dayOff)} — يُصحَّح فيه ما سُجِّل من قبل فقط، ولا يُضاف حضور جديد
+            <CalendarX className="size-4 shrink-0" /> {closedDayPhrase(dayOff)} — يُصحَّح في هذا اليوم ما سُجِّل من قبل فقط، ولا يُضاف حضور جديد
           </p>
         )}
         <div className="flex flex-wrap gap-2 mt-3 text-xs font-semibold">

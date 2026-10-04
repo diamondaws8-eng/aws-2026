@@ -98,9 +98,11 @@ export function isWeeklyRest(reason: string | null | undefined): boolean {
 /**
  * A name that already says what it is. The announced calendar calls every
  * entry «إجازة …», and wrapping that in the word again prints
- * «يوم إجازة (إجازة الخريف)» on an official sheet.
+ * «يوم إجازة (إجازة الخريف)» on an official sheet. Typed by hand it is as
+ * often «اجازة» without the hamza, which is the same word.
  */
-const namesItself = (reason: string) => isRemoteSuspensionName(reason) || reason.trimStart().startsWith('إجازة')
+export const saysHoliday = (reason: string) => /^\s*[إأا]جاز[ةه]/.test(reason)
+const namesItself = (reason: string) => isRemoteSuspensionName(reason) || saysHoliday(reason)
 
 /**
  * A closed day in one phrase, from the reason nonSchoolDayReason gave.

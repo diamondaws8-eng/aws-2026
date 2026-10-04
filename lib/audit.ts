@@ -35,6 +35,8 @@ export type AuditAction =
   | 'teacher.dailyRecords.backdated'
   | 'teacher.attendance.lateArrival'
   | 'admin.attendance.correct'
+  | 'excuse.accept'
+  | 'excuse.reject'
   | 'teacher.points.manual'
   | 'teacher.grades.save'
   | 'case.raised'
@@ -76,6 +78,8 @@ export const AUDIT_LABELS: Record<AuditAction, string> = {
   'teacher.dailyRecords.backdated': 'تعديل سجل يوم سابق',
   'teacher.attendance.lateArrival': 'تسجيل وصول متأخر بدل غياب سجّله معلم آخر',
   'admin.attendance.correct': 'تصحيح الحضور من الإدارة',
+  'excuse.accept': 'قبول عذر غياب',
+  'excuse.reject': 'عدم قبول عذر غياب',
   'teacher.points.manual': 'منح نقاط يدوية',
   'teacher.grades.save': 'حفظ درجات اختبار',
   'case.raised': 'رفع حالة سلوكية',

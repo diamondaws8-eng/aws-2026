@@ -99,7 +99,7 @@ export async function correctAttendance(
   if (off && pupils.some((p) => !previous.has(p.id))) {
     return {
       ok: false,
-      error: `${closedDayPhrase(off)} — لا يُسجَّل فيه حضور جديد ولا غياب؛ يُصحَّح فقط ما سُجِّل فيه من قبل`,
+      error: `${closedDayPhrase(off)} — لا يُسجَّل في هذا اليوم حضور جديد ولا غياب؛ يُصحَّح فقط ما سُجِّل من قبل`,
     }
   }
 
@@ -185,7 +185,7 @@ export async function correctAttendance(
           kind: 'absence' as const,
           title: `غياب: ${a.fullName}`,
           body: `تم تسجيل غياب ${a.fullName} اليوم ${formatDateAr(date)}. إن كان هناك عذر فيرجى التواصل مع المدرسة.`,
-          href: '/parent',
+          href: `/parent?child=${a.id}`,
           entityId: a.id,
           actorName: access.name,
         })),
@@ -199,7 +199,7 @@ export async function correctAttendance(
           body: a.to === 'late'
             ? `وصل ${a.fullName} إلى المدرسة اليوم ${formatDateAr(date)} متأخراً، وعُدِّل تسجيل الغياب السابق إلى «حاضر (متأخر)».`
             : `عُدِّل تسجيل غياب ${a.fullName} اليوم ${formatDateAr(date)}: الطالب حاضر، ونعتذر عن الإشعار السابق.`,
-          href: '/parent',
+          href: `/parent?child=${a.id}`,
           entityId: a.id,
           actorName: access.name,
         })),

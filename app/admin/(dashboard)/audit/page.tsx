@@ -99,6 +99,8 @@ const DETAIL_LABELS: Record<string, string> = {
   academicYear: 'العام الدراسي',
   currentSemester: 'الفصل الدراسي',
   yearStartDate: 'بداية العام',
+  pupil: 'الطالب',
+  note: 'الرد',
 }
 
 function readDetails(raw: string | null): string {

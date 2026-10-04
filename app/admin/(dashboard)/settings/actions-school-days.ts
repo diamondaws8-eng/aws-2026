@@ -369,7 +369,15 @@ export type SuspensionInput = {
 }
 
 export type SuspensionResult =
-  | { ok: true; holiday: HolidayRow; notified: number; unreachable: number; purged: ExistingRecords | null }
+  | {
+      ok: true
+      holiday: HolidayRow
+      /** Whether a notice was attempted at all — a period already over is filed without one. */
+      announced: boolean
+      notified: number
+      unreachable: number
+      purged: ExistingRecords | null
+    }
   | { ok: false; error: string; existing?: ExistingRecords; canPurge?: boolean; past?: boolean }
 
 export type EndSuspensionResult =
@@ -625,7 +633,8 @@ export async function declareStudySuspension(input: SuspensionInput): Promise<Su
     // nobody: a notice in the present tense about last week's rain is noise,
     // and it could not be withdrawn afterwards.
     let told = NOBODY
-    if (input?.notifyPeople && endDate >= today) {
+    const announced = !!input?.notifyPeople && endDate >= today
+    if (announced) {
       const body =
         `تُعلَّق الدراسة الحضورية ${formatRangeAr(startDate, endDate)}${stageName ? ` لطلاب ${stageName}` : ''}، وتكون الدراسة عن بُعد.`
         + `${reason ? ` السبب: ${reason}.` : ''}`
@@ -653,7 +662,7 @@ export async function declareStudySuspension(input: SuspensionInput): Promise<Su
       ...(purge ? { purgedAttendance: found.attendance, purgedLessons: found.lessons, purgedPoints: found.points } : {}),
     })
     revalidateCalendar()
-    return { ok: true, holiday, notified: told.sent, unreachable: told.unreachable, purged: purge ? found : null }
+    return { ok: true, holiday, announced, notified: told.sent, unreachable: told.unreachable, purged: purge ? found : null }
   } catch (e) {
     console.error('Declare Suspension Error:', e)
     return { ok: false, error: 'تعذّر تعليق الدراسة — لم يتغير شيء' }
@@ -706,6 +715,9 @@ export async function endStudySuspension(
 ): Promise<EndSuspensionResult> {
   const { error, access } = await requireDaysManager()
   if (!access) return { ok: false, error }
+  // Anything unrecognised must not fall through to "remove it whole": that
+  // path reopens every day of the suspension and tells every family so.
+  if (mode != null && mode !== 'today' && mode !== 'next-school-day') return { ok: false, error: 'طلب غير صالح' }
 
   try {
     const schoolId = access.school.id
@@ -743,7 +755,10 @@ export async function endStudySuspension(
     if (cut) {
       if (today < row.startDate) return { ok: false, error: 'هذا التعليق لم يبدأ بعد — احذفه إن أردت إلغاءه' }
       if (today > row.endDate) return { ok: false, error: 'هذا التعليق انتهى بالفعل' }
-      const resume = cut === 'today' ? today : await nextSchoolDayWithout(schoolId, row, today)
+      // 'today' means the first teaching day from today on: pressed on a
+      // Friday it is Sunday, and the notice must not announce a day in the
+      // building when nobody is going to one.
+      const resume = await nextSchoolDayWithout(schoolId, row, cut === 'today' ? shiftDate(today, -1) : today)
       if (!resume || resume > row.endDate) {
         return { ok: false, error: 'التعليق ينتهي أصلاً قبل أول يوم دراسي قادم — لا حاجة لإنهائه' }
       }
@@ -766,7 +781,7 @@ export async function endStudySuspension(
       const told = wasAnnounced
         ? await tellAudience(access, row.gradeLevelId, {
             title: 'عودة الدراسة الحضورية',
-            body: cut === 'today'
+            body: resume === today
               ? `انتهى تعليق الدراسة الحضورية${forWhom}، والدراسة حضورية من اليوم ${formatDayGregorianAr(resume)}.`
               : `ينتهي تعليق الدراسة الحضورية${forWhom} مبكراً، وتعود الدراسة حضورياً ${formatDayGregorianAr(resume)}.`,
             entityId: row.id,

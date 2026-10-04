@@ -1,6 +1,6 @@
 import { CalendarDays, CalendarOff, Laptop } from 'lucide-react'
 import type { CalendarNotice as CalendarNoticeData } from '@/lib/school-holidays'
-import { daysInRange, isWeeklyRest } from '@/lib/school-days'
+import { daysInRange, isWeeklyRest, saysHoliday } from '@/lib/school-days'
 import { formatDayGregorianAr, formatRangeAr, dayCountAr } from '@/lib/utils'
 
 /**
@@ -63,15 +63,25 @@ export function CalendarNotice({ notice, today }: { notice: CalendarNoticeData; 
                       : `ضمن ${closed.within.name}، وتنتهي ${formatDayGregorianAr(closed.until)}`}
                   </p>
                 )}
+                {closed.thenRemoteUntil && (
+                  <p className="mt-0.5 text-xs font-semibold leading-5 text-sky-700">
+                    ثم تستمر الدراسة عن بُعد حتى {formatDayGregorianAr(closed.thenRemoteUntil)}
+                  </p>
+                )}
               </>
             ) : (
               <>
                 <p className="text-sm font-bold break-words">
-                  {closed.reason.trimStart().startsWith('إجازة') ? `اليوم ${closed.reason}` : `اليوم إجازة: ${closed.reason}`}
+                  {saysHoliday(closed.reason) ? `اليوم ${closed.reason}` : `اليوم إجازة: ${closed.reason}`}
                 </p>
                 {endsLater && (
                   <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
                     تنتهي {formatDayGregorianAr(endsLater)}
+                  </p>
+                )}
+                {closed.thenRemoteUntil && (
+                  <p className="mt-0.5 text-xs font-semibold leading-5 text-sky-700">
+                    ثم تستمر الدراسة عن بُعد حتى {formatDayGregorianAr(closed.thenRemoteUntil)}
                   </p>
                 )}
               </>

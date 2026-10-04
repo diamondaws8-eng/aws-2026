@@ -60,8 +60,9 @@ export function StudySuspension({
   // still sitting on the old one moves with it; a date the user chose stays.
   const shownToday = useRef(today)
   useEffect(() => {
-    setStart((cur) => (cur === shownToday.current ? today : cur))
+    const prev = shownToday.current
     shownToday.current = today
+    setStart((cur) => (cur === prev ? today : cur))
   }, [today])
   const ids = { scope: useId(), start: useId(), end: useId(), reason: useId() }
   const [end, setEnd] = useState('')
@@ -131,7 +132,7 @@ export function StudySuspension({
         setPastConfirmed(false)
         // Asked to tell people and reached nobody is not a success to report
         // in the same words as one that did.
-        const unheard = notifyPeople && to >= today && res.notified === 0
+        const unheard = res.announced && res.notified === 0
         setMsg({
           ok: !unheard,
           text: `عُلِّقت الدراسة الحضورية ${formatRangeAr(start, to)}.`
@@ -148,9 +149,12 @@ export function StudySuspension({
       } else if (res.existing) {
         setPending({ found: res.existing, canPurge: res.canPurge === true })
       } else {
+        // The confirmation was for this range and this attempt only.
+        setPastConfirmed(false)
         setMsg({ ok: false, text: res.error })
       }
     } catch {
+      setPastConfirmed(false)
       setMsg({ ok: false, text: 'حدث خطأ غير متوقع' })
     } finally {
       setBusy(null)
@@ -263,6 +267,7 @@ export function StudySuspension({
             onChange={(e) => {
               const v = e.target.value
               setStart(v)
+              setPastConfirmed(false)
               if (end && v > end) setEnd('')
             }}
             className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-sm disabled:opacity-60"
@@ -306,7 +311,7 @@ export function StudySuspension({
         />
         إشعار أولياء الأمور والمعلمين
       </label>
-      {(end || start) < today && (
+      {start && (end || start) < today && (
         <p className="text-xs text-muted-foreground mt-1">الفترة التي انتهت تُسجَّل في التقويم دون إشعار.</p>
       )}
 

@@ -130,6 +130,20 @@ export function PromoteClient({
     const before = map[classId] ?? { to: null, extras: [], terminal: false }
     setMap((m) => ({ ...m, [classId]: { to: target, extras: kept, terminal } }))
     if (!target) setAddingTo((open) => (open === classId ? null : open))
+    // A class's pupils were fixed against the destinations it had. Kept across
+    // a change, they would all stay pinned to the old ones — a destination
+    // added afterwards would receive nobody, with nothing on screen to say why.
+    const ids = students.filter((s) => s.classId === classId).map((s) => s.id)
+    setOverrides((o) => {
+      const next = { ...o }
+      for (const id of ids) delete next[id]
+      return next
+    })
+    setHandPicked((prev) => {
+      const next = new Set(prev)
+      for (const id of ids) next.delete(id)
+      return next
+    })
     setSavingRow(classId)
     const revert = () => setMap((m) => ({ ...m, [classId]: before }))
     try {

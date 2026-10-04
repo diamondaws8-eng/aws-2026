@@ -4,7 +4,7 @@ import { eq, desc, and, isNull, count, or, gt, gte, sql, asc, inArray } from 'dr
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { today, wholePercents } from '@/lib/utils'
 import { isSchoolDay, nonSchoolDayReason, shiftDate } from '@/lib/school-days'
-import { getSchoolDaysConfig } from '@/lib/school-holidays'
+import { getSchoolDaysConfig, listSchoolHolidays, listStageCalendars } from '@/lib/school-holidays'
 import { recordingStart } from '@/lib/recording-start'
 import { requireAdminAccess } from '@/lib/admin-access'
 import { getLeaderboard } from '@/lib/points'
@@ -93,12 +93,21 @@ export default async function AdminDashboardPage({
   // the school's calendar alone made a stage that was suspended on its own
   // look like a building full of classes nobody had bothered to record.
   const stageIds = scopedGradeIds ?? permittedGrades.map((g) => g.id)
-  const [schoolDaysConfig, floor, ...stageConfigList] = await Promise.all([
+  // Built in memory from the whole calendar, read once: asking for each
+  // stage's config in turn costs three queries a stage, on the page that is
+  // opened most and in front of a pool of eight connections.
+  const [schoolDaysConfig, floor, allHolidays, stageCalendars] = await Promise.all([
     getSchoolDaysConfig(school.id, null),
     recordingStart(school.id),
-    ...stageIds.map((gid) => getSchoolDaysConfig(school.id, gid)),
+    listSchoolHolidays(school.id),
+    listStageCalendars(school.id),
   ])
-  const stageConfigs = new Map(stageIds.map((gid, i) => [gid, stageConfigList[i]]))
+  const saturdayOf = new Map(stageCalendars.map((s) => [s.id, s.saturdayIsSchoolDay]))
+  const stageConfigs = new Map(stageIds.map((gid) => [gid, {
+    // Only an explicit answer overrides the school's; null follows it.
+    saturdayIsSchoolDay: saturdayOf.get(gid) ?? schoolDaysConfig.saturdayIsSchoolDay,
+    holidays: allHolidays.filter((h) => h.gradeLevelId === null || h.gradeLevelId === gid),
+  }]))
   const taughtSomewhere = (date: string) =>
     stageConfigs.size === 0
       ? isSchoolDay(date, schoolDaysConfig)

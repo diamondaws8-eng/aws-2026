@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Bell, AlertTriangle, CheckCircle2, ArrowUpCircle, Undo2, MessageSquare, UserX, Clock, Loader2, CheckCheck, Laptop } from 'lucide-react'
+import { Bell, AlertTriangle, CheckCircle2, ArrowUpCircle, Undo2, MessageSquare, UserX, Clock, Loader2, CheckCheck, Laptop, FileText } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { EmptyState } from '@/components/empty-state'
 import { NotificationBell } from '@/components/notification-bell'
@@ -24,6 +24,8 @@ const KIND_META: Record<string, { icon: LucideIcon; className: string; label: st
   attendance_corrected: { icon: Clock, className: 'bg-amber-50 text-amber-600 border-amber-100', label: 'تصحيح الحضور' },
   late_arrival: { icon: Clock, className: 'bg-amber-50 text-amber-600 border-amber-100', label: 'وصول متأخر' },
   study_suspended: { icon: Laptop, className: 'bg-sky-50 text-sky-600 border-sky-100', label: 'الدراسة الحضورية' },
+  excuse_submitted: { icon: FileText, className: 'bg-amber-50 text-amber-600 border-amber-100', label: 'عذر غياب جديد' },
+  excuse_decided: { icon: CheckCircle2, className: 'bg-emerald-50 text-emerald-600 border-emerald-100', label: 'الرد على عذر الغياب' },
 }
 
 function formatWhen(date: Date): string {

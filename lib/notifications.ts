@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { userNotifications, schoolStaff, students, classes, teachers, user, schools } from '@/lib/db/schema'
 import { eq, and, desc, isNull, inArray, sql } from 'drizzle-orm'
+import { schedulePush } from '@/lib/web-push'
 
 /**
  * Every kind of thing that can land in somebody's bell.
@@ -23,6 +24,10 @@ export const NOTIFICATION_KINDS = {
   late_arrival: { label: 'وصول متأخر', icon: 'clock', tone: 'amber' },
   /** In-person study suspended (or the suspension lifted) — lessons from home. */
   study_suspended: { label: 'الدراسة الحضورية', icon: 'laptop', tone: 'sky' },
+  /** A family sent a reason for an absence — lands on the stage's office. */
+  excuse_submitted: { label: 'عذر غياب جديد', icon: 'filetext', tone: 'amber' },
+  /** The office answered that reason — lands on the family. */
+  excuse_decided: { label: 'الرد على عذر الغياب', icon: 'check', tone: 'emerald' },
 } as const
 
 export type NotificationKind = keyof typeof NOTIFICATION_KINDS
@@ -47,6 +52,9 @@ export type NewNotification = {
 export async function notify(entries: NewNotification[]): Promise<number> {
   const rows = entries.filter((e) => e.recipientUserId && e.schoolId)
   if (rows.length === 0) return 0
+  // Counted as it goes: if a later batch fails, the earlier ones are already in
+  // people's bells, and "nobody was told" would then be the wrong report.
+  let written = 0
   try {
     // In batches: a closure notice goes to every family and every member of
     // staff at once, and one statement carrying all of them is one statement
@@ -65,11 +73,15 @@ export async function notify(entries: NewNotification[]): Promise<number> {
           actorName: e.actorName ?? null,
         })),
       )
+      written = Math.min(rows.length, i + BATCH)
     }
+    // The bell rings only for somebody with the site open. Whoever let their
+    // phone be woken is nudged as well — after the response, never in its way.
+    schedulePush([...new Set(rows.map((e) => e.recipientUserId))])
     return rows.length
   } catch (error) {
     console.error('Notification write failed:', error)
-    return 0
+    return written
   }
 }
 

@@ -1363,7 +1363,7 @@ export default function ClassRoster({
                           <button
                             onClick={() => { setManualStudent(student.id); setManualError('') }}
                             disabled={!!todayOff}
-                            title={todayOff ? `${closedDayPhrase(todayOff)} — لا تُمنح نقاط فيه` : undefined}
+                            title={todayOff ? `${closedDayPhrase(todayOff)} — لا تُمنح نقاط في هذا اليوم` : undefined}
                             className="px-3 py-1.5 bg-muted hover:bg-muted/70 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >✏️ تعديل</button>
                         )}

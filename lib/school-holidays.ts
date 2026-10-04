@@ -117,6 +117,12 @@ export type CalendarNotice = {
     remote: boolean
     until: string | null
     within: { name: string; remote: boolean } | null
+    /**
+     * Today is a holiday, but a suspension covering it runs on past the
+     * holiday's end: lessons are then at home again, not back in the building.
+     * The last day of that suspension, or null.
+     */
+    thenRemoteUntil: string | null
   } | null
   /** Closures still ahead, soonest first — holidays and suspensions alike. */
   upcoming: { name: string; startDate: string; endDate: string; remote: boolean }[]
@@ -151,6 +157,10 @@ export async function getCalendarNotice(
   const until = covering
     .filter((h) => (h.kind === 'remote') === (cover?.kind === 'remote'))
     .reduce<string | null>((max, h) => (max && max > h.endDate ? max : h.endDate), null)
+  const remoteEnd = covering
+    .filter((h) => h.kind === 'remote')
+    .reduce<string | null>((max, h) => (max && max > h.endDate ? max : h.endDate), null)
+  const thenRemoteUntil = cover && cover.kind !== 'remote' && remoteEnd && until && remoteEnd > until ? remoteEnd : null
 
   const horizon = new Date(`${today}T00:00:00Z`)
   horizon.setUTCDate(horizon.getUTCDate() + horizonDays)
@@ -172,6 +182,7 @@ export async function getCalendarNotice(
           reason,
           remote: isRemoteSuspensionName(reason),
           until,
+          thenRemoteUntil,
           within: cover && cover.name !== reason
             ? { name: cover.name, remote: cover.kind === 'remote' || isRemoteSuspensionName(cover.name) }
             : null,
