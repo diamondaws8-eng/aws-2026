@@ -3,8 +3,9 @@ import { students, teachers, classes, gradeLevels, notifications, parentWhatsapp
 import { eq, desc, and, isNull, count, or, gt, gte, sql, asc, inArray } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { today, wholePercents } from '@/lib/utils'
-import { lastSchoolDays } from '@/lib/school-days'
+import { isSchoolDay, nonSchoolDayReason, shiftDate } from '@/lib/school-days'
 import { getSchoolDaysConfig } from '@/lib/school-holidays'
+import { recordingStart } from '@/lib/recording-start'
 import { requireAdminAccess } from '@/lib/admin-access'
 import { getLeaderboard } from '@/lib/points'
 import { LeaderboardClient } from './leaderboard-client'
@@ -80,20 +81,45 @@ export default async function AdminDashboardPage({
 
   const todayStr = today()
 
-  // ── Daily performance window (14-day trend, 8-day per-class history) ────────
+  // ── Daily performance window (up to 14-day trend, 8-day per-class history) ──
   // Teaching days only. Fourteen *calendar* days always contain four weekend
   // days, so the panel reported "4 of 14 days with no recording" at a school
   // that had recorded every single school day — and stepping back through the
   // per-day history landed on empty Fridays.
-  // Someone who answers for exactly one stage is shown that stage's calendar,
-  // including any Saturday or holiday it keeps for itself. Anyone looking at
-  // several stages at once gets the school's, since a single window cannot
-  // honour two disagreeing calendars at the same time.
-  const daysConfig = await getSchoolDaysConfig(
-    school.id,
-    scopedGradeIds?.length === 1 ? scopedGradeIds[0] : null,
-  )
-  const trendDays = lastSchoolDays(14, daysConfig, todayStr)
+  // Every stage in view is asked for its own calendar — a Saturday it teaches,
+  // a holiday or a suspension it keeps for itself. A day belongs to the window
+  // when at least one of them teaches on it, and further down each class is
+  // told whether its own stage was closed that day. Reading several stages by
+  // the school's calendar alone made a stage that was suspended on its own
+  // look like a building full of classes nobody had bothered to record.
+  const stageIds = scopedGradeIds ?? permittedGrades.map((g) => g.id)
+  const [schoolDaysConfig, floor, ...stageConfigList] = await Promise.all([
+    getSchoolDaysConfig(school.id, null),
+    recordingStart(school.id),
+    ...stageIds.map((gid) => getSchoolDaysConfig(school.id, gid)),
+  ])
+  const stageConfigs = new Map(stageIds.map((gid, i) => [gid, stageConfigList[i]]))
+  const taughtSomewhere = (date: string) =>
+    stageConfigs.size === 0
+      ? isSchoolDay(date, schoolDaysConfig)
+      : [...stageConfigs.values()].some((cfg) => isSchoolDay(date, cfg))
+  // The last fourteen such days, ascending. The walk back is capped: a school
+  // closed for a year would otherwise be searched for ever.
+  const allDays: string[] = []
+  for (let i = 0, day = todayStr; i < 500 && allDays.length < 14; i++, day = shiftDate(day, -1)) {
+    if (taughtSomewhere(day)) allDays.unshift(day)
+  }
+  // Nor any day before the school began recording: a year that started in
+  // August and was first recorded in October would open this panel on
+  // "13 of 14 school days with no recording", and the navigator would step
+  // back through weeks nobody was ever asked to fill. The same floor as the
+  // teacher's missed-day alert — see lib/recording-start.ts.
+  // With nothing recorded yet, or nothing left after the cut, the window is
+  // the latest school day alone, so there is always one day to show and a
+  // date for the queries below to start from.
+  const sinceFloor = floor ? allDays.filter((d) => d >= floor) : []
+  const trendDays = sinceFloor.length ? sinceFloor : allDays.length ? allDays.slice(-1) : [todayStr]
+  const sinceRecordingStart = floor == null || allDays[0] < floor
   const backNavDays = trendDays.slice(-8) // today + up to 7 previous school days, ascending
 
   // None of these depend on each other, so they run in parallel — the dashboard
@@ -148,6 +174,7 @@ export default async function AdminDashboardPage({
     db.select({
         id: classes.id,
         name: classes.name,
+        gradeLevelId: classes.gradeLevelId,
         gradeName: gradeLevels.name,
         gradeOrder: gradeLevels.orderIndex,
       })
@@ -509,6 +536,9 @@ export default async function AdminDashboardPage({
         teacherCount: l?.teacherCount ?? 0,
         lessonEntries: l?.entries ?? 0,
         recorded: attTotal > 0 || (l?.entries ?? 0) > 0,
+        // Why this class's own stage did not teach that day, when it did not:
+        // it is then not waiting for a teacher, and is not counted as missing.
+        off: nonSchoolDayReason(date, stageConfigs.get(cls.gradeLevelId) ?? schoolDaysConfig),
       }
     })
     return { date, classes: classesForDay }
@@ -560,6 +590,7 @@ export default async function AdminDashboardPage({
         materialsEnabled={settings.features.materials}
         behaviorEnabled={settings.features.behavior}
         trend={dailyTrend}
+        sinceRecordingStart={sinceRecordingStart}
         byClassHistory={byClassHistory}
         subjectHistory={subjectHistory}
       />

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { formatDateAr, wholePercents } from '@/lib/utils'
+import { closedDayPhrase } from '@/lib/school-days'
 import {
   CalendarCheck2,
   CalendarX2,
@@ -99,6 +100,8 @@ export type ClassTodayStat = {
   teacherCount: number
   lessonEntries: number
   recorded: boolean
+  /** Why the class's stage was closed that day — a holiday, a suspension — or null. */
+  off: string | null
 }
 
 export type ClassHistoryDay = {
@@ -242,7 +245,7 @@ function RadialGauge({
   )
 }
 
-// ── Multi-series 14-day trend chart ────────────────────────────────────────────
+// ── Multi-series trend chart (up to 14 school days) ────────────────────────────
 
 type TrendSeries = {
   key: keyof DailyTrendPoint
@@ -264,18 +267,32 @@ const TREND_KINDS: { id: TrendKind; label: string; icon: LucideIcon }[] = [
 const TREND_KIND_KEY = 'aws-trend-chart'
 
 /**
- * The same fourteen days, drawn six ways. Which way is the reader's choice
- * and is remembered on the device. Every shape keeps the one rule of the
- * original: a day that was not recorded is a gap, never a zero.
+ * The window's length as it is said after «آخر» or «من». The window is
+ * fourteen school days only once the school has recorded that long; in its
+ * first weeks it is as short as one, and «1 يوماً» is not Arabic.
+ */
+function schoolDaysAr(n: number): string {
+  if (n === 1) return 'يوم دراسي واحد'
+  if (n === 2) return 'يومين دراسيين'
+  if (n <= 10) return `${n} أيام دراسية`
+  return `${n} يوماً دراسياً`
+}
+
+/**
+ * The same window of school days, drawn six ways. Which way is the reader's
+ * choice and is remembered on the device. Every shape keeps the one rule of
+ * the original: a day that was not recorded is a gap, never a zero.
  */
 function TrendChart({
   trend,
   series,
   highlightIndex,
+  sinceRecordingStart,
 }: {
   trend: DailyTrendPoint[]
   series: TrendSeries[]
   highlightIndex?: number
+  sinceRecordingStart: boolean
 }) {
   // Radar first: the owner asked for it as the default shape.
   const [kind, setKind] = useState<TrendKind>('radar')
@@ -333,11 +350,16 @@ function TrendChart({
         ))}
         {blank > 0 && (
           <span className="text-xs text-muted-foreground">
-            — {blank} من {trend.length} يوم دراسة بلا تسجيل، ولا تظهر في الرسم
+            {trend.length === 1
+              ? '— يوم دراسي واحد بلا تسجيل، ولا يظهر في الرسم'
+              : `— ${blank} من ${schoolDaysAr(trend.length)} بلا تسجيل، ولا تظهر في الرسم`}
             <span className="opacity-70"> (الإجازات مستبعدة)</span>
           </span>
         )}
       </div>
+      {sinceRecordingStart && (
+        <p className="text-xs text-muted-foreground">يبدأ العدّ من أول يوم سُجِّل فيه الحضور هذا العام.</p>
+      )}
     </div>
   )
 
@@ -345,7 +367,10 @@ function TrendChart({
     const w = 720, h = 220, padX = 6, padY = 14
     const innerH = h - padY * 2
     const step = trend.length > 1 ? (w - padX * 2) / (trend.length - 1) : 0
-    const highlightX = highlightIndex != null ? padX + highlightIndex * step : null
+    // A lone day sits mid-chart: against the left edge its point reads as a
+    // stray mark and its date label, the only one, is cut in half by the viewBox.
+    const originX = trend.length > 1 ? padX : w / 2
+    const highlightX = highlightIndex != null ? originX + highlightIndex * step : null
     return (
       <svg viewBox={`0 0 ${w} ${h + 18}`} className="w-full h-60" preserveAspectRatio="none">
         {[0, 25, 50, 75, 100].map((g) => {
@@ -364,7 +389,7 @@ function TrendChart({
           const segments: (Point & { i: number })[][] = []
           let run: (Point & { i: number })[] = []
           trend.forEach((t, i) => {
-            if (t[s.flag]) run.push({ i, x: padX + i * step, y: padY + innerH - (Number(t[s.key]) / 100) * innerH })
+            if (t[s.flag]) run.push({ i, x: originX + i * step, y: padY + innerH - (Number(t[s.key]) / 100) * innerH })
             else if (run.length) { segments.push(run); run = [] }
           })
           if (run.length) segments.push(run)
@@ -388,7 +413,7 @@ function TrendChart({
           )
         })}
         {trend.map((t, i) => i % 2 === 0 ? (
-          <text key={t.date} x={padX + i * step} y={h + 14} fontSize={9.5} textAnchor="middle" className="fill-muted-foreground">{dateLabel(t.date)}</text>
+          <text key={t.date} x={originX + i * step} y={h + 14} fontSize={9.5} textAnchor="middle" className="fill-muted-foreground">{dateLabel(t.date)}</text>
         ) : null)}
       </svg>
     )
@@ -781,6 +806,7 @@ export function DailyPerformanceCards({
   materialsEnabled,
   behaviorEnabled,
   trend,
+  sinceRecordingStart,
   byClassHistory,
   subjectHistory,
 }: {
@@ -789,12 +815,19 @@ export function DailyPerformanceCards({
   participationEnabled: boolean
   materialsEnabled: boolean
   behaviorEnabled: boolean
+  /** Never empty: at least the latest school day, at most fourteen. */
   trend: DailyTrendPoint[]
+  /** The window stops at the school's first recorded day rather than reaching back its full fourteen. */
+  sinceRecordingStart: boolean
   byClassHistory: ClassHistoryDay[]
   subjectHistory: SubjectHistoryDay[]
 }) {
   const maxOffset = Math.min(MAX_DAYS_BACK, trend.length - 1)
-  const [dayOffset, setDayOffset] = useState(0)
+  const [pickedOffset, setDayOffset] = useState(0)
+  // The stage picker reloads this panel without remounting it, and one stage's
+  // window can be shorter than another's. An offset picked on the longer one
+  // would point before the first day of the shorter.
+  const dayOffset = Math.min(pickedOffset, maxOffset)
 
   if (!attendanceEnabled && !homeworkEnabled && !participationEnabled && !materialsEnabled && !behaviorEnabled) {
     return null
@@ -924,11 +957,15 @@ export function DailyPerformanceCards({
     // A class with no record yet is not a 0% class — it has no number at all,
     // so it can't be ranked as the worst performer. It goes to the end.
     if (a.recorded !== b.recorded) return a.recorded ? -1 : 1
+    // Among the unrecorded, the ones still expected come before the ones closed.
+    if (!a.recorded && !!a.off !== !!b.off) return a.off ? 1 : -1
     if (attendanceEnabled) return a.attendancePct - b.attendancePct
     if (homeworkEnabled) return a.homeworkPct - b.homeworkPct
     return a.participationPct - b.participationPct
   })
   const recordedCount = byClass.filter((c) => c.recorded).length
+  // A class whose stage was closed that day was never going to be recorded.
+  const expectedCount = byClass.filter((c) => c.recorded || !c.off).length
 
   return (
     <div className="space-y-6">
@@ -967,9 +1004,9 @@ export function DailyPerformanceCards({
 
           <div className="pt-2 border-t border-border">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-bold">اتجاه آخر 14 يوماً — على مستوى المدرسة</h3>
+              <h3 className="text-sm font-bold">اتجاه آخر {schoolDaysAr(trend.length)} — على مستوى المدرسة</h3>
             </div>
-            <TrendChart trend={trend} series={series} highlightIndex={selectedIndex} />
+            <TrendChart trend={trend} series={series} highlightIndex={selectedIndex} sinceRecordingStart={sinceRecordingStart} />
           </div>
         </div>
       </div>
@@ -988,7 +1025,7 @@ export function DailyPerformanceCards({
             مقارنة الفصول — {dayOffsetLabel(dayOffset)}
           </h2>
           <p className="text-sm text-muted-foreground">
-            الفصول الأقل نسبة تظهر أولاً لسهولة المتابعة · سُجِّل {recordedCount} من {byClass.length} فصلاً
+            الفصول الأقل نسبة تظهر أولاً لسهولة المتابعة · سُجِّل {recordedCount} من {expectedCount} فصلاً
           </p>
         </div>
         {rankedClasses.length === 0 ? (
@@ -1011,14 +1048,14 @@ export function DailyPerformanceCards({
                       <p className="font-bold text-sm">
                         {cls.gradeName ? `${cls.gradeName} — ` : ''}فصل {cls.name}
                       </p>
-                      {!cls.recorded && <p className="text-xs text-muted-foreground">لا يوجد سجل يومي بعد</p>}
+                      {!cls.recorded && !cls.off && <p className="text-xs text-muted-foreground">لا يوجد سجل يومي بعد</p>}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     {!cls.recorded ? (
                       // Printing "حضور 0%" here stated something the register never said.
                       <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-muted text-muted-foreground border border-border">
-                        بانتظار تسجيل المعلم
+                        {cls.off ? closedDayPhrase(cls.off) : 'بانتظار تسجيل المعلم'}
                       </span>
                     ) : (
                       <>

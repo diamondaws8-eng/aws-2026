@@ -49,6 +49,48 @@ export function formatDateAr(dateStr: string): string {
   })
 }
 
+const AR_WEEKDAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+const AR_GREGORIAN_MONTHS = [
+  'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+  'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
+]
+
+/** 25 → «٢٥». The digits the rest of the Arabic interface is printed in. */
+export function arabicDigits(n: number | string): string {
+  return String(n).replace(/\d/g, (d) => String.fromCharCode(0x0660 + Number(d)))
+}
+
+/**
+ * YYYY-MM-DD → «الأحد ٢٥ أكتوبر», in the Gregorian calendar.
+ *
+ * The school calendar is announced and typed in Gregorian dates, so a closure
+ * has to be read back in them: 'ar-SA' on its own renders Hijri, and a holiday
+ * entered as 25 October must not come back as a day in Jumada.
+ *
+ * Spelled out here rather than left to Intl: the server and the browser carry
+ * different locale data, and a date that one prints with a comma and the other
+ * without is a page that fails to hydrate over a punctuation mark.
+ */
+export function formatDayGregorianAr(dateStr: string, withYear = false): string {
+  const d = new Date(`${dateStr}T00:00:00Z`)
+  if (Number.isNaN(d.getTime())) return dateStr
+  const day = `${AR_WEEKDAYS[d.getUTCDay()]} ${arabicDigits(d.getUTCDate())} ${AR_GREGORIAN_MONTHS[d.getUTCMonth()]}`
+  return withYear ? `${day} ${arabicDigits(d.getUTCFullYear())}` : day
+}
+
+/** An inclusive range as a phrase: «يوم الأحد ٢٥ أكتوبر», or «من … إلى …». */
+export function formatRangeAr(startDate: string, endDate: string, withYear = false): string {
+  if (startDate === endDate) return `يوم ${formatDayGregorianAr(startDate, withYear)}`
+  return `من ${formatDayGregorianAr(startDate, withYear)} إلى ${formatDayGregorianAr(endDate, withYear)}`
+}
+
+/** A length in days the way Arabic counts it: the noun changes with the number. */
+export function dayCountAr(n: number): string {
+  if (n === 1) return 'يوم واحد'
+  if (n === 2) return 'يومان'
+  return n <= 10 ? `${arabicDigits(n)} أيام` : `${arabicDigits(n)} يوماً`
+}
+
 /** Returns all days in a given month as YYYY-MM-DD strings */
 export function getDaysInMonth(year: number, month: number): string[] {
   const days: string[] = []

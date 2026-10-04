@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { formatDateAr, today } from '@/lib/utils'
 import { requireTeacher, getTeacherVisibleClassIds } from '@/lib/teacher-access'
 import { getSchoolDaysConfig } from '@/lib/school-holidays'
-import { nonSchoolDayReason } from '@/lib/school-days'
+import { nonSchoolDayReason, closedDayPhrase, closedTodayHeading, isWeeklyRest } from '@/lib/school-days'
 import { missedDaysForTeacher } from '@/lib/missed-days'
 
 import { StatCard } from '@/components/stat-card'
@@ -104,7 +104,8 @@ export default async function TeacherDashboard() {
   const todayList = todayBase.map((c) => ({ ...c, subjects: subjectOf.get(c.id) ?? [], done: recordedToday.has(c.id), off: offReason.get(gradeOfClass.get(c.id) ?? '') ?? null }))
   const pendingCount = todayList.filter((c) => !c.done && !c.off).length
   const allOff = todayList.length > 0 && todayList.every((c) => c.off)
-  const offLabel = allOff ? (todayList[0].off === 'الجمعة' || todayList[0].off === 'السبت' ? `اليوم ${todayList[0].off} — لا تسجيل` : `إجازة: ${todayList[0].off}`) : null
+  const offToday = allOff ? todayList[0].off : null
+  const offLabel = offToday ? (isWeeklyRest(offToday) ? `${closedTodayHeading(offToday)} — لا تسجيل` : closedTodayHeading(offToday)) : null
   // The day that was never opened — see lib/missed-days.ts for why it is only
   // the last school day and not the last week.
   const missed = await missedDaysForTeacher(teacher.schoolId, teacher.userId, todayStr)
@@ -233,7 +234,7 @@ export default async function TeacherDashboard() {
                   <span className="min-w-0">
                     <span className="block text-sm font-bold truncate">{c.name}</span>
                     <span className="block text-[11px] text-muted-foreground truncate">
-                      {c.subjects.length ? c.subjects.join('، ') : 'بلا مادة مسندة'} · {c.done ? 'سُجّل اليوم' : c.off ? `يوم إجازة (${c.off})` : 'لم يُسجَّل بعد'}
+                      {c.subjects.length ? c.subjects.join('، ') : 'بلا مادة مسندة'} · {c.done ? 'سُجّل اليوم' : c.off ? closedDayPhrase(c.off) : 'لم يُسجَّل بعد'}
                     </span>
                   </span>
                 </Link>

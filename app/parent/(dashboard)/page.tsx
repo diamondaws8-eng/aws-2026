@@ -3,12 +3,14 @@ import { buildHonorBoards } from '@/lib/ranking'
 import Link from 'next/link'
 import { getMyChildren, getStudentDashboard } from './actions'
 import { NotificationBell } from '@/components/notification-bell'
+import { CalendarNotice } from '@/components/calendar-notice'
 import { HonorBoard } from './honor-board'
 import { getLeaderboard } from '@/lib/points'
+import { getCalendarNotice } from '@/lib/school-holidays'
 import { db } from '@/lib/db'
 import { students } from '@/lib/db/schema'
 import { and, count, eq } from 'drizzle-orm'
-import { ATTENDANCE_STATUS, formatDateAr } from '@/lib/utils'
+import { ATTENDANCE_STATUS, formatDateAr, today } from '@/lib/utils'
 
 /**
  * Points earned as a share of the points that were possible. It used to be an
@@ -71,16 +73,24 @@ export default async function ParentDashboardPage({
   const totalSessions = attendance.present + attendance.absent + attendance.late + attendance.excused
   const perf = getPerformanceRating(totalPoints, possiblePoints)
 
+  // The calendar of the child's own stage. A child with no class — unassigned,
+  // or graduated — has no stage to ask, so the whole school's calendar answers.
+  // Started here and awaited beside the honour board, not after it: parents are
+  // the largest group in the school and every wait in series is theirs.
+  const todayStr = today()
+  const noticePromise = getCalendarNotice(student.schoolId, classInfo?.gradeLevelId ?? null, todayStr)
+
   // The class honour board, scoped to the child's own class only — the same
   // figures the administration's board uses, from the same year boundary.
-  const [honorRows, classSize] = student.classId
+  const [honorRows, classSize, notice] = student.classId
     ? await Promise.all([
         getLeaderboard(student.schoolId, [student.classId]),
         db.select({ n: count() }).from(students)
           .where(and(eq(students.classId, student.classId), eq(students.status, 'active')))
           .then((r) => r[0]?.n ?? 0),
+        noticePromise,
       ])
-    : [[], 0]
+    : [[], 0, await noticePromise]
 
   return (
     <div className="px-4 py-8 max-w-4xl mx-auto space-y-6">
@@ -134,6 +144,9 @@ export default async function ParentDashboardPage({
           </div>
         </div>
       </div>
+
+      {/* ── Calendar ─────────────────────────────────────────────────────────── */}
+      <CalendarNotice notice={notice} today={todayStr} />
 
       {/* ── Performance Card ─────────────────────────────────────────────────── */}
       <div className="bg-card border border-border rounded-3xl p-5 shadow-sm">

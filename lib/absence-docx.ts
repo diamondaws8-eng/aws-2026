@@ -2,6 +2,7 @@ import type { DailyAbsence, SheetIdentity } from '@/lib/daily-absence'
 import { ABSENCE_STATUS_LABEL } from '@/lib/daily-absence-labels'
 import { IDENTITY_HEADER_LINES, IDENTITY_FOOTER_LINE, SCHOOL_IDENTITY } from '@/lib/school-identity'
 import { SHEET_TITLE, SHEET_COLUMNS, totalsLine, classSummary, stageGroups, stageCaption } from '@/lib/absence-export'
+import { closedDayPhrase } from '@/lib/school-days'
 
 /**
  * The Word shape of the daily absence sheet.
@@ -91,7 +92,7 @@ export async function buildAbsenceDocx(
     stat('طلاب النطاق', String(t.pupils), sw[2]),
     stat('فصول لم يُرصد حضورها', String(t.unrecordedClasses), sw[3], t.unrecordedClasses ? 'B45309' : undefined),
   ] })]))
-  if (data.dayOff) children.push(para(`يوم إجازة (${data.dayOff}) — لا سجل متوقع`, { bold: true, align: AlignmentType.CENTER, color: 'B45309', before: 120 }))
+  if (data.dayOff) children.push(para(`${closedDayPhrase(data.dayOff)} — لا سجل متوقع`, { bold: true, align: AlignmentType.CENTER, color: 'B45309', before: 120 }))
   if (data.stages.length === 0) children.push(para('لا فصول ضمن نطاقك', { align: AlignmentType.CENTER, before: 120 }))
 
   const cw = split([6, 34, 13, 15, 20, 12]) // م · الاسم · الحالة · الجوال · رصده · ملاحظات

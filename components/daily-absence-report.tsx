@@ -9,6 +9,7 @@ import { ABSENCE_STATUS_LABEL } from '@/lib/daily-absence-labels'
 import { SCHOOL_IDENTITY, IDENTITY_HEADER_LINES, IDENTITY_FOOTER_ITEMS } from '@/lib/school-identity'
 import { SHEET_TITLE, SHEET_COLUMNS, sheetFileStem, buildAbsenceWorkbook, classSummary, stageGroups, totalsLine } from '@/lib/absence-export'
 import { buildAbsenceDocx } from '@/lib/absence-docx'
+import { closedDayPhrase } from '@/lib/school-days'
 
 type Props = {
   data: DailyAbsence
@@ -179,7 +180,7 @@ export function DailyAbsenceReport({ data, identity, basePath, scope, today }: P
             <span className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-700 inline-flex items-center gap-1"><AlertTriangle className="size-3.5" /> {t.unrecordedClasses} فصل لم يُرصد حضوره بعد</span>
           )}
           {data.dayOff && (
-            <span className="rounded-lg border border-border bg-muted px-2.5 py-1 text-muted-foreground inline-flex items-center gap-1"><CalendarX className="size-3.5" /> يوم إجازة ({data.dayOff})</span>
+            <span className="rounded-lg border border-border bg-muted px-2.5 py-1 text-muted-foreground inline-flex items-center gap-1"><CalendarX className="size-3.5" /> {closedDayPhrase(data.dayOff)}</span>
           )}
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -250,7 +251,7 @@ export function DailyAbsenceReport({ data, identity, basePath, scope, today }: P
             </div>
           ))}
         </div>
-        {data.dayOff && <p className="sheet-warn text-center text-sm font-bold mt-3">يوم إجازة ({data.dayOff}) — لا سجل متوقع</p>}
+        {data.dayOff && <p className="sheet-warn text-center text-sm font-bold mt-3">{closedDayPhrase(data.dayOff)} — لا سجل متوقع</p>}
         {data.stages.length === 0 && <p className="text-center text-sm mt-8">لا فصول ضمن نطاقك</p>}
 
         {data.stages.map((stage) => {
@@ -259,7 +260,7 @@ export function DailyAbsenceReport({ data, identity, basePath, scope, today }: P
             <section key={stage.gradeId} className="stage-block mt-5">
               <div className="sheet-band rounded-lg px-3 py-1.5 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-[15px] font-black">{stage.gradeName}</h3>
-                <span className="text-[12px] font-bold">{stage.dayOff ? `يوم إجازة (${stage.dayOff}) — لا سجل متوقع` : `غائب ${stage.absent} · بإذن ${stage.excused}`}</span>
+                <span className="text-[12px] font-bold">{stage.dayOff ? `${closedDayPhrase(stage.dayOff)} — لا سجل متوقع` : `غائب ${stage.absent} · بإذن ${stage.excused}`}</span>
               </div>
 
               {stage.classes.map((c) => {

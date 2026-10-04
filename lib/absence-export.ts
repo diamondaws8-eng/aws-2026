@@ -1,6 +1,7 @@
 import type { DailyAbsence, SheetIdentity, AbsenceClass, AbsenceStage } from '@/lib/daily-absence'
 import { ABSENCE_STATUS_LABEL } from '@/lib/daily-absence-labels'
 import { IDENTITY_HEADER_LINES, IDENTITY_FOOTER_LINE, SCHOOL_IDENTITY } from '@/lib/school-identity'
+import { closedDayPhrase } from '@/lib/school-days'
 
 /**
  * The same sheet in three shapes — for the printer, for a spreadsheet and for
@@ -36,7 +37,7 @@ export function classSummary(c: AbsenceClass, stageOff: string | null) {
   const excused = c.rows.length - absent
   if (c.rows.length) return { kind: 'listed' as const, text: `غائب ${absent}${excused ? ` · بإذن ${excused}` : ''} من ${c.pupils} طالباً` }
   if (c.pupils === 0) return { kind: 'empty' as const, text: 'لا طلاب مسجّلين' }
-  if (stageOff) return { kind: 'off' as const, text: `يوم إجازة (${stageOff})` }
+  if (stageOff) return { kind: 'off' as const, text: closedDayPhrase(stageOff) }
   if (c.recorded === 0) return { kind: 'unrecorded' as const, text: 'لم يُرصد الحضور بعد' }
   return { kind: 'clear' as const, text: `لا غياب — رُصد ${c.recorded} من ${c.pupils}` }
 }
@@ -54,7 +55,7 @@ export function stageGroups(stage: AbsenceStage) {
 }
 
 export function stageCaption(s: AbsenceStage): string {
-  if (s.dayOff) return `يوم إجازة (${s.dayOff}) — لا سجل متوقع`
+  if (s.dayOff) return `${closedDayPhrase(s.dayOff)} — لا سجل متوقع`
   return `غائب ${s.absent} · بإذن ${s.excused}`
 }
 
@@ -69,7 +70,7 @@ export async function buildAbsenceWorkbook(data: DailyAbsence, identity: SheetId
   rows.push([dateLine(data)])
   rows.push([termLine(identity)])
   rows.push([`النطاق: ${identity.scopeLabel}`])
-  if (data.dayOff) rows.push([`يوم إجازة (${data.dayOff}) — لا سجل متوقع`])
+  if (data.dayOff) rows.push([`${closedDayPhrase(data.dayOff)} — لا سجل متوقع`])
   rows.push([])
   if (data.stages.length === 0) rows.push(['لا فصول ضمن نطاقك'])
   for (const stage of data.stages) {

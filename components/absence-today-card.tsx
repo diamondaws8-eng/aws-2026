@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { CalendarX, ArrowLeft, AlertTriangle } from 'lucide-react'
 import { getDailyAbsence } from '@/lib/daily-absence'
+import { closedTodayHeading } from '@/lib/school-days'
 
 /**
  * The day's absence at a glance, with the sheet one click away. Sits on the
@@ -27,7 +28,7 @@ export async function AbsenceTodayCard({ schoolId, date, classIds, href }: { sch
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-bold">كشف الغياب اليومي</span>
         <span className="block text-xs text-muted-foreground mt-0.5">
-          {off ? `اليوم ${off} — لا سجل متوقع` : `غائب ${t.absent} · بإذن ${t.excused} · من ${t.pupils} طالباً`}
+          {off ? `${closedTodayHeading(off)} — لا سجل متوقع` : `غائب ${t.absent} · بإذن ${t.excused} · من ${t.pupils} طالباً`}
           {!off && t.unrecordedClasses > 0 && (
             <span className="inline-flex items-center gap-1 text-amber-700 font-semibold"> · <AlertTriangle className="size-3" /> {t.unrecordedClasses} فصل لم يُرصد بعد</span>
           )}

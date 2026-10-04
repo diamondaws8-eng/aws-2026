@@ -1,13 +1,14 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { NotificationBell } from '@/components/notification-bell'
+import { planPromotion, destinationsOf } from '@/lib/promotion-plan'
 import { transferStudents } from './actions'
 import { setPromotionTarget, runAnnualPromotion, undoGraduation } from './actions-annual'
 import {
   ArrowLeft, Users, CheckSquare, Square, Loader2, AlertTriangle,
-  GraduationCap, Map as MapIcon, ArrowRightLeft, RotateCcw, ChevronDown,
+  GraduationCap, Map as MapIcon, ArrowRightLeft, RotateCcw, ChevronDown, X,
 } from 'lucide-react'
 
 type ClassOption = {
@@ -17,12 +18,17 @@ type ClassOption = {
   gradeOrder: number
   canEdit: boolean
   promotesToClassId: string | null
+  extraTargetIds: string[]
   isTerminal: boolean
 }
 
 type Student = { id: string; fullName: string; classId: string }
 type Graduated = { id: string; fullName: string; graduationYear: string | null; graduatedAt: string | null }
 type Tab = 'annual' | 'manual' | 'graduated'
+type MapRow = { to: string | null; extras: string[]; terminal: boolean }
+
+// The server takes six destinations per class in all: the main one and five more.
+const MAX_EXTRAS = 5
 
 export function PromoteClient({
   classes,
@@ -102,20 +108,32 @@ export function PromoteClient({
   }
 
   // ── The map ────────────────────────────────────────────────────────────────
-  const [map, setMap] = useState(() =>
-    Object.fromEntries(classes.map((c) => [c.id, { to: c.promotesToClassId, terminal: c.isTerminal }])),
+  const [map, setMap] = useState<Record<string, MapRow>>(() =>
+    Object.fromEntries(classes.map((c) => [
+      c.id,
+      { to: c.promotesToClassId, extras: c.extraTargetIds, terminal: c.isTerminal },
+    ])),
   )
   const [savingRow, setSavingRow] = useState<string | null>(null)
+  // The class whose «توزيع على فصل آخر» select is open with nothing chosen yet.
+  const [addingTo, setAddingTo] = useState<string | null>(null)
+  const [splitOpen, setSplitOpen] = useState<string | null>(null)
 
-  const saveRow = async (classId: string, to: string | null, terminal: boolean) => {
-    setMap((m) => ({ ...m, [classId]: { to: terminal ? null : to, terminal } }))
+  const saveRow = async (classId: string, to: string | null, terminal: boolean, extras: string[]) => {
+    // The row is shown as the server will store it: extra destinations mean
+    // nothing without a main one, and the main one is never listed among them.
+    const target = terminal ? null : to
+    const kept = target ? extras.filter((id) => id !== target) : []
+    // What the row held a moment ago — the state the server still has if this
+    // save fails. Reading it back from the page's props instead would undo
+    // every earlier save made since the page was loaded.
+    const before = map[classId] ?? { to: null, extras: [], terminal: false }
+    setMap((m) => ({ ...m, [classId]: { to: target, extras: kept, terminal } }))
+    if (!target) setAddingTo((open) => (open === classId ? null : open))
     setSavingRow(classId)
-    const revert = () => {
-      const was = classes.find((c) => c.id === classId)
-      setMap((m) => ({ ...m, [classId]: { to: was?.promotesToClassId ?? null, terminal: was?.isTerminal ?? false } }))
-    }
+    const revert = () => setMap((m) => ({ ...m, [classId]: before }))
     try {
-      const res = await setPromotionTarget(classId, terminal ? null : to, terminal)
+      const res = await setPromotionTarget(classId, target, terminal, kept)
       if (!res.ok) {
         revert()
         setNote({ ok: false, text: res.error })
@@ -127,28 +145,58 @@ export function PromoteClient({
       revert()
       setNote({ ok: false, text: 'حدث خطأ غير متوقع — لم تُحفظ الوجهة' })
     } finally {
-      setSavingRow(null)
+      setSavingRow((cur) => (cur === classId ? null : cur))
     }
   }
 
   // ── Hold-backs and the run ─────────────────────────────────────────────────
   const [held, setHeld] = useState<Set<string>>(new Set())
+  // Destinations fixed for pupils of a shared-out class: pupil → class.
+  const [overrides, setOverrides] = useState<Record<string, string>>({})
+  // Which of those the user actually chose, as opposed to pinned in passing.
+  const [handPicked, setHandPicked] = useState<Set<string>>(new Set())
   const [openClass, setOpenClass] = useState<string | null>(null)
   const [confirmPhrase, setConfirmPhrase] = useState('')
   const [running, setRunning] = useState(false)
 
-  const plan = useMemo(() => {
-    let moving = 0, graduating = 0, stuck = 0
-    const noDestination: ClassOption[] = []
-    for (const c of classes) {
-      const n = (studentsPerClass[c.id] ?? 0) - students.filter((s) => s.classId === c.id && held.has(s.id)).length
-      const m = map[c.id]
-      if (m?.terminal) graduating += n
-      else if (m?.to) moving += n
-      else { stuck += n; if ((studentsPerClass[c.id] ?? 0) > 0) noDestination.push(c) }
-    }
-    return { moving, graduating, stuck, noDestination }
-  }, [classes, map, studentsPerClass, students, held])
+  const classIdSet = useMemo(() => new Set(classes.map((c) => c.id)), [classes])
+
+  // Each class's destinations exactly as the planner is given them, so the
+  // badge, the chips and a pupil's choices can never list a class the plan
+  // would not use.
+  const destsOf = useMemo(
+    () => new Map(classes.map((c) => [
+      c.id,
+      destinationsOf(c.id, map[c.id]?.to, map[c.id]?.extras ?? [], (id) => classIdSet.has(id)),
+    ])),
+    [classes, map, classIdSet],
+  )
+
+  /**
+   * The server runs this same function on the same inputs before it writes.
+   * Every number and every destination on this tab is read from its result —
+   * a count worked out any other way is a preview that can disagree with what
+   * the run then does.
+   */
+  const plan = useMemo(
+    () => planPromotion({
+      classes: classes.map((c) => ({
+        id: c.id,
+        destinations: destsOf.get(c.id) ?? [],
+        isTerminal: !!map[c.id]?.terminal,
+      })),
+      students,
+      held,
+      overrides,
+    }),
+    [classes, destsOf, map, students, held, overrides],
+  )
+
+  // The plan counts a held-back pupil as untouched; the tiles give them their own.
+  const heldCount = useMemo(() => students.filter((s) => held.has(s.id)).length, [students, held])
+
+  const noDestination = classes.filter((c) =>
+    (studentsPerClass[c.id] ?? 0) > 0 && !map[c.id]?.terminal && (destsOf.get(c.id) ?? []).length === 0)
 
   const runReady = confirmPhrase.trim().toLowerCase() === 'ترحيل' || confirmPhrase.trim().toLowerCase() === 'tarheel'
 
@@ -156,13 +204,27 @@ export function PromoteClient({
     setRunning(true)
     setNote(null)
     try {
-      const res = await runAnnualPromotion([...held])
+      // The server works the plan out again from the register as it stands
+      // then. One pupil added to a class in another tab since this page was
+      // loaded would shift the whole deal of a shared-out class, and every
+      // pupil in it would land opposite to what was reviewed here. So the
+      // destination shown for each of them travels with the run.
+      const shown: Record<string, string> = { ...overrides }
+      for (const c of classes) {
+        if ((destsOf.get(c.id) ?? []).length < 2) continue
+        for (const s of students) {
+          if (s.classId !== c.id || held.has(s.id)) continue
+          const to = plan.moves.get(s.id)
+          if (to) shown[s.id] = to
+        }
+      }
+      const res = await runAnnualPromotion([...held], shown)
       if (res.ok) {
         setNote({
           ok: true,
           text: `انتهى الترحيل السنوي: انتقل ${res.moved} طالباً، وتخرّج ${res.graduated}، وبقي ${res.untouched} دون تغيير.`,
         })
-        setHeld(new Set()); setConfirmPhrase('')
+        setHeld(new Set()); setOverrides({}); setHandPicked(new Set()); setConfirmPhrase('')
         router.refresh()
       } else setNote({ ok: false, text: res.error })
     } catch {
@@ -225,7 +287,10 @@ export function PromoteClient({
           <div className="rounded-3xl border border-border bg-card p-6">
             <h2 className="text-lg font-bold mb-1.5">خريطة الترقية</h2>
             <p className="text-sm text-muted-foreground mb-5 leading-7">
-              لكل فصل وجهة واحدة: الفصل الذي ينتقل إليه طلابه في نهاية العام. والوجهة قد تكون في مرحلة أخرى
+              لكل فصل وجهة واحدة في الغالب: الفصل الذي ينتقل إليه طلابه في نهاية العام. وإذا اختلف عدد الفصول
+              بين صف والذي يليه — ثلاثة فصول في الأول المتوسط وفصلان في الثاني — فأضِف للفصل الزائد وجهة ثانية
+              بزر <span className="font-semibold text-foreground">«توزيع على فصل آخر»</span>: يُقسَّم طلابه بين
+              الوجهتين حتى تتساوى أعداد الفصلين. والوجهة قد تكون في مرحلة أخرى
               أو مبنى آخر — الثالث المتوسط إلى الأول الثانوي مثلاً. والفصل الأخير في المسار (الثالث الثانوي)
               يُعلَّم <span className="font-semibold text-foreground">«تخرّج»</span> فيغادر طلابه المدرسة بسجلّهم كاملاً.
               <br />
@@ -244,52 +309,239 @@ export function PromoteClient({
                 </thead>
                 <tbody className="divide-y divide-border">
                   {classes.map((c) => {
-                    const m = map[c.id] ?? { to: null, terminal: false }
-                    const missing = !m.terminal && !m.to && (studentsPerClass[c.id] ?? 0) > 0
+                    const m = map[c.id] ?? { to: null, extras: [], terminal: false }
+                    const dests = destsOf.get(c.id) ?? []
+                    const missing = !m.terminal && dests.length === 0 && (studentsPerClass[c.id] ?? 0) > 0
+                    const saving = savingRow !== null
+                    const shared = dests.length >= 2
+                    const open = shared && splitOpen === c.id
+                    // A class already chosen for this one is not offered a second time.
+                    const taken = new Set([c.id, m.to, ...m.extras])
+                    const free = allClassLabels.filter((o) => !taken.has(o.id))
+                    const canAdd = !!m.to && !m.terminal && m.extras.length < MAX_EXTRAS && free.length > 0
+                    const adding = canAdd && addingTo === c.id
+                    const inClass = open ? students.filter((s) => s.classId === c.id) : []
                     return (
-                      <tr key={c.id} className={missing ? 'bg-amber-50/50' : ''}>
-                        <td className="p-3 font-semibold whitespace-nowrap">{label(c)}</td>
-                        <td className="p-3 text-muted-foreground">{studentsPerClass[c.id] ?? 0}</td>
-                        <td className="p-3">
-                          <select
-                            value={m.to ?? ''}
-                            disabled={m.terminal || savingRow === c.id}
-                            onChange={(e) => saveRow(c.id, e.target.value || null, false)}
-                            className="w-full min-w-56 p-2 rounded-lg border border-border bg-background text-sm disabled:opacity-40"
-                          >
-                            <option value="">— لم تُحدَّد —</option>
-                            {allClassLabels.filter((o) => o.id !== c.id).map((o) => (
-                              <option key={o.id} value={o.id}>{o.label}</option>
+                      <Fragment key={c.id}>
+                        <tr className={missing ? 'bg-amber-50/50' : ''}>
+                          <td className="p-3 font-semibold whitespace-nowrap">
+                            {label(c)}
+                            {shared && (
+                              <>
+                                <span className="ms-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                                  {dests.length === 2 ? 'يُوزَّع على فصلين' : `يُوزَّع على ${dests.length} فصول`}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setSplitOpen(open ? null : c.id)}
+                                  aria-expanded={open}
+                                  className="mt-1 flex items-center gap-1 min-h-10 sm:min-h-0 text-xs font-semibold text-primary hover:underline"
+                                >
+                                  {open ? 'إخفاء التوزيع' : 'عرض التوزيع'}
+                                  <ChevronDown className={`size-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+                                </button>
+                              </>
+                            )}
+                          </td>
+                          <td className="p-3 text-muted-foreground">{studentsPerClass[c.id] ?? 0}</td>
+                          <td className="p-3">
+                            <select
+                              value={m.to ?? ''}
+                              disabled={m.terminal || saving}
+                              onChange={(e) => saveRow(c.id, e.target.value || null, false, m.extras)}
+                              className="w-full min-w-56 p-2 rounded-lg border border-border bg-background text-sm disabled:opacity-40"
+                            >
+                              <option value="">— لم تُحدَّد —</option>
+                              {allClassLabels.filter((o) => o.id !== c.id).map((o) => (
+                                <option key={o.id} value={o.id}>{o.label}</option>
+                              ))}
+                            </select>
+
+                            {m.extras.map((extraId) => (
+                              <div key={extraId} className="mt-2 flex items-center gap-1">
+                                <select
+                                  value={extraId}
+                                  disabled={saving}
+                                  onChange={(e) => saveRow(
+                                    c.id, m.to, false,
+                                    m.extras.map((id) => (id === extraId ? e.target.value : id)),
+                                  )}
+                                  className="w-full min-w-56 p-2 rounded-lg border border-border bg-background text-sm disabled:opacity-40"
+                                >
+                                  {allClassLabels.filter((o) => o.id === extraId || !taken.has(o.id)).map((o) => (
+                                    <option key={o.id} value={o.id}>{o.label}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => saveRow(c.id, m.to, false, m.extras.filter((id) => id !== extraId))}
+                                  className="inline-flex shrink-0 items-center justify-center min-h-10 min-w-10 sm:min-h-8 sm:min-w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-red-600 disabled:opacity-40"
+                                  aria-label="إزالة الوجهة"
+                                >
+                                  <X className="size-4" />
+                                </button>
+                              </div>
                             ))}
-                          </select>
-                        </td>
-                        <td className="p-3 text-center">
-                          <button
-                            type="button"
-                            disabled={savingRow === c.id}
-                            onClick={() => saveRow(c.id, null, !m.terminal)}
-                            className="inline-flex items-center justify-center min-h-10 min-w-10 sm:min-h-0 sm:min-w-0"
-                            aria-label="تعليم الفصل كآخر صف"
-                          >
-                            {m.terminal
-                              ? <CheckSquare className="size-5 text-primary" />
-                              : <Square className="size-5 text-muted-foreground" />}
-                          </button>
-                        </td>
-                      </tr>
+
+                            {/* Nothing is saved until a class is picked: an empty extra is not a destination. */}
+                            {adding && (
+                              <div className="mt-2 flex items-center gap-1">
+                                <select
+                                  value=""
+                                  disabled={saving}
+                                  onChange={(e) => {
+                                    if (!e.target.value) return
+                                    setAddingTo(null)
+                                    saveRow(c.id, m.to, false, [...m.extras, e.target.value])
+                                  }}
+                                  className="w-full min-w-56 p-2 rounded-lg border border-border bg-background text-sm disabled:opacity-40"
+                                >
+                                  <option value="">— اختر الفصل —</option>
+                                  {free.map((o) => (
+                                    <option key={o.id} value={o.id}>{o.label}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => setAddingTo(null)}
+                                  className="inline-flex shrink-0 items-center justify-center min-h-10 min-w-10 sm:min-h-8 sm:min-w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-red-600"
+                                  aria-label="إزالة الوجهة"
+                                >
+                                  <X className="size-4" />
+                                </button>
+                              </div>
+                            )}
+
+                            {canAdd && !adding && (
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => setAddingTo(c.id)}
+                                className="mt-1 inline-flex items-center min-h-10 sm:min-h-8 text-xs font-semibold text-primary hover:underline disabled:opacity-40"
+                              >
+                                + توزيع على فصل آخر
+                              </button>
+                            )}
+                          </td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => saveRow(c.id, null, !m.terminal, [])}
+                              className="inline-flex items-center justify-center min-h-10 min-w-10 sm:min-h-0 sm:min-w-0"
+                              aria-label="تعليم الفصل كآخر صف"
+                            >
+                              {m.terminal
+                                ? <CheckSquare className="size-5 text-primary" />
+                                : <Square className="size-5 text-muted-foreground" />}
+                            </button>
+                          </td>
+                        </tr>
+
+                        {open && (
+                          <tr>
+                            <td colSpan={4} className="p-4 bg-muted/30">
+                              <p className="mb-3 text-xs leading-6 text-muted-foreground">
+                                يُقسَّم طلاب هذا الفصل تلقائياً بحيث تتساوى أعداد الفصول المستقبِلة قدر الإمكان، مع حساب من
+                                ينتقل إليها من فصول أخرى. غيّر وجهة أي طالب بيدك إن أردت — وعندها يثبت بقية الفصل كما
+                                هو معروض، فراجع أعداد الوجهات بعد التعديل.
+                              </p>
+                              <div className="mb-3 flex flex-wrap gap-2">
+                                {dests.map((d) => (
+                                  <span key={d} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-background border border-border">
+                                    {labelById.get(d) ?? '—'}: {inClass.filter((s) => plan.moves.get(s.id) === d).length}
+                                  </span>
+                                ))}
+                              </div>
+                              {/* grid-cols-1 is stated: inside a table cell an implicit column grows to the longest name. */}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {inClass.map((s) => {
+                                  if (held.has(s.id)) {
+                                    return (
+                                      <div key={s.id} className="rounded-xl border border-border p-2.5 text-sm text-muted-foreground opacity-60">
+                                        <p className="truncate">{s.fullName}</p>
+                                        <p className="mt-1.5 text-xs">مستثنى — يبقى في فصله</p>
+                                      </div>
+                                    )
+                                  }
+                                  const picked = overrides[s.id]
+                                  return (
+                                    <div key={s.id} className="rounded-xl border border-border bg-background p-2.5 text-sm">
+                                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                                        <span className="truncate">{s.fullName}</span>
+                                        {/* A pick for a class that is no longer a destination is ignored by the plan. */}
+                                        {handPicked.has(s.id) && !!picked && dests.includes(picked) && (
+                                          <span className="shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                                            يدوي
+                                          </span>
+                                        )}
+                                      </div>
+                                      <select
+                                        value={plan.moves.get(s.id) ?? ''}
+                                        onChange={(e) => {
+                                          const to = e.target.value
+                                          // Everybody else in the class is fixed where the
+                                          // screen shows them first. Left free, they would
+                                          // be dealt again around this one pick, and a
+                                          // dozen pupils would change class unasked.
+                                          setOverrides((o) => {
+                                            const next = { ...o }
+                                            for (const other of inClass) {
+                                              const shown = plan.moves.get(other.id)
+                                              if (shown && !held.has(other.id)) next[other.id] = shown
+                                            }
+                                            next[s.id] = to
+                                            return next
+                                          })
+                                          setHandPicked((prev) => new Set(prev).add(s.id))
+                                        }}
+                                        className="w-full p-2 rounded-lg border border-border bg-background text-sm"
+                                      >
+                                        {dests.map((d) => (
+                                          <option key={d} value={d}>{labelById.get(d) ?? '—'}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                              <button
+                                type="button"
+                                disabled={!inClass.some((s) => overrides[s.id])}
+                                onClick={() => {
+                                  setOverrides((o) => {
+                                    const next = { ...o }
+                                    for (const s of inClass) delete next[s.id]
+                                    return next
+                                  })
+                                  setHandPicked((prev) => {
+                                    const next = new Set(prev)
+                                    for (const s of inClass) next.delete(s.id)
+                                    return next
+                                  })
+                                }}
+                                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-muted px-3 py-2 text-sm font-semibold hover:bg-muted/70 disabled:opacity-40"
+                              >
+                                <RotateCcw className="size-4" /> إعادة التوزيع التلقائي
+                              </button>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     )
                   })}
                 </tbody>
               </table>
             </div>
 
-            {plan.noDestination.length > 0 && (
+            {noDestination.length > 0 && (
               <p className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                 <AlertTriangle className="size-4 shrink-0 mt-0.5" />
                 <span>
-                  {plan.noDestination.length} فصلاً فيه طلاب ولم تُحدَّد وجهته:{' '}
-                  <span className="font-semibold">{plan.noDestination.map(label).join('، ')}</span>.
-                  طلابه سيبقون مكانهم عند الترحيل.
+                  فصول فيها طلاب ولم تُحدَّد وجهتها ({noDestination.length}):{' '}
+                  <span className="font-semibold">{noDestination.map(label).join('، ')}</span>.
+                  طلابها سيبقون مكانهم عند الترحيل.
                 </span>
               </p>
             )}
@@ -351,14 +603,69 @@ export function PromoteClient({
             </div>
           </div>
 
+          {/* Class sizes after the run */}
+          <div className="rounded-3xl border border-border bg-card p-6">
+            <h2 className="text-lg font-bold mb-1.5">أعداد الفصول بعد الترحيل</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              راجع الأعداد قبل التنفيذ: ما يبقى في كل فصل وما يصل إليه.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-right text-sm">
+                <thead className="bg-muted text-muted-foreground text-xs">
+                  <tr>
+                    <th className="p-3 font-semibold">الفصل</th>
+                    <th className="p-3 font-semibold">الآن</th>
+                    <th className="p-3 font-semibold">يبقون</th>
+                    <th className="p-3 font-semibold">يصلون</th>
+                    <th className="p-3 font-semibold">بعد الترحيل</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {classes.map((c) => {
+                    const now = studentsPerClass[c.id] ?? 0
+                    const staying = plan.staying.get(c.id) ?? 0
+                    const arriving = plan.arriving.get(c.id) ?? 0
+                    const after = staying + arriving
+                    if (now === 0 && after === 0) return null
+                    // Next year's pupils land on top of this year's, who have nowhere to go.
+                    const mixes = arriving > 0 && now > 0 && !map[c.id]?.terminal
+                      && (destsOf.get(c.id) ?? []).length === 0
+                    return (
+                      <tr key={c.id} className={mixes ? 'bg-amber-50/50' : ''}>
+                        <td className="p-3 font-semibold">
+                          <span className="whitespace-nowrap">{label(c)}</span>
+                          {mixes && (
+                            <p className="mt-1 flex items-start gap-1.5 text-xs font-normal text-amber-800">
+                              <AlertTriangle className="size-4 shrink-0" />
+                              <span>طلابه الحاليون باقون فيه — سيختلطون بالقادمين. حدِّد وجهته أولاً.</span>
+                            </p>
+                          )}
+                        </td>
+                        <td className="p-3 text-muted-foreground">{now}</td>
+                        <td className="p-3 text-muted-foreground">{staying}</td>
+                        <td className="p-3 text-muted-foreground">{arriving}</td>
+                        <td className="p-3 font-bold whitespace-nowrap">
+                          {after}
+                          {after === 0 && (
+                            <span className="ms-2 text-xs font-normal text-muted-foreground">يفرغ</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           {/* Run */}
           <div className="rounded-3xl border border-border bg-card p-6">
             <h2 className="text-lg font-bold mb-4">تنفيذ الترحيل السنوي</h2>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
               {[
-                { label: 'سينتقلون', value: plan.moving, cls: 'text-emerald-600' },
-                { label: 'سيتخرّجون', value: plan.graduating, cls: 'text-violet-600' },
-                { label: 'سيبقون مكانهم', value: plan.stuck, cls: 'text-amber-600' },
+                { label: 'سينتقلون', value: plan.moves.size, cls: 'text-emerald-600' },
+                { label: 'سيتخرّجون', value: plan.graduating.length, cls: 'text-violet-600' },
+                { label: 'سيبقون مكانهم', value: plan.untouched - heldCount, cls: 'text-amber-600' },
                 { label: 'مستثنون يدوياً', value: held.size, cls: 'text-muted-foreground' },
               ].map((s) => (
                 <div key={s.label} className="rounded-2xl border border-border p-4">
@@ -371,9 +678,10 @@ export function PromoteClient({
             <p className="mb-4 rounded-xl bg-muted/50 p-4 text-xs leading-7 text-muted-foreground">
               يُنفَّذ في عملية واحدة: إما أن ينجح كله أو لا يتغيّر شيء. وجهات كل الطلاب تُحسب من الوضع الحالي
               <span className="font-semibold text-foreground"> قبل </span>
-              أي تعديل، فلا يُجَرّ صف عبر سلسلة الترقيات في نفس التنفيذ. والمتخرجون يحتفظون بكل سجلّهم.
+              أي تعديل، فلا يُجَرّ صف عبر سلسلة الترقيات في نفس التنفيذ. والفصل الموزَّع على أكثر من وجهة يُقسَّم
+              كما في جدول الأعداد أعلاه. والمتخرجون يحتفظون بكل سجلّهم.
               <br />
-              <span className="font-semibold text-foreground">نفّذه مرة واحدة في نهاية العام فقط</span> — تنفيذه مرتين يرقّي الجميع مرتين.
+              <span className="font-semibold text-foreground">نفّذه مرة واحدة في نهاية العام فقط، بعد آخر يوم دراسي</span> — تنفيذه مرتين يرقّي الجميع مرتين.
             </p>
 
             <div className="flex flex-wrap items-center gap-3">

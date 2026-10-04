@@ -1,7 +1,10 @@
 import { getSchoolSettings } from './actions-settings'
 import { AppearanceSettings } from '@/components/appearance-settings'
 import SettingsClient from './settings-client'
-import { requireAdminAccess } from '@/lib/admin-access'
+import { requireAdminAccess, canEditGrade } from '@/lib/admin-access'
+import { today } from '@/lib/utils'
+import { calendarRegionForCity } from '@/lib/official-calendar'
+import { SCHOOL_IDENTITY } from '@/lib/school-identity'
 import { Settings as SettingsIcon } from 'lucide-react'
 import { NotificationBell } from '@/components/notification-bell'
 import { ResetTestData } from '@/components/reset-test-data'
@@ -50,6 +53,12 @@ export default async function AdminSettingsPage() {
         initialHolidays={holidays}
         initialStages={stages}
         initialPrincipalName={access.school.principalName ?? ''}
+        today={today()}
+        calendarRegion={calendarRegionForCity(SCHOOL_IDENTITY.city)}
+        canSuspendWholeSchool={access.canManageSchoolSettings || access.editAllGrades}
+        suspendableStageIds={stages
+          .filter((s) => access.canManageSchoolSettings || canEditGrade(access, s.id))
+          .map((s) => s.id)}
       />
 
       {access.role === 'owner' && <ResetTestData />}

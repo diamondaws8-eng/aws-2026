@@ -4,12 +4,13 @@ import { db } from '@/lib/db'
 import {
   gradeLevels, classes, subjects, students, teachers, gradeEntries,
   dailyRecords, lessonRecords, behaviorCases, attendance, studentPoints,
-  parentWhatsappMessages, notifications,
+  parentWhatsappMessages, notifications, schoolHolidays,
 } from '@/lib/db/schema'
-import { eq, and, ne, inArray, count } from 'drizzle-orm'
+import { eq, and, or, ne, inArray, isNotNull, count } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { getAdminAccess, canEditGrade, canViewGrade, type AdminAccess } from '@/lib/admin-access'
 import { logAudit } from '@/lib/audit'
+import { parseExtraDestinations } from '@/lib/promotion-plan'
 
 // ─── Permission helpers ───────────────────────────────────────────────────────
 
@@ -127,7 +128,16 @@ export async function deleteGradeLevel(id: string) {
     }
   }
 
-  await db.delete(gradeLevels).where(eq(gradeLevels.id, id))
+  // The stage's own calendar goes with it. Left behind, a holiday or a
+  // suspension filed under a stage that no longer exists is a row no screen
+  // can name and nobody is offered a button to remove.
+  await db.transaction(async (tx) => {
+    await tx.delete(schoolHolidays).where(and(
+      eq(schoolHolidays.schoolId, access.school.id),
+      eq(schoolHolidays.gradeLevelId, id),
+    ))
+    await tx.delete(gradeLevels).where(eq(gradeLevels.id, id))
+  })
   await logAudit(access, 'gradeLevel.delete', grade.name)
   revalidatePath('/admin/grade-levels')
   return { ok: true as const }
@@ -205,7 +215,41 @@ export async function deleteClass(id: string) {
     await tx.delete(notifications).where(eq(notifications.classId, id))
     // Other classes may have named this one as where their pupils go next;
     // left in place, the annual promotion would try to move pupils into it.
-    await tx.update(classes).set({ promotesToClassId: null }).where(eq(classes.promotesToClassId, id))
+    // The extra destinations are a JSON list in a text column, which no WHERE
+    // clause can reach into — so every class that has a list is read and
+    // rewritten here.
+    const pointing = await tx
+      .select({
+        id: classes.id,
+        promotesToClassId: classes.promotesToClassId,
+        extraPromotionClassIds: classes.extraPromotionClassIds,
+      })
+      .from(classes)
+      .where(and(
+        eq(classes.schoolId, cls.schoolId),
+        ne(classes.id, id),
+        or(eq(classes.promotesToClassId, id), isNotNull(classes.extraPromotionClassIds)),
+      ))
+    for (const row of pointing) {
+      const extras = parseExtraDestinations(row.extraPromotionClassIds)
+      const remaining = extras.filter((extraId) => extraId !== id)
+      if (row.promotesToClassId === id) {
+        // Extras mean nothing without a main destination, so the first of them
+        // takes its place: a class that was shared between two keeps the one
+        // that is left instead of losing both.
+        const [next, ...rest] = remaining
+        await tx.update(classes)
+          .set({
+            promotesToClassId: next ?? null,
+            extraPromotionClassIds: rest.length ? JSON.stringify(rest) : null,
+          })
+          .where(eq(classes.id, row.id))
+      } else if (remaining.length !== extras.length) {
+        await tx.update(classes)
+          .set({ extraPromotionClassIds: remaining.length ? JSON.stringify(remaining) : null })
+          .where(eq(classes.id, row.id))
+      }
+    }
     await tx.delete(classes).where(eq(classes.id, id))
   })
 

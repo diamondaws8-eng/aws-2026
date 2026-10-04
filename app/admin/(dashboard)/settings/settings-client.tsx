@@ -6,14 +6,19 @@ import { saveSchoolSettings, changeAdminPassword, exportFullBackup, restoreFullB
 import { requireAllParentsToChangePassword } from '../students/actions-students'
 import type { SchoolSettings } from './settings-types'
 import { SEMESTERS, SEMESTER_LABELS } from '@/lib/academic'
-import { setSaturdayIsSchoolDay, addSchoolHoliday, deleteSchoolHoliday } from './actions-school-days'
+import { officialCalendarFor, type CalendarRegion } from '@/lib/official-calendar'
+import { daysInRange } from '@/lib/school-days'
+import { formatDayGregorianAr, formatRangeAr, dayCountAr } from '@/lib/utils'
+import { setSaturdayIsSchoolDay, addSchoolHoliday, deleteSchoolHoliday, type HolidayRow } from './actions-school-days'
+import { Section, StatusMsg } from './settings-ui'
+import { HolidaysBulk } from './holidays-bulk'
+import { StudySuspension } from './study-suspension'
 import {
   Sliders, MessageCircle, Lock, Database, Save, Backpack, Star,
   CalendarCheck2, BookOpen, Hand, Award, ShieldAlert, Trash2, Loader2,
   Download, KeyRound, CheckCircle2, XCircle, Upload, FileJson, AlertTriangle, RotateCcw, X,
-  UserCircle, Users, CalendarDays, CalendarOff, FileSignature,
+  UserCircle, Users, CalendarDays, CalendarOff, FileSignature, Laptop,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 
 // ── Backup file summary shape ───────────────────────────────────────────────────
 type BackupSummary = {
@@ -113,32 +118,6 @@ function PointInput({
   )
 }
 
-// ── Section Card ─────────────────────────────────────────────────────────────
-function Section({ title, icon: Icon, children }: { title: string; icon: LucideIcon; children: React.ReactNode }) {
-  return (
-    <div className="relative overflow-hidden bg-card border border-border rounded-3xl shadow-sm">
-      <div className="absolute -top-16 -left-12 size-40 rounded-full bg-primary/5 blur-3xl pointer-events-none" />
-      <div className="relative px-6 py-4 border-b border-border bg-muted/30 flex items-center gap-3">
-        <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <Icon className="size-4.5" />
-        </div>
-        <h2 className="font-bold text-base">{title}</h2>
-      </div>
-      <div className="relative p-6">{children}</div>
-    </div>
-  )
-}
-
-// ── Status message (with icon) ─────────────────────────────────────────────────
-function StatusMsg({ ok, text }: { ok: boolean; text: string }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-sm font-semibold animate-in fade-in ${ok ? 'text-emerald-600' : 'text-red-600'}`}>
-      {ok ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
-      {text}
-    </span>
-  )
-}
-
 // ── Main Client Component ─────────────────────────────────────────────────────
 export default function SettingsClient({
   schoolId,
@@ -158,6 +137,10 @@ export default function SettingsClient({
   initialHolidays,
   initialStages = [],
   initialPrincipalName = '',
+  today,
+  calendarRegion,
+  canSuspendWholeSchool,
+  suspendableStageIds,
 }: {
   schoolId: string
   initialSettings: SchoolSettings
@@ -173,9 +156,15 @@ export default function SettingsClient({
   initialYearStartDate: string | null
   canManageSchoolDays: boolean
   initialSaturdayIsSchoolDay: boolean
-  initialHolidays: { id: string; name: string; startDate: string; endDate: string; gradeLevelId: string | null }[]
+  /** Holidays and suspensions alike — `kind` tells them apart. */
+  initialHolidays: HolidayRow[]
   initialStages?: { id: string; name: string; saturdayIsSchoolDay: boolean | null }[]
   initialPrincipalName?: string
+  /** The school's date, worked out on the server: the browser's clock is not trusted with it. */
+  today: string
+  calendarRegion: CalendarRegion
+  canSuspendWholeSchool: boolean
+  suspendableStageIds: string[]
 }) {
   const [settings, setSettings] = useState<SchoolSettings>(initialSettings)
   const [principalName, setPrincipalName] = useState(initialPrincipalName)
@@ -203,11 +192,25 @@ export default function SettingsClient({
   const [saturdayOn, setSaturdayOn] = useState(initialSaturdayIsSchoolDay)
   // Which calendar is being edited: the school's, or one stage's own.
   const [calScope, setCalScope] = useState<string>('')
+  // The reach the server enforces: the whole school's calendar for whoever
+  // runs all of it, a stage's for whoever runs that stage. Outside it the
+  // calendar is shown, not edited — a principal still needs to see the
+  // school's holidays, but must not be able to close the other building.
+  const canEditScope = calScope === '' ? canSuspendWholeSchool : suspendableStageIds.includes(calScope)
   const [stages, setStages] = useState(initialStages)
+  // One list for the holidays card and the suspension card: both kinds are
+  // rows of the same calendar, and each card shows its own.
   const [holidays, setHolidays] = useState(initialHolidays)
   // router.refresh() brings a fresh list from the server; without this the
   // local copy kept whatever it had and the two drifted apart.
   useEffect(() => { setHolidays(initialHolidays) }, [initialHolidays])
+  // These actions revalidate the page, so the server's fresh list can land
+  // before a new row is reported here — it must not then be listed twice.
+  const addHolidayRows = (rows: HolidayRow[]) => {
+    const ids = new Set(rows.map(r => r.id))
+    setHolidays(prev => [...prev.filter(h => !ids.has(h.id)), ...rows]
+      .sort((a, b) => a.startDate.localeCompare(b.startDate)))
+  }
   const [holidayName, setHolidayName] = useState('')
   const [holidayStart, setHolidayStart] = useState('')
   const [holidayEnd, setHolidayEnd] = useState('')
@@ -227,8 +230,7 @@ export default function SettingsClient({
       if (res.ok) {
         // Shown immediately under its real id. A made-up id here meant that
         // deleting the holiday you had just added was refused until a reload.
-        setHolidays(prev => [...prev, { id: res.id, name: holidayName.trim(), startDate: holidayStart, endDate: end, gradeLevelId: calScope || null }]
-          .sort((a, b) => a.startDate.localeCompare(b.startDate)))
+        addHolidayRows([{ id: res.id, name: holidayName.trim(), startDate: holidayStart, endDate: end, gradeLevelId: calScope || null, kind: 'holiday' }])
         setHolidayName(''); setHolidayStart(''); setHolidayEnd('')
         setDaysMsg({ ok: true, text: 'أُضيفت الإجازة' })
         router.refresh()
@@ -243,15 +245,57 @@ export default function SettingsClient({
   }
 
   const handleDeleteHoliday = async (id: string) => {
+    // A holiday still ahead closes nothing yet. One that has begun has days
+    // behind it that nobody recorded, because it told them not to — removing
+    // it turns those into school days with an empty register.
+    const target = holidays.find(h => h.id === id)
+    if (target && target.startDate <= today
+      && !window.confirm('حذف إجازة بدأت أو انتهت يعيد أيامها أياماً دراسية — تظهر بلا تسجيل. متابعة؟')) return
+
     const before = holidays
     setHolidays(prev => prev.filter(h => h.id !== id))
-    const res = await deleteSchoolHoliday(id)
-    if (!res.ok) {
+    try {
+      const res = await deleteSchoolHoliday(id)
+      if (!res.ok) {
+        setHolidays(before)
+        setDaysMsg({ ok: false, text: res.error })
+      } else {
+        setDaysMsg({ ok: true, text: 'حُذفت الإجازة' })
+        router.refresh()
+      }
+    } catch {
       setHolidays(before)
-      setDaysMsg({ ok: false, text: res.error })
-    } else {
-      setDaysMsg({ ok: true, text: 'حُذفت الإجازة' })
-      router.refresh()
+      setDaysMsg({ ok: false, text: 'حدث خطأ غير متوقع' })
+    }
+  }
+
+  const handleSaturdayForSchool = async (v: boolean) => {
+    setSaturdayOn(v)
+    try {
+      const res = await setSaturdayIsSchoolDay(v, null)
+      if (!res.ok) {
+        setSaturdayOn(!v)
+        setDaysMsg({ ok: false, text: res.error })
+      } else {
+        setDaysMsg({ ok: true, text: v ? 'السبت أصبح يوم دراسة' : 'السبت أصبح إجازة' })
+        router.refresh()
+      }
+    } catch {
+      setSaturdayOn(!v)
+      setDaysMsg({ ok: false, text: 'حدث خطأ غير متوقع' })
+    }
+  }
+
+  const handleSaturdayForStage = async (stageId: string, v: boolean | null) => {
+    const before = stages
+    setStages(prev => prev.map(s => s.id === stageId ? { ...s, saturdayIsSchoolDay: v } : s))
+    try {
+      const res = await setSaturdayIsSchoolDay(v, stageId)
+      if (!res.ok) { setStages(before); setDaysMsg({ ok: false, text: res.error }) }
+      else { setDaysMsg({ ok: true, text: 'حُفظ' }); router.refresh() }
+    } catch {
+      setStages(before)
+      setDaysMsg({ ok: false, text: 'حدث خطأ غير متوقع' })
     }
   }
 
@@ -259,14 +303,24 @@ export default function SettingsClient({
     setCalendarLoading(true)
     setCalendarMsg(null)
     try {
-      const res = await saveAcademicCalendar({
-        academicYear,
-        currentSemester,
-        yearStartDate: yearStartDate || null,
-      })
+      const payload = { academicYear, currentSemester, yearStartDate: yearStartDate || null }
+      let res = await saveAcademicCalendar(payload)
+      // Renaming or re-dating a year that is already running is held by the
+      // server until it has been read: the text says what the save would do
+      // and where a new year is really opened.
+      if (!res.ok && 'needsConfirm' in res && res.needsConfirm) {
+        if (!window.confirm(res.error)) {
+          setCalendarMsg({ ok: false, text: 'لم يُحفظ شيء' })
+          return
+        }
+        res = await saveAcademicCalendar({ ...payload, confirmYearEdit: true })
+      }
       setCalendarMsg(res.ok
         ? { ok: true, text: 'تم الحفظ' }
         : { ok: false, text: res.error })
+      // The start date is read back from the server by the dashboard and the
+      // archive; the refresh drops the copies of them the router had cached.
+      if (res.ok) router.refresh()
     } catch {
       setCalendarMsg({ ok: false, text: 'حدث خطأ غير متوقع' })
     } finally {
@@ -538,6 +592,13 @@ export default function SettingsClient({
     }
   }
 
+  // The announced first day of study, offered while the field is still empty.
+  const officialStudyStart = officialCalendarFor(academicYear, calendarRegion)?.studyStart ?? null
+  // The holidays of the calendar being edited. Suspensions are filed in the
+  // same list but belong to their own card.
+  const shownHolidays = holidays.filter(h => h.kind !== 'remote' && (h.gradeLevelId ?? '') === calScope)
+  const calScopeName = stages.find(s => s.id === calScope)?.name
+
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
@@ -549,6 +610,8 @@ export default function SettingsClient({
             هذان الحقلان يحكمان أمرين: <span className="font-semibold text-foreground">كل درجة يحفظها المعلم
             تُختم بالعام والفصل المذكورين هنا</span>، و<span className="font-semibold text-foreground">النقاط
             ولوحة الصدارة تُحسب من تاريخ بداية العام فصاعداً</span>.
+            {' '}وحفظ تاريخ البداية يسجّل العام في الأرشيف تلقائياً.
+            {' '}هذه البطاقة لتصحيح بيانات العام الجاري؛ أما بدء عام دراسي جديد فمن «إقفال العام» في صفحة الأرشيف.
           </p>
 
           <div className="grid sm:grid-cols-3 gap-4 max-w-3xl">
@@ -587,9 +650,18 @@ export default function SettingsClient({
               />
               <p className="text-xs text-muted-foreground mt-1">
                 {yearStartDate
-                  ? 'النقاط تُحسب من هذا التاريخ فصاعداً.'
-                  : 'اتركه فارغاً في عامك الأول. حدّده قبل بداية العام الثاني، وإلا ظلّت نقاط العام الماضي تُحسب مع الجديد.'}
+                  ? 'أول يوم دراسة فعلي في هذا العام. النقاط ولوحة الصدارة تُحسب منه فصاعداً.'
+                  : 'اكتب أول يوم دراسة فعلي لهذا العام، ولو سبق بدء استخدامكم للنظام — الأيام السابقة لأول تسجيل لا تُحسب أياماً مهملة.'}
               </p>
+              {!yearStartDate && officialStudyStart && (
+                <button
+                  type="button"
+                  onClick={() => setYearStartDate(officialStudyStart)}
+                  className="mt-1.5 text-xs font-semibold text-primary text-start hover:underline underline-offset-2"
+                >
+                  بداية الدراسة المعلنة: {formatDayGregorianAr(officialStudyStart, true)} — استخدمه
+                </button>
+              )}
             </div>
           </div>
 
@@ -669,7 +741,13 @@ export default function SettingsClient({
             </div>
           )}
 
-          {calScope === '' ? (
+          {!canEditScope ? (
+            <p className="text-sm text-muted-foreground bg-muted/40 rounded-xl p-4 max-w-2xl">
+              {calScope === ''
+                ? 'تقويم كل المدرسة معروض للاطلاع: يعدّله من يدير كل المراحل. لتعديل تقويم مرحلتك اخترها من الأعلى.'
+                : 'تقويم هذه المرحلة معروض للاطلاع: يعدّله من يديرها.'}
+            </p>
+          ) : calScope === '' ? (
             <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border border-border bg-muted/20 max-w-2xl">
               <div>
                 <p className="font-bold text-sm">يوم السبت يوم دراسي — لكل المدرسة</p>
@@ -680,24 +758,11 @@ export default function SettingsClient({
                   {' '}تتبعه كل مرحلة لم تحدد رأيها.
                 </p>
               </div>
-              <Toggle
-                enabled={saturdayOn}
-                onChange={async (v) => {
-                  setSaturdayOn(v)
-                  const res = await setSaturdayIsSchoolDay(v, null)
-                  if (!res.ok) {
-                    setSaturdayOn(!v)
-                    setDaysMsg({ ok: false, text: res.error })
-                  } else {
-                    setDaysMsg({ ok: true, text: v ? 'السبت أصبح يوم دراسة' : 'السبت أصبح إجازة' })
-                    router.refresh()
-                  }
-                }}
-              />
+              <Toggle enabled={saturdayOn} onChange={handleSaturdayForSchool} />
             </div>
           ) : (
             <div className="p-4 rounded-2xl border border-border bg-muted/20 max-w-2xl">
-              <p className="font-bold text-sm mb-1">يوم السبت — {stages.find(s => s.id === calScope)?.name}</p>
+              <p className="font-bold text-sm mb-1">يوم السبت — {calScopeName}</p>
               <p className="text-xs text-muted-foreground mb-3">
                 «يتبع المدرسة» هو الوضع الطبيعي. لا تخرج عنه إلا إذا كان هذا المبنى يختلف فعلاً.
               </p>
@@ -713,13 +778,7 @@ export default function SettingsClient({
                     <button
                       key={String(opt.v)}
                       type="button"
-                      onClick={async () => {
-                        const before = stages
-                        setStages(prev => prev.map(s => s.id === calScope ? { ...s, saturdayIsSchoolDay: opt.v } : s))
-                        const res = await setSaturdayIsSchoolDay(opt.v, calScope)
-                        if (!res.ok) { setStages(before); setDaysMsg({ ok: false, text: res.error }) }
-                        else { setDaysMsg({ ok: true, text: 'حُفظ' }); router.refresh() }
-                      }}
+                      onClick={() => handleSaturdayForStage(calScope, opt.v)}
                       className={`rounded-xl px-4 py-2.5 text-sm font-semibold ${on ? 'bg-primary text-primary-foreground' : 'bg-background border border-border hover:bg-muted'}`}
                     >
                       {opt.label}
@@ -731,13 +790,14 @@ export default function SettingsClient({
           )}
 
           <h3 className="font-bold text-sm mt-6 mb-1">
-            الإجازات {calScope ? `— ${stages.find(s => s.id === calScope)?.name} وحدها` : 'الرسمية — لكل المدرسة'}
+            الإجازات {calScope ? `— ${calScopeName} وحدها` : 'الرسمية — لكل المدرسة'}
           </h3>
           <p className="text-xs text-muted-foreground mb-3">
             {calScope
               ? 'تُضاف هذه فوق إجازات المدرسة، ولا تغلق غير هذه المرحلة.'
               : 'تغلق المدرسة كلها. لإغلاق مبنى واحد فقط، اختر مرحلته من الأعلى.'}
           </p>
+          {canEditScope && (<>
           <div className="grid sm:grid-cols-4 gap-3 max-w-3xl items-end">
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold mb-1.5">اسم الإجازة</label>
@@ -780,32 +840,72 @@ export default function SettingsClient({
             {daysMsg && <StatusMsg ok={daysMsg.ok} text={daysMsg.text} />}
           </div>
 
-          {(() => { const shown = holidays.filter(h => (h.gradeLevelId ?? '') === calScope); return shown.length === 0 ? (
+          {/* Keyed by the calendar: its lines are checked against that calendar's holidays. */}
+          <HolidaysBulk
+            key={calScope}
+            academicYear={academicYear}
+            defaultRegion={calendarRegion}
+            scopeId={calScope || null}
+            scopeLabel={calScope ? calScopeName ?? '' : 'كل المدرسة'}
+            existing={shownHolidays}
+            onAdded={addHolidayRows}
+          />
+          </>)}
+
+          {shownHolidays.length === 0 ? (
             <p className="text-sm text-muted-foreground bg-muted/40 rounded-xl p-4 mt-5 max-w-3xl">
               لا توجد إجازات مسجَّلة. أضف إجازات العيد واليوم الوطني ونصف العام حتى لا تُحسب أياماً مهملة.
             </p>
           ) : (
             <div className="space-y-2 mt-5 max-w-3xl">
-              {shown.map(h => (
+              {shownHolidays.map(h => (
                 <div key={h.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-border">
                   <div className="min-w-0">
-                    <p className="font-semibold text-sm truncate">{h.name}</p>
-                    <p className="text-xs text-muted-foreground" dir="ltr">
-                      {h.startDate}{h.endDate !== h.startDate ? ` → ${h.endDate}` : ''}
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="font-semibold text-sm truncate">{h.name}</p>
+                      {h.endDate < today && (
+                        <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                          انتهت
+                        </span>
+                      )}
+                    </div>
+                    <p
+                      className="text-xs text-muted-foreground"
+                      title={`${h.startDate}${h.endDate !== h.startDate ? ` → ${h.endDate}` : ''}`}
+                    >
+                      {formatRangeAr(h.startDate, h.endDate, true)} — {dayCountAr(daysInRange(h.startDate, h.endDate))}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteHoliday(h.id)}
-                    aria-label="حذف الإجازة"
-                    className="px-3 py-3 sm:py-2 rounded-lg text-red-600 hover:bg-red-50 shrink-0"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
+                  {canEditScope && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteHoliday(h.id)}
+                      aria-label="حذف الإجازة"
+                      className="px-3 py-3 sm:py-2 rounded-lg text-red-600 hover:bg-red-50 shrink-0"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
-          ) })()}
+          )}
+        </Section>
+      )}
+
+      {/* ── Suspending in-person study ───────────────────────────────────────── */}
+      {canManageSchoolDays && (canSuspendWholeSchool || suspendableStageIds.length > 0) && (
+        <Section title="تعليق الدراسة الحضورية (الدراسة عن بُعد)" icon={Laptop}>
+          <StudySuspension
+            today={today}
+            stages={stages}
+            canWholeSchool={canSuspendWholeSchool}
+            suspendableStageIds={suspendableStageIds}
+            suspensions={holidays.filter(h => h.kind === 'remote')}
+            onDeclared={row => addHolidayRows([row])}
+            onRemoved={id => setHolidays(prev => prev.filter(h => h.id !== id))}
+            onShortened={(id, endDate) => setHolidays(prev => prev.map(h => h.id === id ? { ...h, endDate } : h))}
+          />
         </Section>
       )}
 

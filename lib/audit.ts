@@ -26,6 +26,8 @@ export type AuditAction =
   | 'staff.delete'
   | 'staff.passwordReset'
   | 'settings.update'
+  | 'calendar.suspend'
+  | 'calendar.suspendCancel'
   | 'backup.export'
   | 'backup.restore'
   | 'data.reset'
@@ -65,6 +67,8 @@ export const AUDIT_LABELS: Record<AuditAction, string> = {
   'staff.delete': 'حذف عضو إداري',
   'staff.passwordReset': 'إعادة تعيين كلمة مرور عضو إداري',
   'settings.update': 'تعديل إعدادات المدرسة',
+  'calendar.suspend': 'تعليق الدراسة الحضورية (عن بُعد)',
+  'calendar.suspendCancel': 'إلغاء تعليق الدراسة الحضورية',
   'backup.export': 'تنزيل نسخة احتياطية',
   'backup.restore': 'استعادة نسخة احتياطية',
   'data.reset': 'مسح بيانات التجربة قبل التشغيل',

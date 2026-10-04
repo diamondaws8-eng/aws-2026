@@ -9,6 +9,8 @@ import { logAudit } from '@/lib/audit'
 import { today, isValidDateString, formatDateAr, ATTENDANCE_STATUS } from '@/lib/utils'
 import { attendancePointsFor } from '@/lib/points'
 import { notify, notifiedTodayFor } from '@/lib/notifications'
+import { getSchoolDaysConfig } from '@/lib/school-holidays'
+import { nonSchoolDayReason, closedDayPhrase } from '@/lib/school-days'
 
 export type AttendanceStatus = keyof typeof ATTENDANCE_STATUS
 const STATUSES = Object.keys(ATTENDANCE_STATUS) as AttendanceStatus[]
@@ -55,6 +57,10 @@ export async function correctAttendance(
   if (!cls || cls.schoolId !== access.school.id) return { ok: false, error: 'الفصل غير موجود' }
   if (!canEditGrade(access, cls.gradeLevelId)) return { ok: false, error: 'ليس لديك صلاحية التعديل على هذه المرحلة' }
 
+  // Whether the stage teaches on this day — judged further down, once it is
+  // known which of these pupils already have a row for it.
+  const off = nonSchoolDayReason(date, await getSchoolDaysConfig(access.school.id, cls.gradeLevelId))
+
   // Only well-formed entries, one per pupil, and only pupils really in this class.
   const wanted = new Map<string, AttendanceStatus>()
   for (const c of Array.isArray(changes) ? changes : []) {
@@ -76,6 +82,26 @@ export async function correctAttendance(
     .from(dailyRecords)
     .where(and(eq(dailyRecords.classId, classId), eq(dailyRecords.date, date), inArray(dailyRecords.studentId, pupils.map((p) => p.id))))
   const previous = new Map(existing.map((r) => [r.studentId, r.attendanceStatus]))
+
+  /**
+   * The last word on a register, not on the calendar. A day the stage does not
+   * teach on takes no new attendance and no new absence, from the office
+   * either — the teachers' save refuses the same day, and this was the one
+   * door left open.
+   *
+   * What it must still be able to do is correct a row that is already there. A
+   * suspension declared at ten can keep the register taken at eight, and a
+   * Saturday that was taught can later be switched off; those rows go on
+   * counting, and an excuse that arrives afterwards has to be recordable
+   * somewhere. So on a closed day a pupil with a row may be corrected, and a
+   * pupil without one may not be given one.
+   */
+  if (off && pupils.some((p) => !previous.has(p.id))) {
+    return {
+      ok: false,
+      error: `${closedDayPhrase(off)} — لا يُسجَّل فيه حضور جديد ولا غياب؛ يُصحَّح فقط ما سُجِّل فيه من قبل`,
+    }
+  }
 
   const now = new Date()
   const applied: { id: string; fullName: string; parentUserId: string | null; from: string | null; to: AttendanceStatus }[] = []

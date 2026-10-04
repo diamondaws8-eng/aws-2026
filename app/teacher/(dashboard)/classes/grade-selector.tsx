@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { closedTodayHeading, isWeeklyRest } from '@/lib/school-days'
 
 type GradeWithClasses = {
   id: string
@@ -70,7 +71,7 @@ export default function GradeSelector({ grades }: { grades: GradeWithClasses[] }
                   
                   <p className={`mb-4 text-xs font-semibold ${cls.offToday ? 'text-muted-foreground' : cls.recordedToday ? 'text-emerald-600' : 'text-amber-600'}`}>
                     {cls.offToday
-                      ? (cls.offToday === 'الجمعة' || cls.offToday === 'السبت' ? `اليوم ${cls.offToday} — لا تسجيل` : `إجازة: ${cls.offToday}`)
+                      ? (isWeeklyRest(cls.offToday) ? `${closedTodayHeading(cls.offToday)} — لا تسجيل` : closedTodayHeading(cls.offToday))
                       : cls.recordedToday ? '✓ سجّلته اليوم' : '• لم تسجّله اليوم بعد'}
                   </p>
 

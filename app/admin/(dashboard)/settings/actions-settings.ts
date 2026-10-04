@@ -7,7 +7,7 @@ import {
   gradeEntries, notifications, dailyRecords, lessonRecords, studentPoints, user, schoolStaff, account,
   behaviorCases, schoolHolidays, schoolYears, parentWhatsappMessages, parentActivationLog, auditLog, userNotifications, session,
 } from '@/lib/db/schema'
-import { eq, inArray, and, ne, sql, count as drizzleCount } from 'drizzle-orm'
+import { eq, inArray, and, ne, gte, lt, sql, count as drizzleCount } from 'drizzle-orm'
 import { getAdminAccess } from '@/lib/admin-access'
 import { logAudit } from '@/lib/audit'
 import { headers } from 'next/headers'
@@ -275,6 +275,8 @@ export async function saveAcademicCalendar(input: {
   academicYear: string
   currentSemester: string
   yearStartDate: string | null
+  /** The caller has read what changing a year that is already running does. */
+  confirmYearEdit?: boolean
 }) {
   const access = await getAdminAccess()
   if (!access) return { ok: false as const, error: 'غير مصرح بهذا الإجراء' }
@@ -300,9 +302,100 @@ export async function saveAcademicCalendar(input: {
   const yearStartDate = raw || null
 
   try {
-    await db.update(schools)
-      .set({ academicYear, currentSemester, yearStartDate })
-      .where(eq(schools.id, access.school.id))
+    const schoolId = access.school.id
+    const years = await db
+      .select({
+        id: schoolYears.id,
+        label: schoolYears.label,
+        startDate: schoolYears.startDate,
+        endDate: schoolYears.endDate,
+        closedAt: schoolYears.closedAt,
+      })
+      .from(schoolYears)
+      .where(eq(schoolYears.schoolId, schoolId))
+    const open = years.find((y) => !y.closedAt) ?? null
+    // A year cannot begin inside one that has already been closed and counted.
+    const lastClosedEnd = years
+      .filter((y) => y.closedAt && y.endDate)
+      .reduce<string | null>((max, y) => (max && max > y.endDate! ? max : y.endDate), null)
+    if (yearStartDate && lastClosedEnd && yearStartDate <= lastClosedEnd) {
+      return {
+        ok: false as const,
+        error: `تاريخ بداية العام يجب أن يكون بعد نهاية العام المُقفل (${lastClosedEnd})`,
+      }
+    }
+
+    // Emptied, the date would go on standing in the archive while the points
+    // stopped counting from it: one year with two different beginnings.
+    if (open && !yearStartDate) {
+      return {
+        ok: false as const,
+        error: `العام «${open.label}» مسجَّل في الأرشيف بتاريخ بداية (${open.startDate}) — عدِّل التاريخ بدل مسحه`,
+      }
+    }
+
+    /**
+     * This form corrects the year the school is in; it does not start a new
+     * one. Typing next year's number and first day here — the obvious thing to
+     * do in August — would rename and re-date the running year, and the year
+     * just finished would vanish from the archive with nothing to close. So a
+     * save that renames an open year, or moves its start past days already on
+     * the register, is held until the caller has been told what it does and
+     * where a new year is really opened.
+     */
+    if (open && !input.confirmYearEdit) {
+      const renamed = academicYear !== open.label
+      let droppedDays = 0
+      if (yearStartDate && yearStartDate > open.startDate) {
+        const [row] = await db
+          .select({ n: sql<number>`count(distinct ${dailyRecords.date})`.mapWith(Number) })
+          .from(dailyRecords)
+          .where(and(
+            eq(dailyRecords.schoolId, schoolId),
+            gte(dailyRecords.date, open.startDate),
+            lt(dailyRecords.date, yearStartDate),
+          ))
+        droppedDays = row?.n ?? 0
+      }
+      if (renamed || droppedDays > 0) {
+        const what = [
+          renamed ? `يغيّر اسم العام الجاري من «${open.label}» إلى «${academicYear}»` : '',
+          droppedDays > 0 ? `يُخرج من حساب العام ما سُجِّل قبل التاريخ الجديد (عدد الأيام المسجَّلة: ${droppedDays})` : '',
+        ].filter(Boolean).join('، و')
+        return {
+          ok: false as const,
+          needsConfirm: true as const,
+          error: [
+            `العام «${open.label}» مفتوح في الأرشيف، وهذا الحفظ ${what} — ولا يفتح عاماً جديداً.`,
+            '',
+            'لبدء عام دراسي جديد استخدم «إقفال العام» من صفحة الأرشيف.',
+            'إن كان هذا تصحيحاً لبيانات العام الجاري نفسه فتابع.',
+          ].join('\n'),
+        }
+      }
+    }
+
+    /**
+     * The year's start is written down in two places: on the school row, which
+     * the points read, and on the open row of school_years, which the archive
+     * and the dashboard's health card read. Saving it here used to change only
+     * the first, so the card went on saying the year was not registered after
+     * the owner had just typed its first day — and once a year was open, no
+     * screen at all could correct its start date. Both move together now.
+     */
+    await db.transaction(async (tx) => {
+      await tx.update(schools)
+        .set({ academicYear, currentSemester, yearStartDate })
+        .where(eq(schools.id, schoolId))
+
+      if (open && yearStartDate) {
+        await tx.update(schoolYears)
+          .set({ label: academicYear, startDate: yearStartDate })
+          .where(eq(schoolYears.id, open.id))
+      } else if (yearStartDate) {
+        await tx.insert(schoolYears).values({ schoolId, label: academicYear, startDate: yearStartDate })
+      }
+    })
 
     await logAudit(access, 'settings.update', 'العام الدراسي والفصل الحالي', {
       academicYear,

@@ -27,7 +27,7 @@ export async function getDataHealth(schoolId: string): Promise<HealthItem[]> {
     db.select({ userId: teachers.userId, fullName: teachers.fullName, allGrades: teachers.allGrades, gradeLevelIds: teachers.gradeLevelIds }).from(teachers).where(eq(teachers.schoolId, schoolId)),
     // Teachers who hold at least one subject: the only ones who can open a class.
     db.selectDistinct({ userId: subjects.teacherUserId }).from(subjects).where(and(eq(subjects.schoolId, schoolId), sql`${subjects.teacherUserId} IS NOT NULL`)),
-    db.select({ id: classes.id, name: classes.name, gradeLevelId: classes.gradeLevelId, promotesTo: classes.promotesToClassId })
+    db.select({ id: classes.id, name: classes.name, gradeLevelId: classes.gradeLevelId, promotesTo: classes.promotesToClassId, isTerminal: classes.isTerminal })
       .from(classes).where(eq(classes.schoolId, schoolId)),
     db.select({ classId: students.classId, n: sql<number>`count(*)`.mapWith(Number) })
       .from(students)
@@ -139,12 +139,14 @@ export async function getDataHealth(schoolId: string): Promise<HealthItem[]> {
     })
   }
 
-  const noPromotion = classRows.filter((c) => !c.promotesTo)
+  // A class marked as the end of its path has no destination by design: its
+  // pupils graduate. Only a class with neither answer is unfinished business.
+  const noPromotion = classRows.filter((c) => !c.promotesTo && !c.isTerminal)
   if (noPromotion.length) {
     items.push({
       level: 'info',
-      title: `${noPromotion.length} فصل بلا فصل ترحيل`,
-      detail: 'طلاب هذه الفصول يُعدّون متخرّجين عند الترحيل السنوي ما لم يُحدَّد الفصل التالي.',
+      title: `فصول بلا وجهة ترحيل: ${noPromotion.length}`,
+      detail: 'طلاب هذه الفصول يبقون في فصولهم عند الترحيل السنوي حتى تُحدَّد وجهتها أو تُعلَّم «تخرّج».',
       href: '/admin/promote',
       action: 'تحديد الترحيل',
     })

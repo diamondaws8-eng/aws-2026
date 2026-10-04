@@ -292,6 +292,18 @@ export const classes = pgTable('classes', {
   promotesToClassId: uuid('promotes_to_class_id'),
 
   /**
+   * More destinations beyond the one above — JSON array of class ids.
+   *
+   * A year group does not always keep its shape: three classes of first
+   * intermediate become two of second intermediate, and one of the three has to
+   * be shared out between them. With a single destination that class could only
+   * be poured whole into one side, leaving it a dozen pupils heavier than the
+   * other. Listed here, its pupils are spread so the receiving classes end up
+   * level. Null for every class that moves up as it is, which is most of them.
+   */
+  extraPromotionClassIds: text('extra_promotion_class_ids'),
+
+  /**
    * The last class of a path: third secondary. Its pupils graduate rather than
    * move, so promotion must not silently leave them where they are for a year
    * they are no longer in.
@@ -655,6 +667,18 @@ export const schoolHolidays = pgTable('school_holidays', {
    * the distinction simply never sets it.
    */
   gradeLevelId: uuid('grade_level_id'),
+
+  /**
+   * 'holiday' | 'remote'.
+   *
+   * A day the building is shut while lessons go on from home — rain, a
+   * ministry circular — is not a holiday, but for the register it must behave
+   * exactly like one: nobody is present, nobody is absent, nothing is scored.
+   * Keeping it in this table gives it that for free, since every screen
+   * already asks this table whether a day is taught. The kind only decides
+   * what the day is called and which list it is shown in.
+   */
+  kind: text('kind').notNull().default('holiday'),
 
   name: text('name').notNull(),
   startDate: text('start_date').notNull(), // YYYY-MM-DD, inclusive

@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, Save, Undo2, CheckCircle2, XCircle } from 'lucide-react'
+import { Loader2, Save, Undo2, CheckCircle2, XCircle, CalendarX } from 'lucide-react'
 import { ATTENDANCE_STATUS, wholePercents, formatDateAr } from '@/lib/utils'
+import { closedDayPhrase } from '@/lib/school-days'
 import { correctAttendance, type AttendanceStatus } from './actions-attendance'
 
 export type RegisterRow = {
@@ -36,6 +37,11 @@ export default function AttendanceClient({ classes, classId, date, today, dayOff
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  // A closed day takes no new attendance — the action refuses it. What it does
+  // take is a correction to a row written before the day was closed: a kept
+  // register still counts, and an excuse can arrive after the fact.
+  const hasRecorded = rows.some((r) => r.status !== null)
+  const canCorrect = editable && (!dayOff || hasRecorded)
 
   const go = (next: { classId?: string | null; date?: string }) => {
     const q = new URLSearchParams()
@@ -130,10 +136,19 @@ export default function AttendanceClient({ classes, classId, date, today, dayOff
           <p className="font-bold">{formatDateAr(date)}{pending ? ' …' : ''}</p>
           <p className="text-sm text-muted-foreground">
             {recorded === 0
-              ? (dayOff ? `يوم إجازة (${dayOff}) — لا سجل متوقع` : 'لم يسجّل أي معلم هذا اليوم بعد')
+              ? (dayOff ? `${closedDayPhrase(dayOff)} — لا سجل متوقع` : 'لم يسجّل أي معلم هذا اليوم بعد')
               : `في المدرسة ${counts.present + counts.late} من ${recorded} (${inPct}%) · خارجها ${counts.absent + counts.excused} (${outPct}%)`}
           </p>
         </div>
+        {/* The figures above take the place of the closed-day line once a row
+            exists, and a day closed after it was recorded — a suspension
+            declared at noon — would then read as an ordinary day with its
+            correction column missing. */}
+        {dayOff && recorded > 0 && (
+          <p className="mt-3 text-sm rounded-xl p-3 inline-flex items-center gap-2 w-full bg-amber-50 text-amber-800">
+            <CalendarX className="size-4 shrink-0" /> {closedDayPhrase(dayOff)} — يُصحَّح فيه ما سُجِّل من قبل فقط، ولا يُضاف حضور جديد
+          </p>
+        )}
         <div className="flex flex-wrap gap-2 mt-3 text-xs font-semibold">
           {ORDER.map((s) => (
             <span key={s} className={`rounded-lg border px-2.5 py-1 ${ATTENDANCE_STATUS[s].light}`}>
@@ -155,7 +170,7 @@ export default function AttendanceClient({ classes, classId, date, today, dayOff
                 <th className="hidden sm:table-cell px-3 py-3 text-center w-10">#</th>
                 <th className="px-3 py-3 text-right">الطالب</th>
                 <th className="px-3 py-3 text-right min-w-[180px]">المسجَّل</th>
-                {editable && <th className="px-3 py-3 text-center min-w-[280px]">التصحيح</th>}
+                {canCorrect && <th className="px-3 py-3 text-center min-w-[280px]">التصحيح</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -184,7 +199,10 @@ export default function AttendanceClient({ classes, classId, date, today, dayOff
                         </p>
                       )}
                     </td>
-                    {editable && (
+                    {canCorrect && dayOff && r.status === null && (
+                      <td className="px-3 py-2.5 text-center text-xs text-muted-foreground">لا يُسجَّل في يوم مغلق</td>
+                    )}
+                    {canCorrect && !(dayOff && r.status === null) && (
                       <td className="px-3 py-2.5">
                         <div className="flex flex-wrap justify-center gap-1.5">
                           {ORDER.map((s) => {
@@ -223,7 +241,7 @@ export default function AttendanceClient({ classes, classId, date, today, dayOff
       </div>
 
       {/* Save */}
-      {editable ? (
+      {canCorrect ? (
         <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
           <p className="text-xs leading-6 text-muted-foreground">
             تصحيح الإدارة هو الكلمة الأخيرة: يتجاوز قفل المعلم، ويُسجَّل باسمك في سجل التدقيق مع السبب.
@@ -255,7 +273,7 @@ export default function AttendanceClient({ classes, classId, date, today, dayOff
             {busy ? <><Loader2 className="size-4 animate-spin" /> جاري الحفظ...</> : <><Save className="size-4" /> حفظ التصحيحات{changed.length ? ` (${changed.length})` : ''}</>}
           </button>
         </div>
-      ) : (
+      ) : !editable && (
         <p className="text-xs text-muted-foreground">حسابك للاطلاع فقط على هذه المرحلة — التصحيح متاح لمن يملك صلاحية التعديل.</p>
       )}
     </div>

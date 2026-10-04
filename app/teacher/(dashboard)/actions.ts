@@ -75,10 +75,10 @@ export async function saveDailyRecords(
   {
     const { classes: classesTable } = await import('@/lib/db/schema')
     const { getSchoolDaysConfig } = await import('@/lib/school-holidays')
-    const { nonSchoolDayReason } = await import('@/lib/school-days')
+    const { nonSchoolDayReason, closedDayPhrase } = await import('@/lib/school-days')
     const [cls] = await db.select({ gradeLevelId: classesTable.gradeLevelId }).from(classesTable).where(eq(classesTable.id, classId)).limit(1)
     const off = nonSchoolDayReason(date, await getSchoolDaysConfig(schoolId, cls?.gradeLevelId ?? null))
-    if (off) return { ok: false, error: `يوم إجازة (${off}) — لا يُسجَّل فيه حضور` }
+    if (off) return { ok: false, error: `${closedDayPhrase(off)} — لا يُسجَّل فيه حضور` }
   }
 
   const { getSchoolSettings } = await import('@/app/admin/(dashboard)/settings/actions-settings')
@@ -507,10 +507,10 @@ export async function addManualPoints(
   {
     const { classes: classesTable } = await import('@/lib/db/schema')
     const { getSchoolDaysConfig } = await import('@/lib/school-holidays')
-    const { nonSchoolDayReason } = await import('@/lib/school-days')
+    const { nonSchoolDayReason, closedDayPhrase } = await import('@/lib/school-days')
     const [cls] = await db.select({ gradeLevelId: classesTable.gradeLevelId }).from(classesTable).where(eq(classesTable.id, classId)).limit(1)
     const off = nonSchoolDayReason(today, await getSchoolDaysConfig(schoolId, cls?.gradeLevelId ?? null))
-    if (off) throw new Error(`يوم إجازة (${off}) — لا تُمنح نقاط فيه`)
+    if (off) throw new Error(`${closedDayPhrase(off)} — لا تُمنح نقاط فيه`)
   }
 
   await db.insert(studentPoints).values({

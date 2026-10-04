@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage, raiseBehaviorCase } from '../../actions'
 import type { DailyStudentRecord, AbsenceLock, BlockedAbsence } from '../../actions'
 import { termLabel as termLabelOf } from '@/lib/academic'
-import { nonSchoolDayReason, type SchoolDaysConfig } from '@/lib/school-days'
+import { nonSchoolDayReason, closedDayPhrase, closedTodayHeading, isWeeklyRest, isRemoteSuspensionName, type SchoolDaysConfig } from '@/lib/school-days'
 import { genderShort } from '@/lib/gender'
 import { rankWithTies, medalFor } from '@/lib/ranking'
 
@@ -625,7 +625,7 @@ export default function ClassRoster({
                 <>
                   <p className="text-sm font-bold">{formatDateArabic(selectedDate)}</p>
                   {dayOff && (
-                    <span className="block text-xs text-muted-foreground font-semibold">يوم إجازة ({dayOff})</span>
+                    <span className="block text-xs text-muted-foreground font-semibold">{closedDayPhrase(dayOff)}</span>
                   )}
                   {!isToday && (
                     <span className="text-xs text-amber-600 font-semibold">تعديل يوم سابق</span>
@@ -792,13 +792,19 @@ export default function ClassRoster({
             </div>
           )}
           {/* A day the stage does not teach on: the register is closed, and it
-              says why. Fridays and Saturdays by rule, holidays by name. */}
+              says why. Fridays and Saturdays by rule, holidays by name. A
+              suspension is a day of lessons from home, so it is never called
+              a holiday — but the register is just as closed. */}
           {dayOff && (
             <div className="mx-4 mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-center gap-3">
               <span className="text-xl" aria-hidden>🔒</span>
               <div>
-                <p className="font-bold">{dayOff === 'الجمعة' || dayOff === 'السبت' ? `اليوم ${dayOff} — يوم إجازة` : `إجازة: ${dayOff}`}</p>
-                <p className="text-xs mt-0.5">السجل مغلق في هذا اليوم ولا يُحفظ فيه حضور ولا تقييم. اختر يوماً دراسياً من التاريخ أعلاه.</p>
+                <p className="font-bold">{isWeeklyRest(dayOff) ? `${closedTodayHeading(dayOff)} — يوم إجازة` : closedTodayHeading(dayOff)}</p>
+                <p className="text-xs mt-0.5">
+                  {isRemoteSuspensionName(dayOff)
+                    ? 'الدراسة في هذا اليوم عن بُعد: السجل مغلق ولا يُحفظ فيه حضور ولا غياب ولا تقييم.'
+                    : 'السجل مغلق في هذا اليوم ولا يُحفظ فيه حضور ولا تقييم. اختر يوماً دراسياً من التاريخ أعلاه.'}
+                </p>
               </div>
             </div>
           )}
@@ -1357,7 +1363,7 @@ export default function ClassRoster({
                           <button
                             onClick={() => { setManualStudent(student.id); setManualError('') }}
                             disabled={!!todayOff}
-                            title={todayOff ? `يوم إجازة (${todayOff}) — لا تُمنح نقاط فيه` : undefined}
+                            title={todayOff ? `${closedDayPhrase(todayOff)} — لا تُمنح نقاط فيه` : undefined}
                             className="px-3 py-1.5 bg-muted hover:bg-muted/70 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >✏️ تعديل</button>
                         )}

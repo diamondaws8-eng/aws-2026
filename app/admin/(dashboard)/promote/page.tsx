@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { students, classes, gradeLevels } from '@/lib/db/schema'
 import { eq, and, asc, desc } from 'drizzle-orm'
 import { requireAdminAccess, canViewGrade, canEditGrade } from '@/lib/admin-access'
+import { parseExtraDestinations } from '@/lib/promotion-plan'
 import { PromoteClient } from './promote-client'
 
 export const dynamic = 'force-dynamic'
@@ -19,6 +20,7 @@ export default async function PromotePage() {
         gradeName: gradeLevels.name,
         gradeOrder: gradeLevels.orderIndex,
         promotesToClassId: classes.promotesToClassId,
+        extraPromotionClassIds: classes.extraPromotionClassIds,
         isTerminal: classes.isTerminal,
       })
       .from(classes)
@@ -51,6 +53,8 @@ export default async function PromotePage() {
       .limit(200),
   ])
 
+  const schoolClassIds = new Set(classRows.map((c) => c.id))
+
   // A deputy sees and moves only their own stages, on both ends of the move.
   const visibleClasses = classRows
     .filter((c) => canViewGrade(access, c.gradeLevelId))
@@ -61,6 +65,11 @@ export default async function PromotePage() {
       gradeOrder: c.gradeOrder ?? 0,
       canEdit: canEditGrade(access, c.gradeLevelId),
       promotesToClassId: c.promotesToClassId,
+      // The column is free text: only ids that are still classes of this school
+      // reach the editor, or it would draw a destination row it cannot name.
+      extraTargetIds: [...new Set(parseExtraDestinations(c.extraPromotionClassIds))].filter(
+        (id) => schoolClassIds.has(id) && id !== c.id && id !== c.promotesToClassId,
+      ),
       isTerminal: c.isTerminal,
     }))
 

@@ -21,6 +21,8 @@ export const NOTIFICATION_KINDS = {
   attendance_corrected: { label: 'تصحيح الحضور', icon: 'clock', tone: 'amber' },
   /** Written once, before the kind above replaced it. Kept so that row still renders. */
   late_arrival: { label: 'وصول متأخر', icon: 'clock', tone: 'amber' },
+  /** In-person study suspended (or the suspension lifted) — lessons from home. */
+  study_suspended: { label: 'الدراسة الحضورية', icon: 'laptop', tone: 'sky' },
 } as const
 
 export type NotificationKind = keyof typeof NOTIFICATION_KINDS
@@ -46,18 +48,24 @@ export async function notify(entries: NewNotification[]): Promise<number> {
   const rows = entries.filter((e) => e.recipientUserId && e.schoolId)
   if (rows.length === 0) return 0
   try {
-    await db.insert(userNotifications).values(
-      rows.map((e) => ({
-        schoolId: e.schoolId,
-        recipientUserId: e.recipientUserId,
-        kind: e.kind,
-        title: e.title.slice(0, 200),
-        body: e.body ? e.body.slice(0, 1000) : null,
-        href: e.href ?? null,
-        entityId: e.entityId ?? null,
-        actorName: e.actorName ?? null,
-      })),
-    )
+    // In batches: a closure notice goes to every family and every member of
+    // staff at once, and one statement carrying all of them is one statement
+    // that can be refused for its size.
+    const BATCH = 500
+    for (let i = 0; i < rows.length; i += BATCH) {
+      await db.insert(userNotifications).values(
+        rows.slice(i, i + BATCH).map((e) => ({
+          schoolId: e.schoolId,
+          recipientUserId: e.recipientUserId,
+          kind: e.kind,
+          title: e.title.slice(0, 200),
+          body: e.body ? e.body.slice(0, 1000) : null,
+          href: e.href ?? null,
+          entityId: e.entityId ?? null,
+          actorName: e.actorName ?? null,
+        })),
+      )
+    }
     return rows.length
   } catch (error) {
     console.error('Notification write failed:', error)
@@ -174,6 +182,106 @@ export async function staffForAnnouncement(
     byUser.set(r.userId, r.role === 'counselor' ? '/counselor/notifications' : '/admin/my-notifications')
   }
   return [...byUser].map(([userId, href]) => ({ userId, href }))
+}
+
+const stageListIncludes = (raw: string | null, gradeLevelId: string): boolean => {
+  try {
+    const ids: unknown = JSON.parse(raw ?? '[]')
+    return Array.isArray(ids) && ids.includes(gradeLevelId)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Everyone who must hear that the school — or one stage of it — is closed:
+ * the families of its pupils, the people who teach and run it, and the owner.
+ *
+ * `gradeLevelId` null means the whole school. For one stage the families are
+ * those with a pupil in it, and the staff are those whose stages include it.
+ * A teacher's stage list is a ceiling rather than a timetable, so most
+ * teachers are told; hearing about a closure that is not theirs costs a
+ * glance, and not hearing about one that is costs a wasted journey.
+ *
+ * Each person is listed once, with the inbox of the portal they read it in.
+ */
+export async function closureAudience(
+  schoolId: string,
+  gradeLevelId: string | null,
+  exceptUserId?: string,
+): Promise<{ userId: string; href: string }[]> {
+  const [parentRows, teacherRows, staffRows, [school]] = await Promise.all([
+    gradeLevelId
+      ? db
+          .select({ parentUserId: students.parentUserId })
+          .from(students)
+          .innerJoin(classes, eq(classes.id, students.classId))
+          .where(and(
+            eq(students.schoolId, schoolId),
+            eq(students.status, 'active'),
+            eq(classes.gradeLevelId, gradeLevelId),
+          ))
+      : db
+          .select({ parentUserId: students.parentUserId })
+          .from(students)
+          .where(and(eq(students.schoolId, schoolId), eq(students.status, 'active'))),
+    db
+      .select({ userId: teachers.userId, allGrades: teachers.allGrades, gradeLevelIds: teachers.gradeLevelIds })
+      .from(teachers)
+      .where(eq(teachers.schoolId, schoolId)),
+    db
+      .select({
+        userId: schoolStaff.userId,
+        role: schoolStaff.role,
+        allGrades: schoolStaff.allGrades,
+        gradeLevelIds: schoolStaff.gradeLevelIds,
+      })
+      .from(schoolStaff)
+      .where(eq(schoolStaff.schoolId, schoolId)),
+    db.select({ adminId: schools.adminId }).from(schools).where(eq(schools.id, schoolId)).limit(1),
+  ])
+
+  const covers = (allGrades: boolean, raw: string | null) =>
+    !gradeLevelId || allGrades || stageListIncludes(raw, gradeLevelId)
+
+  // Filled from the widest desk to the narrowest and never overwritten, so
+  // somebody who is both on the admin team and a parent reads it as staff.
+  const byUser = new Map<string, string>()
+  const add = (userId: string | null, href: string) => {
+    if (userId && userId !== exceptUserId && !byUser.has(userId)) byUser.set(userId, href)
+  }
+
+  add(school?.adminId ?? null, '/admin/my-notifications')
+  for (const r of staffRows) {
+    // A quality manager answers for the whole school whatever their stage list says.
+    if (r.role !== 'quality_manager' && !covers(r.allGrades, r.gradeLevelIds)) continue
+    add(r.userId, r.role === 'counselor' ? '/counselor/notifications' : '/admin/my-notifications')
+  }
+  for (const r of teacherRows) {
+    if (covers(r.allGrades, r.gradeLevelIds)) add(r.userId, '/teacher/notifications')
+  }
+  for (const r of parentRows) add(r.parentUserId, '/parent/notifications')
+
+  return [...byUser].map(([userId, href]) => ({ userId, href }))
+}
+
+/**
+ * Take a notice back out of every bell it was copied into, and say how many
+ * copies there were — which is how the caller knows whether anybody was told
+ * in the first place, and so whether they are owed a correction. Null when the
+ * withdrawal itself failed: that is not the same as "nobody was told".
+ */
+export async function withdrawNotificationsForEntity(schoolId: string, entityId: string): Promise<number | null> {
+  try {
+    const removed = await db
+      .delete(userNotifications)
+      .where(and(eq(userNotifications.schoolId, schoolId), eq(userNotifications.entityId, entityId)))
+      .returning({ id: userNotifications.id })
+    return removed.length
+  } catch (error) {
+    console.error('Notification withdrawal failed:', error)
+    return null
+  }
 }
 
 /**

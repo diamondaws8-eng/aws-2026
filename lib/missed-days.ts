@@ -1,8 +1,9 @@
 import { db } from '@/lib/db'
-import { classes, gradeLevels, lessonRecords, dailyRecords, subjects, schools } from '@/lib/db/schema'
-import { and, eq, inArray, gte, sql } from 'drizzle-orm'
+import { classes, gradeLevels, lessonRecords, dailyRecords, subjects } from '@/lib/db/schema'
+import { and, eq, inArray, gte } from 'drizzle-orm'
 import { getSchoolDaysConfig } from '@/lib/school-holidays'
 import { lastSchoolDays } from '@/lib/school-days'
+import { recordingStart } from '@/lib/recording-start'
 
 /**
  * Days a teacher's class went unrecorded.
@@ -83,20 +84,10 @@ export async function missedDaysForTeacher(
    * Without this, the morning after the trial data is wiped every teacher
    * would open the portal to a wall of red for days the school was not yet
    * recording at all — and an alert that is wrong on its first day is an
-   * alert nobody reads on its hundredth. The floor is the school's own first
-   * recorded day, or the year's start date when the owner has set one,
-   * whichever is later.
+   * alert nobody reads on its hundredth. See lib/recording-start.ts.
    */
-  const [[firstRow], [schoolRow]] = await Promise.all([
-    db
-      .select({ d: sql<string | null>`min(${dailyRecords.date})` })
-      .from(dailyRecords)
-      .where(eq(dailyRecords.schoolId, schoolId)),
-    db.select({ yearStart: schools.yearStartDate }).from(schools).where(eq(schools.id, schoolId)).limit(1),
-  ])
-  const firstRecorded = firstRow?.d ?? null
-  if (!firstRecorded) return []
-  const floor = schoolRow?.yearStart && schoolRow.yearStart > firstRecorded ? schoolRow.yearStart : firstRecorded
+  const floor = await recordingStart(schoolId)
+  if (!floor) return []
 
   // Each stage keeps its own calendar — one may teach on Saturday and another not.
   const stages = [...new Set(mine.map((c) => c.gradeLevelId))]

@@ -84,6 +84,21 @@ const DETAIL_LABELS: Record<string, string> = {
   failed: 'فشلوا',
   skippedDuplicates: 'مكرّرون تُخطّوا',
   unknownGender: 'بلا جنس محدد',
+  // The calendar and the end-of-year move.
+  startDate: 'من',
+  endDate: 'إلى',
+  stage: 'المرحلة',
+  notified: 'أُرسل إليهم إشعار',
+  unreachable: 'منهم أولياء أمور لم يفعّلوا حساباتهم',
+  skipped: 'موجودة من قبل',
+  purgedAttendance: 'سجلات حضور حُذفت',
+  purgedLessons: 'تقييمات حصص حُذفت',
+  purgedPoints: 'نقاط يدوية حُذفت',
+  split: 'وُزِّعوا على أكثر من فصل',
+  destinations: 'عدد الوجهات',
+  academicYear: 'العام الدراسي',
+  currentSemester: 'الفصل الدراسي',
+  yearStartDate: 'بداية العام',
 }
 
 function readDetails(raw: string | null): string {
