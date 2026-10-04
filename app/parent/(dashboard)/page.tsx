@@ -1,16 +1,26 @@
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { buildHonorBoards } from '@/lib/ranking'
 import Link from 'next/link'
+import { ChevronLeft } from 'lucide-react'
 import { getMyChildren, getStudentDashboard } from './actions'
+import { ExcuseForm } from './excuse-form'
 import { NotificationBell } from '@/components/notification-bell'
 import { CalendarNotice } from '@/components/calendar-notice'
+import { ParentWeekCard } from '@/components/parent-week-card'
+import { RememberChild } from '@/components/remember-child'
 import { HonorBoard } from './honor-board'
+import { requireParent } from '@/lib/parent-access'
+import { getChildWeek } from '@/lib/parent-portal'
+import { excusesForStudent } from '@/lib/absence-excuses'
+import { EXCUSE_WINDOW_DAYS } from '@/lib/excuse-rules'
 import { getLeaderboard } from '@/lib/points'
 import { getCalendarNotice } from '@/lib/school-holidays'
+import { shiftDate } from '@/lib/school-days'
 import { db } from '@/lib/db'
 import { students } from '@/lib/db/schema'
 import { and, count, eq } from 'drizzle-orm'
-import { ATTENDANCE_STATUS, formatDateAr, today } from '@/lib/utils'
+import { ATTENDANCE_STATUS, formatDayGregorianAr, today } from '@/lib/utils'
 
 /**
  * Points earned as a share of the points that were possible. It used to be an
@@ -50,6 +60,11 @@ export default async function ParentDashboardPage({
 }: {
   searchParams: Promise<{ child?: string }>
 }) {
+  // Still on the starter password: the layout shows the password card, and
+  // nothing about any child is read underneath it.
+  const access = await requireParent()
+  if (access.mustChangePassword) return null
+
   const params    = await searchParams
   const children  = await getMyChildren()
 
@@ -65,24 +80,71 @@ export default async function ParentDashboardPage({
     )
   }
 
-  const activeChildId = params.child || children[0].id
-  const dashboard     = await getStudentDashboard(activeChildId)
-  if (!dashboard) redirect('/parent') // a child id that is not theirs — back to their own children, not to the login page
+  // The id in the address is whatever was typed there. Only one of this
+  // parent's own children is ever asked about — anything else goes back to
+  // their own children, not to the login page.
+  if (params.child && !children.some((c) => c.id === params.child)) redirect('/parent')
+
+  // No child in the address: the one this device showed last, and failing that
+  // the first still at the school. The cookie is only a hint — another family
+  // may have signed in on the same phone — so it counts only when it names one
+  // of this parent's own.
+  const remembered    = (await cookies()).get('parent_child')?.value
+  const activeChild   = children.find((c) => c.id === (params.child || remembered)) ?? children[0]
+  const activeChildId = activeChild.id
+  const graduated     = activeChild.status === 'graduated'
+
+  const todayStr = today()
+  // The oldest day the portal still takes an excuse for; the action refuses
+  // anything before it.
+  const excuseSince = shiftDate(todayStr, -EXCUSE_WINDOW_DAYS)
+  // What was already sent is read much further back than that. «آخر الأيام» is
+  // the last ten days on the register, and a break stretches those well past
+  // the window — a day still listed must not lose its «قيد المراجعة», or the
+  // school's answer, only because a fortnight went by.
+  const excusesFrom = shiftDate(todayStr, -180)
+
+  // The week and the excuses are asked for beside the dashboard, not after it:
+  // parents are the largest group in the school and every wait in series is
+  // theirs. Neither is asked for a graduate — there is no week to report, and
+  // the excuse action refuses a pupil who is no longer on the rolls.
+  const [dashboard, week, excuses] = await Promise.all([
+    getStudentDashboard(activeChildId),
+    graduated ? null : getChildWeek(activeChildId, access.id, todayStr),
+    // The excuse line is an extra, and this is the page every family opens.
+    // If it cannot be read the page still comes — without the line, rather
+    // than with a form whose answer could not be saved either.
+    graduated
+      ? null
+      : excusesForStudent(activeChildId, excusesFrom).catch((error) => {
+          console.error('Parent Excuses Error:', error)
+          return null
+        }),
+  ])
+  if (!dashboard) redirect('/parent') // unlinked between the two reads — back to their own children
+  const excuseOn = new Map((excuses ?? []).map((e) => [e.date, e]))
 
   const { student, classInfo, gradeName, totalPoints, attendance, subjectCards, possiblePoints, recentRecords, recentGrades } = dashboard
   const totalSessions = attendance.present + attendance.absent + attendance.late + attendance.excused
   const perf = getPerformanceRating(totalPoints, possiblePoints)
+  // With attendance switched off the roster files every pupil as present; a
+  // «حاضر» nobody took is not reported to the family as one. The week card
+  // and the day page hold the same rule.
+  const attendanceOn = dashboard.features.attendance !== false
+  // Every figure here counts from the start of the current school year, and a
+  // pupil who graduated before it has none: a card of zeros under his name
+  // reads as a record that was wiped.
+  const showPerformance = !(graduated && totalSessions === 0 && totalPoints === 0)
 
   // The calendar of the child's own stage. A child with no class — unassigned,
   // or graduated — has no stage to ask, so the whole school's calendar answers.
   // Started here and awaited beside the honour board, not after it: parents are
   // the largest group in the school and every wait in series is theirs.
-  const todayStr = today()
   const noticePromise = getCalendarNotice(student.schoolId, classInfo?.gradeLevelId ?? null, todayStr)
 
   // The class honour board, scoped to the child's own class only — the same
   // figures the administration's board uses, from the same year boundary.
-  const [honorRows, classSize, notice] = student.classId
+  const [honorRows, classSize, notice] = student.classId && !graduated
     ? await Promise.all([
         getLeaderboard(student.schoolId, [student.classId]),
         db.select({ n: count() }).from(students)
@@ -94,6 +156,7 @@ export default async function ParentDashboardPage({
 
   return (
     <div className="px-4 py-8 max-w-4xl mx-auto space-y-6">
+      <RememberChild id={activeChildId} />
 
       {/* ── Child Switcher ───────────────────────────────────────────────────── */}
       {children.length > 1 && (
@@ -116,9 +179,12 @@ export default async function ParentDashboardPage({
               >
                 <span>{child.gender === 'female' ? '👧' : '👦'}</span>
                 {label}
-                {child.className && (
+                {/* A graduate has no class left to name; a bare name beside
+                    the other children's classes would read as a child not
+                    yet placed in one. */}
+                {(child.status === 'graduated' || child.className) && (
                   <span className={`text-[11px] font-normal ${child.id === activeChildId ? 'opacity-80' : 'text-muted-foreground'}`}>
-                    · {child.className}
+                    · {child.status === 'graduated' ? 'متخرّج' : child.className}
                   </span>
                 )}
               </a>
@@ -145,10 +211,28 @@ export default async function ParentDashboardPage({
         </div>
       </div>
 
+      {/* ── Graduate ─────────────────────────────────────────────────────────── */}
+      {/* Said once, at the top: a graduate has no class, no subjects and no
+          week, and without this a family reads the empty page as a fault. */}
+      {graduated && (
+        <div className="rounded-2xl border border-border bg-muted/40 p-4">
+          <p className="text-sm font-bold">
+            متخرّج{activeChild.graduationYear ? ` — عام ${activeChild.graduationYear}` : ''}
+          </p>
+          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+            ما يظهر هنا يخص العام الدراسي الحالي فقط؛ سجلات أعوامه السابقة محفوظة لدى إدارة المدرسة.
+          </p>
+        </div>
+      )}
+
       {/* ── Calendar ─────────────────────────────────────────────────────────── */}
       <CalendarNotice notice={notice} today={todayStr} />
 
+      {/* ── This week ────────────────────────────────────────────────────────── */}
+      {week && <ParentWeekCard week={week} childId={activeChildId} />}
+
       {/* ── Performance Card ─────────────────────────────────────────────────── */}
+      {showPerformance && (
       <div className="bg-card border border-border rounded-3xl p-5 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-bold text-lg">الأداء العام</h2>
@@ -175,6 +259,7 @@ export default async function ParentDashboardPage({
         {/* Two across on a phone. Four tiles on a 375px screen leave about 76px
             each, and "حضور حصة" then breaks across two lines under the number.
             Parents read this on a phone almost exclusively. */}
+        {attendanceOn && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             // Days, not lessons: the register is one row per pupil per day,
@@ -192,13 +277,15 @@ export default async function ParentDashboardPage({
             </div>
           ))}
         </div>
+        )}
 
-        {totalSessions > 0 && (
+        {attendanceOn && totalSessions > 0 && (
           <p className="text-xs text-muted-foreground text-center mt-3">
             أيام مسجَّلة في الحضور: {totalSessions} يوم
           </p>
         )}
       </div>
+      )}
 
       {/* ── Last days and latest marks ───────────────────────────────────────── */}
       {/* Fetched from the first day, never shown: a parent had the totals but not
@@ -210,15 +297,40 @@ export default async function ParentDashboardPage({
             {recentRecords.length === 0 ? (
               <p className="text-sm text-muted-foreground">لم يُسجَّل حضور بعد</p>
             ) : (
-              <ul className="space-y-1.5">
+              // No gap between the rows: each one is a link the height of a
+              // thumb, and that height is the spacing.
+              <ul>
                 {recentRecords.map((r) => {
                   const s = ATTENDANCE_STATUS[r.attendanceStatus as keyof typeof ATTENDANCE_STATUS]
+                  // An absence still inside the window can be excused from
+                  // here. A day that already has an excuse keeps its line
+                  // whatever the register says now — accepting one turns the
+                  // day into «إذن», and the answer belongs beside it.
+                  const excuse = excuseOn.get(r.date) ?? null
+                  const excusable = !!excuses && attendanceOn && r.attendanceStatus === 'absent' && r.date >= excuseSince
                   return (
-                    <li key={r.id} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="text-muted-foreground">{formatDateAr(r.date)}</span>
-                      <span className={`rounded-lg border px-2 py-0.5 text-xs font-bold ${s?.light ?? 'bg-muted text-muted-foreground border-border'}`}>
-                        {s?.label ?? r.attendanceStatus}
-                      </span>
+                    <li key={r.id}>
+                      <Link
+                        href={`/parent/day/${r.date}?child=${activeChildId}`}
+                        className="flex items-center justify-between gap-2 min-h-10 text-sm"
+                      >
+                        <span className="text-muted-foreground">{formatDayGregorianAr(r.date)}</span>
+                        <span className="flex shrink-0 items-center gap-1">
+                          {attendanceOn && (
+                            <span className={`rounded-lg border px-2 py-0.5 text-xs font-bold ${s?.light ?? 'bg-muted text-muted-foreground border-border'}`}>
+                              {s?.label ?? r.attendanceStatus}
+                            </span>
+                          )}
+                          <ChevronLeft className="size-4 text-muted-foreground" />
+                        </span>
+                      </Link>
+                      {/* Below the link, never inside it: a button in a link
+                          would open the day instead of the form. */}
+                      {(excuse || excusable) && (
+                        <div className="pb-2">
+                          <ExcuseForm studentId={activeChildId} date={r.date} excuse={excuse} canWrite={excusable} />
+                        </div>
+                      )}
                     </li>
                   )
                 })}
@@ -252,7 +364,7 @@ export default async function ParentDashboardPage({
       )}
 
       {/* ── Class honour board ───────────────────────────────────────────────── */}
-      {student.classId && (
+      {student.classId && !graduated && (
         <HonorBoard
           boards={buildHonorBoards(honorRows, student.id)}
           childFirstName={student.fullName.split(' ')[0]}
@@ -268,7 +380,9 @@ export default async function ParentDashboardPage({
           <div className="text-center py-12 bg-card border border-border rounded-3xl">
             <div className="text-4xl mb-2">📚</div>
             <p className="text-muted-foreground text-sm">
-              {!classInfo
+              {graduated
+                ? 'تخرّج الطالب — لا مواد دراسية حالية'
+                : !classInfo
                 ? 'لم يُحدَّد فصل لهذا الطالب بعد'
                 : 'لم تُضَف مواد لهذا الفصل بعد'}
             </p>
@@ -278,14 +392,8 @@ export default async function ParentDashboardPage({
             {subjectCards.map(sub => {
               const subPts = sub.points
               const hasData = sub.presentCount > 0 || sub.absentCount > 0 || sub.excusedCount > 0 || subPts !== 0
-              return (
-                <Link
-                  key={sub.id}
-                  href={`/parent/subject/${sub.id}?child=${activeChildId}`}
-                  className={`block bg-card border rounded-3xl p-5 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 ${
-                    !hasData ? 'opacity-60 border-border' : 'border-border hover:border-primary/30'
-                  }`}
-                >
+              const card = (
+                <>
                   {/* Subject header */}
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3">
@@ -336,6 +444,30 @@ export default async function ParentDashboardPage({
                       {sub.latestNote}
                     </div>
                   )}
+                </>
+              )
+              // A subject's page is its teacher's records. With nobody assigned
+              // it only sends the family straight back here, so the card is not
+              // a link and does not lift like one.
+              if (!sub.teacherName) {
+                return (
+                  <div
+                    key={sub.id}
+                    className={`bg-card border border-border rounded-3xl p-5 shadow-sm ${!hasData ? 'opacity-60' : ''}`}
+                  >
+                    {card}
+                  </div>
+                )
+              }
+              return (
+                <Link
+                  key={sub.id}
+                  href={`/parent/subject/${sub.id}?child=${activeChildId}`}
+                  className={`block bg-card border rounded-3xl p-5 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 ${
+                    !hasData ? 'opacity-60 border-border' : 'border-border hover:border-primary/30'
+                  }`}
+                >
+                  {card}
                 </Link>
               )
             })}

@@ -50,8 +50,10 @@ export default async function SubjectDetailsPage({
 
   if (!childId) redirect('/parent')
 
+  // Back to the child they were looking at — bare /parent opens the first
+  // child, which for a family with several is usually somebody else.
   const details = await getSubjectDetails(childId, subjectId)
-  if (!details) redirect('/parent')
+  if (!details) redirect(`/parent?child=${encodeURIComponent(childId)}`)
 
   const { student, subject, teacher, records, points, grades } = details
 
@@ -80,7 +82,7 @@ export default async function SubjectDetailsPage({
         <div>
         <h1 className="text-2xl font-bold">{subject.name}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          المعلم: <span className="font-semibold">{teacher.fullName}</span>
+          المعلم: <span className="font-semibold">{teacher?.fullName ?? 'غير محدد'}</span>
           {' — '}
           الطالب: <span className="font-semibold">{student.fullName}</span>
         </p>

@@ -1,4 +1,8 @@
 import Link from 'next/link'
+import { headers } from 'next/headers'
+import { redirect } from 'next/navigation'
+import { auth } from '@/lib/auth'
+import { homePortalFor } from '@/lib/home-portal'
 import { ArrowLeft, GraduationCap, School, UsersRound, Sparkles, HeartHandshake, ShieldCheck, BellRing, LineChart } from 'lucide-react'
 import { BrandLogo } from '@/components/brand-logo'
 import { ThemeToggle } from '@/components/theme-toggle'
@@ -49,7 +53,21 @@ const promises = [
   { icon: LineChart, text: 'نقاط ودرجات وحضور بأرقام لا تتناقض' },
 ]
 
-export default function HomePage() {
+/**
+ * The front door — and the page the home-screen icon opens.
+ *
+ * An installed app has no address bar: whoever taps the icon lands here, and
+ * choosing a portal led to a sign-in form even with a session still alive, so
+ * a parent typed the password again on every launch. Somebody already signed
+ * in is sent to the portal that is theirs; everybody else chooses one.
+ */
+export default async function HomePage() {
+  const session = await auth.api.getSession({ headers: await headers() }).catch(() => null)
+  if (session?.user) {
+    const home = await homePortalFor(session.user.id, session.user.role).catch(() => null)
+    if (home) redirect(home)
+  }
+
   return (
     <main data-portal="admin" className="portal-shell relative min-h-screen overflow-hidden px-5 py-12 lg:px-12">
       <MotionLayer />

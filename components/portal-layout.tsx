@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { authClient } from '@/lib/auth-client'
+import { silencePushHere } from '@/components/push-resume'
 import { cn } from '@/lib/utils'
 import {
   School,
@@ -152,6 +153,10 @@ export function PortalLayout({ role, user, schoolName, links, roleLabel, childre
   async function handleLogout() {
     setLoggingOut(true)
     try {
+      // While the session still exists: the server only forgets a phone for
+      // the person it can see is asking.
+      await silencePushHere()
+      try { sessionStorage.removeItem('push-resumed') } catch {}
       await authClient.signOut()
       router.push(nav.loginHref)
       router.refresh()

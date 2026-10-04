@@ -214,3 +214,13 @@ export function parentEmailCandidates(phone: string | null | undefined): string[
   const forms = [key, raw, `0${key}`, `966${key}`].filter(Boolean)
   return [...new Set(forms)].map((d) => `${d}@parent.midad.local`)
 }
+
+/**
+ * Whether a value has the shape of a row id. Ids arrive from the address bar
+ * and from anybody calling an action by hand, and the columns are uuid:
+ * Postgres throws on anything else instead of finding nothing, so the shape is
+ * checked before the question is asked.
+ */
+export function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}

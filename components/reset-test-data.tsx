@@ -17,6 +17,7 @@ const LABELS: Record<string, string> = {
   parentWhatsappMessages: 'رسائل الواتساب المسجَّلة',
   parentActivationLog: 'سجل التفعيل',
   attendance: 'الحضور القديم',
+  absenceExcuses: 'أعذار الغياب',
   students: 'الطلاب',
   parentAccounts: 'حسابات أولياء الأمور',
   teachers: 'المعلمون',

@@ -22,7 +22,7 @@ const parseIds = (raw: string | null): string[] => {
  * Shown on the dashboard until they are done, with the page that does them.
  */
 export async function getDataHealth(schoolId: string): Promise<HealthItem[]> {
-  const [gradeRows, teacherSeats, assignedTeacherRows, classRows, pupilCounts, unassigned, duplicates, staffRows, openYear, lastBackup, activation] = await Promise.all([
+  const [gradeRows, teacherSeats, assignedTeacherRows, classRows, pupilCounts, unassigned, duplicates, staffRows, openYear, lastBackup, activation, noIdentityRows] = await Promise.all([
     db.select({ id: gradeLevels.id, name: gradeLevels.name }).from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)),
     db.select({ userId: teachers.userId, fullName: teachers.fullName, allGrades: teachers.allGrades, gradeLevelIds: teachers.gradeLevelIds }).from(teachers).where(eq(teachers.schoolId, schoolId)),
     // Teachers who hold at least one subject: the only ones who can open a class.
@@ -55,6 +55,15 @@ export async function getDataHealth(schoolId: string): Promise<HealthItem[]> {
       .where(and(eq(auditLog.schoolId, schoolId), eq(auditLog.action, 'backup.export')))
       .orderBy(desc(auditLog.createdAt)).limit(1),
     parentActivation(schoolId),
+    // Fewer than five digits is no number at all — the same reading the
+    // parent's first sign-in gives it (lib/parent-access.ts).
+    db.select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(students)
+      .where(and(
+        eq(students.schoolId, schoolId),
+        eq(students.status, 'active'),
+        sql`length(regexp_replace(coalesce(${students.nationalId}, ''), '[^0-9]', '', 'g')) < 5`,
+      )),
   ])
 
   const gradeName = new Map(gradeRows.map((g) => [g.id, g.name]))
@@ -136,6 +145,20 @@ export async function getDataHealth(schoolId: string): Promise<HealthItem[]> {
       detail: duplicates.map((d) => `${d.nationalId}: ${d.names}`).join(' · '),
       href: '/admin/students',
       action: 'تصحيح الأرقام',
+    })
+  }
+
+  // A family proves it owns its account with a child's identity number the
+  // first time it signs in. A pupil without one on file leaves the family
+  // unable to activate at all — said here, before the invitations go out.
+  const noIdentity = noIdentityRows[0]?.n ?? 0
+  if (noIdentity > 0) {
+    items.push({
+      level: 'warn',
+      title: `${noIdentity} طالباً بلا رقم هوية مسجَّل`,
+      detail: 'ولي الأمر يثبت أنه صاحب الحساب برقم هوية ابنه عند أول دخول؛ بلا رقم مسجَّل لا يستطيع تفعيل حسابه.',
+      href: '/admin/students',
+      action: 'تسجيل أرقام الهوية',
     })
   }
 

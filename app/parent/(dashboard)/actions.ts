@@ -1,38 +1,33 @@
 'use server'
 
-import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { students, dailyRecords, lessonRecords, subjects, teachers, user, classes, gradeLevels, gradeEntries, account, schools, studentPoints } from '@/lib/db/schema'
-import { eq, and, sql, desc, gte, inArray } from 'drizzle-orm'
+import { students, dailyRecords, lessonRecords, subjects, teachers, user, classes, gradeLevels, gradeEntries, account, session, schools, studentPoints } from '@/lib/db/schema'
+import { eq, and, ne, sql, desc, gte, inArray } from 'drizzle-orm'
 import { hashPassword } from 'better-auth/crypto'
-import { headers } from 'next/headers'
-import { redirect } from 'next/navigation'
-import { homePortalFor } from '@/lib/home-portal'
+import {
+  getParentAccess, requireParent, childIdentityNumbers,
+  countIdentityTry, clearIdentityTries, IDENTITY_TRIES_PER_HOUR,
+} from '@/lib/parent-access'
+import { asciiDigits, isUuid } from '@/lib/utils'
+import { after } from 'next/server'
 import { getStudentPointsTotal, getManualPoints, deriveLessonEntries, yearStartForStudent, maxPossiblePoints } from '@/lib/points'
 
-// ─── Auth helper ──────────────────────────────────────────────────────────────
-export async function requireParent() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) redirect('/parent/login')
-  if (session.user.role !== 'parent') redirect((await homePortalFor(session.user.id, session.user.role)) ?? '/')
-  return session.user
-}
+// The guard lives in lib/parent-access.ts: every export of this file is a
+// public endpoint, and a guard is not something to expose as one. Each reader
+// below answers nothing while the account is still on the starter password —
+// the layout's password card does not stop the page under it from asking.
 
 // ─── First-login password setup ───────────────────────────────────────────────
 // Only usable while the account is still flagged, so it can never be used to
 // bypass the normal "enter your current password" flow later on.
-export async function setOwnParentPassword(newPassword: string, confirmPassword: string) {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) return { ok: false as const, error: 'انتهت الجلسة، سجّل الدخول من جديد' }
+export async function setOwnParentPassword(newPassword: string, confirmPassword: string, childNationalId?: string) {
+  const me = await getParentAccess()
+  if (!me) return { ok: false as const, error: 'انتهت الجلسة، سجّل الدخول من جديد' }
+  if (!me.mustChangePassword) return { ok: false as const, error: 'لا حاجة لتغيير كلمة المرور' }
 
-  const [me] = await db
-    .select({ mustChange: user.mustChangePassword })
-    .from(user)
-    .where(eq(user.id, session.user.id))
-    .limit(1)
-  if (!me?.mustChange) return { ok: false as const, error: 'لا حاجة لتغيير كلمة المرور' }
-
-  if (newPassword !== confirmPassword) {
+  // The password itself first: nothing here is worth a try at the identity
+  // number if it would be refused for its shape anyway.
+  if (typeof newPassword !== 'string' || newPassword !== confirmPassword) {
     return { ok: false as const, error: 'كلمتا المرور غير متطابقتين' }
   }
   // Eight, like every other portal — and like the parent settings page itself,
@@ -41,17 +36,65 @@ export async function setOwnParentPassword(newPassword: string, confirmPassword:
   if (newPassword.length < 8) {
     return { ok: false as const, error: 'كلمة المرور يجب أن تكون 8 أحرف أو أرقام على الأقل' }
   }
+  if (newPassword.length > 128) {
+    return { ok: false as const, error: 'كلمة المرور طويلة جداً' }
+  }
   if (newPassword === '12345678') {
     return { ok: false as const, error: 'لا يمكن استخدام كلمة المرور الافتراضية — اختر كلمة خاصة بك' }
   }
 
+  // Whoever chooses the password owns the account from then on, and the
+  // starter password is public. One of the children's identity numbers is what
+  // tells the family from somebody who merely knows their phone number. With
+  // no number on file there is nothing to tell them apart by, so the account
+  // waits for the office to record one rather than go to whoever comes first.
+  try {
+    const known = await childIdentityNumbers(me.id)
+    if (known.length === 0) {
+      return { ok: false as const, error: 'رقم هوية ابنك غير مسجَّل لدى المدرسة بعد — تواصل مع إدارة المدرسة لتسجيله، ثم فعّل حسابك' }
+    }
+    const given = asciiDigits(String(childNationalId ?? '')).replace(/\D/g, '')
+    if (!given) return { ok: false as const, error: 'اكتب رقم هوية أحد أبنائك كما هو مسجَّل لدى المدرسة' }
+    if ((await countIdentityTry(me.id)) > IDENTITY_TRIES_PER_HOUR) {
+      return { ok: false as const, error: 'محاولات كثيرة برقم هوية غير صحيح — حاول بعد ساعة، أو تواصل مع إدارة المدرسة' }
+    }
+    if (!known.includes(given)) {
+      return { ok: false as const, error: 'رقم الهوية لا يطابق المسجَّل لدى المدرسة — راجعه، أو تواصل مع إدارة المدرسة' }
+    }
+  } catch (error) {
+    // Refuse rather than wave through: an unanswered check is not a passed one.
+    console.error('Parent Identity Check Error:', error)
+    return { ok: false as const, error: 'تعذّر التحقق الآن — حاول مرة أخرى' }
+  }
+
   try {
     const hashed = await hashPassword(newPassword)
-    await db.update(account).set({ password: hashed, updatedAt: new Date() })
-      .where(and(eq(account.userId, session.user.id), eq(account.providerId, 'credential')))
-    await db.update(user)
-      .set({ mustChangePassword: false, updatedAt: new Date() })
-      .where(eq(user.id, session.user.id))
+    const others = and(eq(session.userId, me.id), ne(session.token, me.sessionToken))
+    await db.transaction(async (tx) => {
+      await tx.update(account).set({ password: hashed, updatedAt: new Date() })
+        .where(and(eq(account.userId, me.id), eq(account.providerId, 'credential')))
+      await tx.update(user)
+        .set({ mustChangePassword: false, updatedAt: new Date() })
+        .where(eq(user.id, me.id))
+      // The starter password is the same for every family, so somebody else may
+      // already be signed in with it. Left open, that session would be let into
+      // the portal the moment the flag above clears. This browser keeps its own.
+      await tx.delete(session).where(others)
+    })
+    await clearIdentityTries(me.id).catch(() => {})
+    // Swept once more a moment later. A sign-in with the starter password that
+    // was already under way read the old password before the lines above and
+    // writes its session after them — and would come out the other side as an
+    // ordinary, unlocked session. Nobody signs in with the new password on a
+    // second device inside three seconds; anything that appears in them is that.
+    try {
+      after(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 3000))
+        await db.delete(session).where(others).catch((error) => console.error('Parent Session Sweep Error:', error))
+      })
+    } catch {
+      // Outside a request there is nothing to wait behind.
+    }
     return { ok: true as const }
   } catch (error) {
     console.error('Set Parent Password Error:', error)
@@ -61,7 +104,8 @@ export async function setOwnParentPassword(newPassword: string, confirmPassword:
 
 // ─── Get all children for this parent ────────────────────────────────────────
 export async function getMyChildren() {
-  const user = await requireParent()
+  const parent = await requireParent()
+  if (parent.mustChangePassword) return []
   // The class comes along so the switcher can tell two children apart —
   // by first name alone, siblings in two buildings both read as «محمد».
   return db
@@ -71,16 +115,22 @@ export async function getMyChildren() {
       classId: students.classId,
       className: classes.name,
       gender: students.gender,
+      status: students.status,
+      graduationYear: students.graduationYear,
     })
     .from(students)
     .leftJoin(classes, eq(students.classId, classes.id))
-    .where(eq(students.parentUserId, user.id))
-    .orderBy(students.fullName)
+    .where(eq(students.parentUserId, parent.id))
+    // Pupils still at the school first: the portal opens on the first child,
+    // and by name alone that could be a brother who graduated two years ago.
+    .orderBy(sql`CASE WHEN ${students.status} = 'active' THEN 0 ELSE 1 END`, students.fullName)
 }
 
 // ─── Get comprehensive student data ──────────────────────────────────────────
 export async function getStudentDashboard(studentId: string) {
   const parentUser = await requireParent()
+  if (parentUser.mustChangePassword) return null
+  if (!isUuid(studentId)) return null
 
   // Verify ownership
   const [student] = await db
@@ -308,6 +358,8 @@ export async function getStudentDashboard(studentId: string) {
     recentRecords,
     recentGrades,
     subjectCards,
+    /** What the school has switched on — a register nobody takes is not shown as attendance. */
+    features: settings.features,
   }
 }
 
@@ -320,6 +372,8 @@ export async function getStudentDashboard(studentId: string) {
 // ─── Get Subject Details ──────────────────────────────────────────────────────
 export async function getSubjectDetails(studentId: string, subjectId: string) {
   const parentUser = await requireParent()
+  if (parentUser.mustChangePassword) return null
+  if (!isUuid(studentId) || !isUuid(subjectId)) return null
 
   // Verify ownership
   const [student] = await db
@@ -339,12 +393,16 @@ export async function getSubjectDetails(studentId: string, subjectId: string) {
 
   if (!subject || subject.classId !== student.classId || !subject.teacherUserId) return null
 
-  // Get teacher info
-  const [teacher] = await db
-    .select()
+  // The name and nothing else: the teacher's row also holds their phone number
+  // and their private message templates, and whatever is returned from here is
+  // sent to the family's browser. A subject can outlive its teacher's row, so
+  // a missing one is an answer, not a crash.
+  const [teacherRow] = await db
+    .select({ fullName: teachers.fullName })
     .from(teachers)
     .where(eq(teachers.userId, subject.teacherUserId))
     .limit(1)
+  const teacher: { fullName: string } | null = teacherRow ?? null
 
   // This year only, like every figure on the parent's screens. Last year's
   // lessons are read from the archive, not scrolled past under this year's.

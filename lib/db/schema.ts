@@ -687,3 +687,62 @@ export const schoolHolidays = pgTable('school_holidays', {
 }, (t) => [
   index('school_holidays_school_idx').on(t.schoolId, t.startDate),
 ])
+
+// ─── Absence excuses (أعذار الغياب) ──────────────────────────────────────────
+/**
+ * A family's reason for a day their child was marked absent.
+ *
+ * The absence notice tells the family to contact the school if there is an
+ * excuse, and until now gave them nowhere to do it: a phone call the office
+ * may or may not write down. Here the reason is written by the parent, read
+ * by whoever runs the child's stage, and answered. Accepting it turns that
+ * day's absence into an excused one — the same change the office could make
+ * by hand, now with the family's own words kept beside it.
+ *
+ * One per pupil per day: a second excuse for the same absence is the first
+ * one rewritten, not a new case.
+ */
+export const absenceExcuses = pgTable('absence_excuses', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  schoolId: uuid('school_id').notNull(),
+  studentId: uuid('student_id').notNull(),
+  /** The class the pupil was in that day — it decides whose desk this lands on. */
+  classId: uuid('class_id'),
+  parentUserId: text('parent_user_id').notNull(),
+  date: text('date').notNull(),              // YYYY-MM-DD, the day of the absence
+  reason: text('reason').notNull(),
+  /** pending | accepted | rejected */
+  status: text('status').notNull().default('pending'),
+  decidedByUserId: text('decided_by_user_id'),
+  decidedByName: text('decided_by_name'),
+  decidedAt: timestamp('decided_at', { withTimezone: true }),
+  /** What the office told the family — shown to them, so never internal notes. */
+  decisionNote: text('decision_note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex('absence_excuses_student_date_uq').on(t.studentId, t.date),
+  index('absence_excuses_school_status_idx').on(t.schoolId, t.status),
+])
+
+// ─── Push subscriptions (الإشعارات الفورية) ──────────────────────────────────
+/**
+ * A browser that agreed to be woken when something lands in its owner's bell.
+ *
+ * The bell only rings for somebody who has the site open. A family told that
+ * an absence "reaches you the moment it is recorded" hears nothing until they
+ * next think to look — so a phone that has installed the site and said yes is
+ * nudged, and fetches the notice itself. One row per browser; a person with a
+ * phone and a tablet has two.
+ */
+export const pushSubscriptions = pgTable('push_subscriptions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('user_id').notNull(),          // FK → user.id
+  endpoint: text('endpoint').notNull(),
+  p256dh: text('p256dh'),
+  auth: text('auth'),
+  userAgent: text('user_agent'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex('push_subscriptions_endpoint_uq').on(t.endpoint),
+  index('push_subscriptions_user_idx').on(t.userId),
+])

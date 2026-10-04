@@ -312,7 +312,7 @@ export async function saveDailyRecords(
           recipientUserId: s.parentUserId!,
           kind: 'absence' as const,
           title: `غياب: ${s.fullName}`,
-          body: `تم تسجيل غياب ${s.fullName} اليوم ${formatDateAr(date)}. إن كان هناك عذر فيرجى التواصل مع المدرسة.`,
+          body: `تم تسجيل غياب ${s.fullName} اليوم ${formatDateAr(date)}. إن كان هناك عذر فأرسله من البوابة بزر «تقديم عذر» بجانب يوم الغياب.`,
           href: `/parent?child=${s.id}`,
           entityId: s.id,
           actorName: access.fullName,

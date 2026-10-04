@@ -1,12 +1,15 @@
 'use client'
 
 import { authClient } from '@/lib/auth-client'
+import { silencePushHere } from '@/components/push-resume'
 import { useRouter } from 'next/navigation'
 
 export function LogoutButton() {
   const router = useRouter()
 
   async function handleLogout() {
+    await silencePushHere()
+    try { sessionStorage.removeItem('push-resumed') } catch {}
     await authClient.signOut()
     router.push('/parent/login')
   }

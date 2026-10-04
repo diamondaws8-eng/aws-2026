@@ -4,12 +4,14 @@ import { db } from '@/lib/db'
 import {
   students, user, account, classes, session,
   dailyRecords, studentPoints, attendance, gradeEntries, parentWhatsappMessages, notifications,
-  lessonRecords, behaviorCases, userNotifications, parentActivationLog,
+  lessonRecords, behaviorCases, userNotifications, parentActivationLog, absenceExcuses, pushSubscriptions,
 } from '@/lib/db/schema'
 import { eq, and, inArray, ne } from 'drizzle-orm'
 import { parentEmail, parentEmailCandidates, asciiDigits, canonicalMobile } from '@/lib/utils'
 import { normalizeGender } from '@/lib/gender'
 import { revalidatePath } from 'next/cache'
+import { clearIdentityTries } from '@/lib/parent-access'
+import { PARENT_ACCOUNT_NAME } from '@/lib/parent-activation'
 import { auth } from '@/lib/auth'
 import { headers } from 'next/headers'
 import { hashPassword } from 'better-auth/crypto'
@@ -94,7 +96,7 @@ export async function addStudent(input: any) {
       if (!existingUser) {
         try {
           await auth.api.signUpEmail({
-            body: { email: parentEmailAddr, password: DEFAULT_PARENT_PASSWORD, name: `ولي أمر ${input.fullName}` }
+            body: { email: parentEmailAddr, password: DEFAULT_PARENT_PASSWORD, name: PARENT_ACCOUNT_NAME }
           })
           await db.update(user)
             .set({ role: 'parent', mustChangePassword: true, updatedAt: new Date() })
@@ -163,6 +165,9 @@ export async function deleteStudent(id: string) {
       await tx.delete(gradeEntries).where(eq(gradeEntries.studentId, id))
       await tx.delete(parentWhatsappMessages).where(eq(parentWhatsappMessages.studentId, id))
       await tx.delete(notifications).where(eq(notifications.studentId, id))
+      // The reasons the family sent for this pupil's absences: left behind,
+      // a pending one would sit on the office's desk about nobody.
+      await tx.delete(absenceExcuses).where(eq(absenceExcuses.studentId, id))
 
       // Behaviour cases, and the bell entries that point at them — a teacher or
       // counsellor left holding a notification for a case about a pupil who no
@@ -187,6 +192,7 @@ export async function deleteStudent(id: string) {
         await tx.delete(parentActivationLog).where(eq(parentActivationLog.parentUserId, parentToRemove))
         await tx.delete(account).where(eq(account.userId, parentToRemove))
         await tx.delete(session).where(eq(session.userId, parentToRemove))
+        await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, parentToRemove))
         await tx.delete(user).where(eq(user.id, parentToRemove))
       }
     })
@@ -252,7 +258,7 @@ export async function editStudent(id: string, input: any) {
       if (!existingUser) {
         try {
           await auth.api.signUpEmail({
-            body: { email: parentEmailAddr, password: DEFAULT_PARENT_PASSWORD, name: `ولي أمر ${input.fullName}` }
+            body: { email: parentEmailAddr, password: DEFAULT_PARENT_PASSWORD, name: PARENT_ACCOUNT_NAME }
           })
           await db.update(user)
             .set({ role: 'parent', mustChangePassword: true, updatedAt: new Date() })
@@ -378,7 +384,7 @@ export async function importStudents(
         if (!existingUser) {
           try {
             await auth.api.signUpEmail({
-              body: { email: parentEmailAddr, password: DEFAULT_PARENT_PASSWORD, name: `ولي أمر ${row.fullName.trim()}` }
+              body: { email: parentEmailAddr, password: DEFAULT_PARENT_PASSWORD, name: PARENT_ACCOUNT_NAME }
             })
             await db
               .update(user)
@@ -504,16 +510,29 @@ export async function resetParentPassword(studentId: string, schoolId: string) {
       return { ok: false, error: 'لا يوجد حساب ولي أمر مرتبط بهذا الطالب' }
     }
 
+    const parentUserId = student.parentUserId
     const tempPassword = generateParentPassword()
     const hashed = await hashPassword(tempPassword)
 
-    await db.update(account).set({ password: hashed, updatedAt: new Date() })
-      .where(and(eq(account.userId, student.parentUserId), eq(account.providerId, 'credential')))
+    await db.transaction(async (tx) => {
+      await tx.update(account).set({ password: hashed, updatedAt: new Date() })
+        .where(and(eq(account.userId, parentUserId), eq(account.providerId, 'credential')))
 
-    // The temporary password is only a way back in — the parent must replace it.
-    await db.update(user)
-      .set({ mustChangePassword: true, updatedAt: new Date() })
-      .where(eq(user.id, student.parentUserId))
+      // The temporary password is only a way back in — the parent must replace it.
+      await tx.update(user)
+        .set({ mustChangePassword: true, updatedAt: new Date() })
+        .where(eq(user.id, parentUserId))
+
+      // A reset is asked for when the password is forgotten — or when somebody
+      // else has it. Whoever is signed in with the old one leaves with it.
+      await tx.delete(session).where(eq(session.userId, parentUserId))
+      // And their phones stop being woken: a device left subscribed would go
+      // on learning when the school wrote about the child, even signed out.
+      // The family's own phone registers again when it next signs in.
+      await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, parentUserId))
+    })
+    // A family locked out by wrong identity numbers gets a clean start too.
+    await clearIdentityTries(parentUserId).catch(() => {})
 
     await logAudit(access, 'student.parentPasswordReset', student.fullName, { parentPhone: student.parentPhone })
 

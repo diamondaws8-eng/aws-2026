@@ -14,8 +14,9 @@ export const metadata: Metadata = {
   applicationName: 'مدارس الأوس الأهلية',
   icons: {
     icon: [{ url: '/logo.jpg' }],
-    apple: '/logo.jpg',
+    apple: '/icon-192.png',
   },
+  appleWebApp: { capable: true, title: 'الأوس', statusBarStyle: 'default' },
 }
 
 export const viewport: Viewport = {

@@ -4,6 +4,9 @@ import { useState } from 'react'
 import { AppearanceSettings } from '@/components/appearance-settings'
 import { authClient } from '@/lib/auth-client'
 import { NotificationBell } from '@/components/notification-bell'
+import { PushOptIn } from '@/components/push-opt-in'
+import { subscriptionHere } from '@/components/push-resume'
+import { dropOtherPushSubscriptions } from '@/app/push-actions'
 
 export default function ParentSettingsPage() {
   const [currentPassword, setCurrentPassword] = useState('')
@@ -32,6 +35,10 @@ export default function ParentSettingsPage() {
       } else {
         setStatus('success'); setMessage('تم تغيير كلمة المرور بنجاح! ✅')
         setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')
+        // The other devices were just signed out; they stop being woken too.
+        subscriptionHere()
+          .then((sub) => dropOtherPushSubscriptions(sub?.endpoint ?? null))
+          .catch(() => {})
       }
     } catch {
       setStatus('error'); setMessage('حدث خطأ غير متوقع.')
@@ -47,6 +54,8 @@ export default function ParentSettingsPage() {
         </div>
         <NotificationBell />
       </div>
+
+      <PushOptIn />
 
       <div className="bg-card border border-border rounded-3xl p-6">
         <h2 className="text-lg font-bold mb-5">تغيير كلمة المرور</h2>

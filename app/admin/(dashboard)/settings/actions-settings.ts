@@ -6,6 +6,7 @@ import {
   schools, gradeLevels, classes, teachers, students, subjects, attendance,
   gradeEntries, notifications, dailyRecords, lessonRecords, studentPoints, user, schoolStaff, account,
   behaviorCases, schoolHolidays, schoolYears, parentWhatsappMessages, parentActivationLog, auditLog, userNotifications, session,
+  absenceExcuses, pushSubscriptions,
 } from '@/lib/db/schema'
 import { eq, inArray, and, ne, gte, lt, sql, count as drizzleCount } from 'drizzle-orm'
 import { getAdminAccess } from '@/lib/admin-access'
@@ -113,6 +114,7 @@ export async function previewReset(scope: ResetScope): Promise<{ ok: true; count
     userNotifications: await n(userNotifications, userNotifications.schoolId),
     notifications: await n(notifications, notifications.schoolId),
     parentWhatsappMessages: await n(parentWhatsappMessages, parentWhatsappMessages.schoolId),
+    absenceExcuses: await n(absenceExcuses, absenceExcuses.schoolId),
   }
   if (scope.pupils) {
     counts.students = await n(students, students.schoolId)
@@ -170,6 +172,7 @@ export async function resetOperationalData(phrase: string, scope?: Partial<Reset
       await del('parentWhatsappMessages', tx.delete(parentWhatsappMessages).where(eq(parentWhatsappMessages.schoolId, schoolId)))
       await del('parentActivationLog', tx.delete(parentActivationLog).where(eq(parentActivationLog.schoolId, schoolId)))
       await del('attendance', tx.delete(attendance).where(eq(attendance.schoolId, schoolId)))
+      await del('absenceExcuses', tx.delete(absenceExcuses).where(eq(absenceExcuses.schoolId, schoolId)))
 
       const accountsToDrop: string[] = []
       if (s.pupils) {
@@ -206,6 +209,8 @@ export async function resetOperationalData(phrase: string, scope?: Partial<Reset
       const ids = [...new Set(accountsToDrop)].filter((id) => id !== access.userId)
       if (ids.length) {
         await tx.delete(session).where(inArray(session.userId, ids))
+        // A phone that agreed to be woken for an account that no longer exists.
+        await tx.delete(pushSubscriptions).where(inArray(pushSubscriptions.userId, ids))
         await tx.delete(account).where(inArray(account.userId, ids))
         removed.accounts = (await tx.delete(user).where(inArray(user.id, ids))).rowCount ?? 0
       }
@@ -451,6 +456,11 @@ export async function updateAdminProfile(input: { name: string; email: string })
 
 // ── Change admin password ─────────────────────────────────────────────────────
 export async function changeAdminPassword(currentPassword: string, newPassword: string) {
+  // The admin settings page is its only caller. Without this it answered any
+  // session at all — a parent still on the starter password included, who
+  // could replace it here with no proof of who they are.
+  const access = await getAdminAccess()
+  if (!access) return { ok: false, error: 'غير مصرح لك بهذا الإجراء' }
   try {
     await auth.api.changePassword({
       body: { currentPassword, newPassword, revokeOtherSessions: false },
@@ -483,6 +493,7 @@ export async function exportFullBackup(schoolId: string) {
         // here for the record; restore rebuilds the academic tables only and
         // the settings screen says so.
         behaviorCaseRows, staffRows, holidayRows, yearRows, parentMessageRows, activationLogRows, auditRows,
+        excuseRows,
       ] = await Promise.all([
         db.select().from(schools).where(eq(schools.id, schoolId)),
         db.select().from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)),
@@ -503,6 +514,7 @@ export async function exportFullBackup(schoolId: string) {
         db.select().from(parentWhatsappMessages).where(eq(parentWhatsappMessages.schoolId, schoolId)),
         db.select().from(parentActivationLog).where(eq(parentActivationLog.schoolId, schoolId)),
         db.select().from(auditLog).where(eq(auditLog.schoolId, schoolId)),
+        db.select().from(absenceExcuses).where(eq(absenceExcuses.schoolId, schoolId)),
       ])
 
       await logAudit(access, 'backup.export', access.school.name, { scope: 'full', students: studentRows.length })
@@ -522,7 +534,7 @@ export async function exportFullBackup(schoolId: string) {
             lessonRecords: lessonRecordRows,
             studentPoints: studentPointRows,
             behaviorCases: behaviorCaseRows, schoolStaff: staffRows,
-            schoolHolidays: holidayRows, schoolYears: yearRows,
+            schoolHolidays: holidayRows, schoolYears: yearRows, absenceExcuses: excuseRows,
             parentWhatsappMessages: parentMessageRows, parentActivationLog: activationLogRows,
             auditLog: auditRows,
           },
@@ -738,6 +750,10 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
       }
 
       // Wipe current school-scoped data
+      // Excuses answer days of the register being replaced: one accepted after
+      // the file was taken would sit beside a day that reads «غائب» again, and
+      // an answered excuse cannot be sent a second time.
+      await tx.delete(absenceExcuses).where(eq(absenceExcuses.schoolId, schoolId))
       await tx.delete(studentPoints).where(eq(studentPoints.schoolId, schoolId))
       await tx.delete(lessonRecords).where(eq(lessonRecords.schoolId, schoolId))
       await tx.delete(dailyRecords).where(eq(dailyRecords.schoolId, schoolId))
@@ -831,6 +847,16 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
         }
         counts.studentPoints = manualOnly.length
         counts.studentPointsSkipped = d.studentPoints.length - manualOnly.length
+      }
+      // A file from before excuses existed simply has none to bring back.
+      if (Array.isArray(d.absenceExcuses) && d.absenceExcuses.length) {
+        const restored = new Set((Array.isArray(d.students) ? d.students : []).map((r: any) => r.id))
+        const kept = d.absenceExcuses.filter((r: any) => restored.has(r.studentId))
+        if (kept.length) {
+          await insertInChunks(tx, absenceExcuses, kept.map((r: any) => ({
+            ...r, schoolId, createdAt: toDate(r.createdAt), decidedAt: toDate(r.decidedAt),
+          })))
+        }
       }
     })
 

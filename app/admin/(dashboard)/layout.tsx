@@ -26,6 +26,7 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
     { href: '/admin/students', label: 'الطلاب', icon: 'Users' },
     { href: '/admin/attendance', label: 'سجل الحضور', icon: 'CalendarCheck' },
     { href: '/admin/absence', label: 'كشف الغياب اليومي', icon: 'CalendarX' },
+    { href: '/admin/excuses', label: 'أعذار الغياب', icon: 'ClipboardList' },
     { href: '/admin/promote', label: 'ترحيل الطلاب', icon: 'CheckSquare' },
     { href: '/admin/teachers', label: 'المعلمون', icon: 'UserCog' },
     { href: '/admin/cases', label: 'الحالات السلوكية', icon: 'ShieldAlert' },

@@ -178,7 +178,7 @@ export async function adminInformParent(caseId: string, message: string, note: s
       kind: 'parent_informed',
       title: `ملاحظة بخصوص ${name}`,
       body: text,
-      href: '/parent/notifications',
+      href: `/parent?child=${row.studentId}`,
       entityId: caseId,
       actorName: access.name,
     }])

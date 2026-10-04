@@ -184,7 +184,7 @@ export async function correctAttendance(
           recipientUserId: a.parentUserId!,
           kind: 'absence' as const,
           title: `غياب: ${a.fullName}`,
-          body: `تم تسجيل غياب ${a.fullName} اليوم ${formatDateAr(date)}. إن كان هناك عذر فيرجى التواصل مع المدرسة.`,
+          body: `تم تسجيل غياب ${a.fullName} اليوم ${formatDateAr(date)}. إن كان هناك عذر فأرسله من البوابة بزر «تقديم عذر» بجانب يوم الغياب.`,
           href: `/parent?child=${a.id}`,
           entityId: a.id,
           actorName: access.name,

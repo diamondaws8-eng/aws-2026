@@ -208,7 +208,7 @@ export async function informParent(caseId: string, message: string, counselorNot
       kind: 'parent_informed',
       title: `ملاحظة بخصوص ${student?.fullName ?? 'ابنك'}`,
       body: text,
-      href: '/parent/notifications',
+      href: `/parent?child=${row.studentId}`,
       entityId: caseId,
       actorName: access.name,
     }])

@@ -19,12 +19,20 @@ export function SetPasswordCard({
   name,
   intro,
   submit,
+  proof,
 }: {
   name: string
   intro: React.ReactNode
-  submit: (password: string, confirm: string) => Promise<SetPasswordResult>
+  submit: (password: string, confirm: string, proof?: string) => Promise<SetPasswordResult>
+  /**
+   * Something only the rightful owner knows, asked for before the password is
+   * accepted — the parent portal asks for a child's identity number, because
+   * its starter password is the same for every family.
+   */
+  proof?: { label: string; hint: string }
 }) {
   const router = useRouter()
+  const [proofValue, setProofValue] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [show, setShow] = useState(false)
@@ -38,7 +46,7 @@ export function SetPasswordCard({
     setError('')
     setLoading(true)
     try {
-      const res = await submit(password, confirm)
+      const res = await submit(password, confirm, proof ? proofValue : undefined)
       if (res.ok) {
         router.refresh()
         return
@@ -67,6 +75,23 @@ export function SetPasswordCard({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {proof && (
+            <div>
+              <label className="block text-sm font-semibold mb-1.5">{proof.label}</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                required
+                value={proofValue}
+                onChange={(e) => setProofValue(e.target.value)}
+                dir="ltr"
+                className="w-full p-3 rounded-xl border border-border bg-background outline-none focus:ring-2 focus:ring-primary text-left"
+              />
+              <p className="text-xs text-muted-foreground mt-1 leading-5">{proof.hint}</p>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-semibold mb-1.5">كلمة المرور الجديدة</label>
             <div className="relative">
@@ -116,7 +141,7 @@ export function SetPasswordCard({
               that lit up at six only let the person submit and be refused. */}
           <button
             type="submit"
-            disabled={loading || mismatch || password.length < 8}
+            disabled={loading || mismatch || password.length < 8 || (!!proof && !proofValue.trim())}
             className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 disabled:opacity-50 transition-opacity inline-flex items-center justify-center gap-2"
           >
             {loading

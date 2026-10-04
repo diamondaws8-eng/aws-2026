@@ -9,12 +9,23 @@
  * The password every parent account was issued with.
  *
  * It is not a secret and never was: /parent/login prints it on the page for
- * anyone to read. That is precisely why this campaign exists — the account is
- * open to whoever knows a family's phone number until the family replaces it.
- * Repeating it in the invitation therefore gives nothing away; withholding it
- * would only stop the parent from getting in.
+ * anyone to read. Repeating it in the invitation therefore gives nothing away;
+ * withholding it would only stop the parent from getting in. What it opens is
+ * only the "choose your password" card, and that card asks for a child's
+ * identity number before it accepts one (lib/parent-access.ts).
  */
 export const INITIAL_PARENT_PASSWORD = '12345678'
+
+/**
+ * What every parent account is called.
+ *
+ * It used to be «ولي أمر» plus the child's full name. But the account's name is
+ * handed back by the sign-in itself, before anything is proven — so a phone
+ * number and the starter password above were enough to learn whose child that
+ * number belongs to. The portal builds the label it shows from the children,
+ * once the family is inside.
+ */
+export const PARENT_ACCOUNT_NAME = 'ولي الأمر'
 
 export const ACTIVATION_VARS = [
   { token: '{student}', label: 'اسم الطالب (أو أسماء الأبناء)' },
@@ -40,9 +51,9 @@ export const DEFAULT_ACTIVATION_MESSAGE = `السلام عليكم ورحمة ا
 ١) افتحوا الرابط: {link}
 ٢) رقم الجوال: {phone}
 ٣) كلمة المرور المبدئية: {password}
-٤) سيطلب منكم النظام اختيار كلمة مرور خاصة بكم — اختاروها واحفظوها.
+٤) سيطلب منكم النظام رقم هوية ابنكم للتأكد، ثم اختيار كلمة مرور خاصة بكم — اختاروها واحفظوها.
 
-الخطوة الرابعة مهمة: كلمة المرور المبدئية واحدة لدى الجميع، وحساب ابنكم يبقى مفتوحاً لغيركم حتى تغيّروها. كما أن إشعارات المدرسة لن تصلكم قبل إتمامها.
+الخطوة الرابعة مهمة: إشعارات المدرسة لن تصلكم قبل إتمامها.
 
 وفقكم الله ووفق أبناءكم.`
 
