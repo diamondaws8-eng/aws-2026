@@ -7,24 +7,34 @@
  */
 
 /**
- * Three are offered because the ministry has used both two and three, and a
- * school that changes should not need a deployment. A school using two simply
- * never selects the third.
+ * Two: the school year is a first term and a second, and nothing after it.
+ * A third used to be offered here for the years the ministry ran three; it
+ * only left a choice on the settings page that no day of this school's year
+ * belongs to, and a mark stamped with it would sit in a term that never was.
  */
-export const SEMESTERS = ['first', 'second', 'third'] as const
+export const SEMESTERS = ['first', 'second'] as const
 export type Semester = (typeof SEMESTERS)[number]
 
 export const SEMESTER_LABELS: Record<Semester, string> = {
   first: 'الفصل الدراسي الأول',
   second: 'الفصل الدراسي الثاني',
-  third: 'الفصل الدراسي الثالث',
 }
 
 export const isSemester = (v: string): v is Semester => (SEMESTERS as readonly string[]).includes(v)
 
+/**
+ * Terms that can no longer be chosen but may still be written on an old mark —
+ * one restored from a backup of a three-term year. It keeps its name; it is
+ * simply not on offer.
+ */
+const RETIRED_SEMESTER_LABELS: Record<string, string> = {
+  third: 'الفصل الدراسي الثالث',
+}
+
 /** An unrecognised stored value is shown as-is rather than blanked. */
 export function semesterLabel(v: string | null | undefined): string {
-  return v && isSemester(v) ? SEMESTER_LABELS[v] : (v ?? '—')
+  if (!v) return '—'
+  return isSemester(v) ? SEMESTER_LABELS[v] : (RETIRED_SEMESTER_LABELS[v] ?? v)
 }
 
 /** "الفصل الدراسي الأول — ١٤٤٨" — what a mark is stamped with, in full. */
