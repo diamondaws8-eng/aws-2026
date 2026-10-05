@@ -415,8 +415,9 @@ export default async function ParentDashboardPage({
                     </div>
                   </div>
 
-                  {/* Stats */}
-                  {hasData ? (
+                  {/* Stats — attendance figures, so not shown while the school
+                      keeps attendance switched off (see attendanceOn above). */}
+                  {!attendanceOn ? null : hasData ? (
                     <div className="flex flex-wrap gap-4 mb-3">
                       <div className="flex items-center gap-1 text-xs text-emerald-600">
                         <span>✅</span>

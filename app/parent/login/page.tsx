@@ -37,6 +37,11 @@ export default function ParentLoginPage() {
         setError('بيانات الدخول غير صحيحة. تأكد من رقم الجوال وكلمة المرور.')
         setLoading(false)
       } else {
+        // A new sign-in is a new start for this phone's notifications: the
+        // server may have forgotten it while it was signed out (a password
+        // reset, «sign out my other devices»), and the portal only saves it
+        // again when this mark is gone.
+        try { sessionStorage.removeItem('push-resumed') } catch {}
         router.push('/parent')
         router.refresh()
       }

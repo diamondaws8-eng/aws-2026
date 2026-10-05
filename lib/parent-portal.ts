@@ -164,11 +164,11 @@ export async function getChildWeek(studentId: string, parentUserId: string, toda
     attendance: f.attendance !== false ? attendance : { present: 0, late: 0, absent: 0, excused: 0 },
     points: registerPoints + (lesson?.points ?? 0),
     bonus: manualAgg[0]?.v ?? 0,
-    possible: maxPossiblePoints(
-      settings,
-      attendance.present + attendance.late + attendance.absent + attendance.excused,
-      lessons,
-    ),
+    // Rows, not days: the points above are summed over every register row, so
+    // the ceiling counts the same rows — as the year's totals do. Counting the
+    // de-duplicated days here would print a total above its own ceiling on the
+    // day a pupil changed class.
+    possible: maxPossiblePoints(settings, register.length, lessons),
     lessons,
     // A mark left over from before a feature was switched off is not news.
     homeworkMissing: f.homework !== false ? lesson?.homeworkMissing ?? 0 : 0,

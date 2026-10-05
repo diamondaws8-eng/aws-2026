@@ -37,16 +37,28 @@ export async function POST(req: NextRequest) {
     const [existingSchool] = await db.select({ id: schools.id }).from(schools).limit(1)
     if (existingSchool) return NextResponse.json({ error: 'التسجيل مغلق — الحسابات تُنشأ من إدارة المدرسة' }, { status: 403 })
   } else if (!path.endsWith('/sign-in/email') && !path.endsWith('/sign-out')) {
-    const session = await auth.api.getSession({ headers: req.headers }).catch(() => null)
-    if (session?.user && session.user.role === 'parent') {
-      const [me] = await db
-        .select({ locked: user.mustChangePassword })
-        .from(user)
-        .where(eq(user.id, session.user.id))
-        .limit(1)
-      if (me?.locked) {
-        return NextResponse.json({ error: 'اختر كلمة مرور خاصة بك من بوابة ولي الأمر أولاً' }, { status: 403 })
+    // A question that could not be asked is not a «no»: better-auth reads the
+    // session again a moment later and may well succeed where this read
+    // failed, so passing the request on would let the very call through that
+    // this check exists to stop.
+    let locked: boolean
+    try {
+      const session = await auth.api.getSession({ headers: req.headers })
+      locked = false
+      if (session?.user && session.user.role === 'parent') {
+        const [me] = await db
+          .select({ locked: user.mustChangePassword })
+          .from(user)
+          .where(eq(user.id, session.user.id))
+          .limit(1)
+        locked = !!me?.locked
       }
+    } catch (error) {
+      console.error('Auth Gate Error:', error)
+      return NextResponse.json({ error: 'تعذّر التحقق من الجلسة — حاول مرة أخرى' }, { status: 503 })
+    }
+    if (locked) {
+      return NextResponse.json({ error: 'اختر كلمة مرور خاصة بك من بوابة ولي الأمر أولاً' }, { status: 403 })
     }
   }
   return handler.POST(req)

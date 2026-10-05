@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { user, session as sessionTable, students, verification } from '@/lib/db/schema'
-import { and, eq, gt, lt, count } from 'drizzle-orm'
+import { and, eq, gt, lt, sql } from 'drizzle-orm'
 import { homePortalFor } from '@/lib/home-portal'
 import { asciiDigits } from '@/lib/utils'
 
@@ -45,12 +45,30 @@ export const getParentAccess = cache(async (): Promise<ParentAccess | null> => {
    * for those five minutes, which is exactly when closing it matters.
    */
   const [me] = await db
-    .select({ mustChange: user.mustChangePassword })
+    .select({
+      mustChange: user.mustChangePassword,
+      /**
+       * A session born in the seconds around the account's last change.
+       *
+       * Choosing the password closes every other session — but a sign-in with
+       * the starter password that was already under way read the old password
+       * before that and writes its session after it, and would come out as an
+       * ordinary unlocked session. No family signs in on a second device
+       * within seconds of choosing its password (and one that did would only
+       * sign in again), so a session from exactly that moment is that one.
+       * The family's own session is older: it had to fill in the card first.
+       */
+      raced: sql<boolean>`${sessionTable.createdAt} > ${user.updatedAt} - interval '2 seconds' AND ${sessionTable.createdAt} < ${user.updatedAt} + interval '5 seconds'`,
+    })
     .from(sessionTable)
     .innerJoin(user, eq(user.id, sessionTable.userId))
     .where(and(eq(sessionTable.token, session.session.token), eq(sessionTable.userId, session.user.id)))
     .limit(1)
   if (!me) return null
+  if (me.raced) {
+    await db.delete(sessionTable).where(eq(sessionTable.token, session.session.token)).catch(() => {})
+    return null
+  }
   return {
     id: session.user.id,
     name: session.user.name,
@@ -109,45 +127,51 @@ export async function childIdentityNumbers(parentUserId: string): Promise<string
  * `verification` table — it is there already, and nothing else in this system
  * writes to it — and the card stops answering once there are too many.
  *
- * Ten digits at eight tries an hour is out of reach. The price is that a
- * stranger can lock a family out for an hour by guessing badly; the office
- * resetting the account's password clears the count.
+ * Two limits, because the family and a stranger both use the same account.
+ * Counted per account alone, a stranger guessing badly a few times an hour
+ * would keep the real family locked out for as long as he cared to — every
+ * hour, «محاولات كثيرة». So each source (the address the request came from)
+ * has its own small budget, and the account as a whole a larger one: one
+ * stranger uses up only his own tries. Ten digits at thirty tries an hour is
+ * still out of reach. If a family reports «محاولات كثيرة» again and again,
+ * resetting the account's password from the office clears the count.
  */
-export const IDENTITY_TRIES_PER_HOUR = 8
+export const IDENTITY_TRIES_PER_SOURCE = 5
+export const IDENTITY_TRIES_PER_ACCOUNT = 30
 const IDENTITY_WINDOW_MS = 60 * 60 * 1000
 const identityTriesKey = (parentUserId: string) => `parent-identity:${parentUserId}`
 
 /**
- * Count this attempt, and say how many there have been this hour — this one
- * included.
+ * Count this attempt, and say whether it may be compared.
  *
  * Written down before the number is compared, not after a wrong one: guesses
  * sent together would otherwise all read «no tries yet» before any of them
  * had been recorded, and one burst would test hundreds. A right answer wipes
- * the count (clearIdentityTries). An attempt past the limit is not kept — it
- * was never compared, and keeping it would let a stranger hold a family locked
- * out for as long as they went on asking.
+ * the count (clearIdentityTries). An attempt past a limit is not kept — it
+ * was never compared, and keeping it would only lengthen the wait.
  */
-export async function countIdentityTry(parentUserId: string): Promise<number> {
+export async function identityTryAllowed(parentUserId: string, source: string): Promise<boolean> {
   const now = new Date()
   const key = identityTriesKey(parentUserId)
   const id = crypto.randomUUID()
+  const from = (source || 'unknown').slice(0, 64)
   await db.delete(verification).where(and(eq(verification.identifier, key), lt(verification.expiresAt, now)))
   await db.insert(verification).values({
     id,
     identifier: key,
-    value: 'try',
+    value: from,
     expiresAt: new Date(now.getTime() + IDENTITY_WINDOW_MS),
     createdAt: now,
     updatedAt: now,
   })
-  const [row] = await db
-    .select({ n: count() })
+  const rows = await db
+    .select({ value: verification.value })
     .from(verification)
     .where(and(eq(verification.identifier, key), gt(verification.expiresAt, now)))
-  const tries = Number(row?.n ?? 0)
-  if (tries > IDENTITY_TRIES_PER_HOUR) await db.delete(verification).where(eq(verification.id, id))
-  return tries
+  const mine = rows.filter((r) => r.value === from).length
+  const allowed = mine <= IDENTITY_TRIES_PER_SOURCE && rows.length <= IDENTITY_TRIES_PER_ACCOUNT
+  if (!allowed) await db.delete(verification).where(eq(verification.id, id))
+  return allowed
 }
 
 export async function clearIdentityTries(parentUserId: string): Promise<void> {

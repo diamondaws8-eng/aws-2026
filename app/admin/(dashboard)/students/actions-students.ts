@@ -460,9 +460,11 @@ export async function importStudents(
 }
 
 // ── Require every parent to pick a new password ───────────────────────────────
-// Owner-only. This does NOT change anyone's password, so nobody is locked out:
-// parents still sign in exactly as before, and are then asked to choose their
-// own password before they can see anything.
+// Owner-only. This does NOT change anyone's password: parents still sign in
+// exactly as before, and are then asked for a child's identity number and a
+// password of their own before they can see anything. A family whose children
+// have no identity number on file cannot pass that and stays out until the
+// office records one — the settings screen says so beside the button.
 export async function requireAllParentsToChangePassword(schoolId: string) {
   const access = await getAdminAccess()
   if (!access || access.role !== 'owner' || access.school.id !== schoolId) {

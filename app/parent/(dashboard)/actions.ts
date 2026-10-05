@@ -1,13 +1,14 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { students, dailyRecords, lessonRecords, subjects, teachers, user, classes, gradeLevels, gradeEntries, account, session, schools, studentPoints } from '@/lib/db/schema'
+import { students, dailyRecords, lessonRecords, subjects, teachers, user, classes, gradeLevels, gradeEntries, account, session, schools, studentPoints, pushSubscriptions } from '@/lib/db/schema'
 import { eq, and, ne, sql, desc, gte, inArray } from 'drizzle-orm'
 import { hashPassword } from 'better-auth/crypto'
 import {
   getParentAccess, requireParent, childIdentityNumbers,
-  countIdentityTry, clearIdentityTries, IDENTITY_TRIES_PER_HOUR,
+  identityTryAllowed, clearIdentityTries,
 } from '@/lib/parent-access'
+import { headers } from 'next/headers'
 import { asciiDigits, isUuid } from '@/lib/utils'
 import { after } from 'next/server'
 import { getStudentPointsTotal, getManualPoints, deriveLessonEntries, yearStartForStudent, maxPossiblePoints } from '@/lib/points'
@@ -55,7 +56,11 @@ export async function setOwnParentPassword(newPassword: string, confirmPassword:
     }
     const given = asciiDigits(String(childNationalId ?? '')).replace(/\D/g, '')
     if (!given) return { ok: false as const, error: 'اكتب رقم هوية أحد أبنائك كما هو مسجَّل لدى المدرسة' }
-    if ((await countIdentityTry(me.id)) > IDENTITY_TRIES_PER_HOUR) {
+    // Where the request came from, as the host reports it — so a stranger's
+    // bad guesses use up his own tries and not the family's.
+    const h = await headers()
+    const source = h.get('x-vercel-forwarded-for') || h.get('x-real-ip') || h.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+    if (!(await identityTryAllowed(me.id, source))) {
       return { ok: false as const, error: 'محاولات كثيرة برقم هوية غير صحيح — حاول بعد ساعة، أو تواصل مع إدارة المدرسة' }
     }
     if (!known.includes(given)) {
@@ -80,6 +85,9 @@ export async function setOwnParentPassword(newPassword: string, confirmPassword:
       // already be signed in with it. Left open, that session would be let into
       // the portal the moment the flag above clears. This browser keeps its own.
       await tx.delete(session).where(others)
+      // Their phones stop being woken with them. This one registers again by
+      // itself once the portal opens (components/push-resume.tsx).
+      await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, me.id))
     })
     await clearIdentityTries(me.id).catch(() => {})
     // Swept once more a moment later. A sign-in with the starter password that

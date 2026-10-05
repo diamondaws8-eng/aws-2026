@@ -781,7 +781,10 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
         counts.teachers = d.teachers.length
       }
       if (Array.isArray(d.students) && d.students.length) {
-        await insertInChunks(tx, students, d.students.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+        // Every timestamp arrives from the file as text and has to be a date
+        // again — one left as text makes the insert throw, and with it the
+        // whole restore: a single graduate was enough.
+        await insertInChunks(tx, students, d.students.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), graduatedAt: toDate(r.graduatedAt) })))
         counts.students = d.students.length
       }
       if (Array.isArray(d.subjects) && d.subjects.length) {
@@ -801,7 +804,8 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
         counts.notifications = d.notifications.length
       }
       if (Array.isArray(d.dailyRecords) && d.dailyRecords.length) {
-        await insertInChunks(tx, dailyRecords, d.dailyRecords.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), updatedAt: toDate(r.updatedAt) })))
+        // …and here a single recorded absence was enough: absenceMarkedAt.
+        await insertInChunks(tx, dailyRecords, d.dailyRecords.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt), updatedAt: toDate(r.updatedAt), absenceMarkedAt: toDate(r.absenceMarkedAt) })))
         counts.dailyRecords = d.dailyRecords.length
       }
       if (Array.isArray(d.lessonRecords) && d.lessonRecords.length) {
