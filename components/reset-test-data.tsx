@@ -22,6 +22,11 @@ const LABELS: Record<string, string> = {
   parentAccounts: 'حسابات أولياء الأمور',
   teachers: 'المعلمون',
   staff: 'أعضاء فريق الإدارة',
+  timetableSlots: 'حصص الجداول الأسبوعية',
+  schoolHolidays: 'الإجازات وفترات التعليق',
+  schoolYears: 'أعوام الأرشيف',
+  auditLog: 'سطور سجل التدقيق',
+  strayAccounts: 'حسابات دخول بلا صاحب',
   subjects: 'المواد',
   classes: 'الفصول',
   gradeLevels: 'المراحل',
@@ -31,8 +36,9 @@ const LABELS: Record<string, string> = {
 const SCOPE_OPTIONS: { key: keyof ResetScope; label: string; hint: string }[] = [
   { key: 'pupils', label: 'الطلاب وحسابات أولياء الأمور', hint: 'كل طالب مسجَّل الآن، ومعه حساب ولي أمره' },
   { key: 'teachers', label: 'المعلمون وحساباتهم', hint: 'تبقى أسماء المواد في الفصول بلا معلم مسند' },
-  { key: 'staff', label: 'فريق الإدارة والموجهون (عدا المالك)', hint: 'الوكلاء والمديرون ومديرو الجودة والموجهون وحساباتهم' },
-  { key: 'structure', label: 'المراحل والفصول والمواد', hint: 'يُعاد بناء الهيكل من الصفر. يُحذف معها تقويم المراحل وخريطة الترحيل، ويفقد كل معلم وإداري تبقيه إسناد مرحلته فأعِد إسنادها بعد البناء' },
+  { key: 'staff', label: 'فريق الإدارة والموجهون (يبقى المالك ومدير الجودة)', hint: 'الوكلاء ومديرو المدارس والموجهون وحساباتهم. حساب المالك وحساب مدير الجودة لا يُحذفان' },
+  { key: 'structure', label: 'المراحل والفصول والمواد', hint: 'يُعاد بناء الهيكل من الصفر. يُحذف معها الجداول الأسبوعية وتقويم المراحل وخريطة الترحيل، ويفقد كل معلم وإداري تبقيه إسناد مرحلته فأعِد إسنادها بعد البناء' },
+  { key: 'history', label: 'التقويم والأرشيف وسجل التدقيق', hint: 'الإجازات وفترات تعليق الدراسة، وتاريخ بداية العام، وأعوام الأرشيف، وسجل التدقيق — ليبدأ التشغيل الحقيقي بصفحة بيضاء' },
 ]
 
 /**
@@ -43,8 +49,9 @@ const SCOPE_OPTIONS: { key: keyof ResetScope; label: string; hint: string }[] = 
  */
 export function ResetTestData() {
   const router = useRouter()
-  const [scope, setScope] = useState<ResetScope>({ pupils: true, teachers: true, staff: false, structure: false })
+  const [scope, setScope] = useState<ResetScope>({ pupils: true, teachers: true, staff: false, structure: false, history: false })
   const [counts, setCounts] = useState<Record<string, number> | null>(null)
+  const [staying, setStaying] = useState<string[]>([])
   const [phrase, setPhrase] = useState('')
   const [busy, setBusy] = useState<'preview' | 'run' | null>(null)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
@@ -57,6 +64,7 @@ export function ResetTestData() {
       const res = await previewReset(scope)
       if (!res.ok) { setResult({ ok: false, text: res.error }); return }
       setCounts(res.counts)
+      setStaying(res.staying)
     } catch { setResult({ ok: false, text: 'تعذّرت المعاينة' }) } finally { setBusy(null) }
   }
 
@@ -81,7 +89,8 @@ export function ResetTestData() {
       </h3>
       <p className="text-sm leading-7 text-red-900/80">
         تُمسح دائماً سجلات التجربة: الحضور والحصص والنقاط والدرجات والحالات والتنبيهات والإشعارات.
-        واختر ما يُمسح معها. يبقى في كل الأحوال: حساب المالك، وإعدادات النقاط والقوالب، والإجازات وفترات تعليق الدراسة العامة (ما يخص مرحلة بعينها يُحذف مع المراحل)، وسجل التدقيق.
+        واختر ما يُمسح معها — باختيار الخمسة كلها لا يبقى من الحسابات إلا حساب المالك وحساب مدير الجودة، ومن الإعدادات: النقاط والقوالب، واسم المدرسة والعام والفصل الحالي ودوام السبت واسم المدير ورسالة التفعيل.
+        بعد المسح يعود الموقع إلى «وضع التجهيز»: لا يُسجَّل ولا يُحسب شيء حتى يُضغط «بدء التشغيل الفعلي» في الصفحة الرئيسية.
       </p>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -120,6 +129,12 @@ export function ResetTestData() {
               </span>
             ))}
           </div>
+          {staying.length > 0 && (
+            <p className="mt-3 text-xs leading-6 text-red-900">
+              <span className="font-bold">يبقى من حسابات الإدارة: </span>{staying.join('، ')}.
+              إن كان بينها حساب لا تريده فاحذفه من «فريق الإدارة» قبل المسح.
+            </p>
+          )}
           <label className="block mt-4 text-sm font-semibold text-red-900">
             اكتب العبارة التالية للتأكيد: <span className="font-mono">{RESET_PHRASE}</span>
             <input

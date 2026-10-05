@@ -85,10 +85,12 @@ export type ResetScope = {
   pupils: boolean
   /** Teachers and their sign-in accounts; subjects keep their names, unassigned. */
   teachers: boolean
-  /** Deputies, principals, quality managers and counsellors — never the owner. */
+  /** Deputies, principals and counsellors — never the owner, never a quality manager. */
   staff: boolean
   /** Stages, classes, subjects and the per-stage calendar entries. */
   structure: boolean
+  /** Holidays and suspensions, the year's start date, the archive of years, the audit log. */
+  history: boolean
 }
 
 type ResetCounts = Record<string, number>
@@ -97,7 +99,7 @@ type ResetCounts = Record<string, number>
  * Counts for a scope without touching anything — the confirmation screen
  * shows these so the owner knows exactly what the phrase will remove.
  */
-export async function previewReset(scope: ResetScope): Promise<{ ok: true; counts: ResetCounts } | { ok: false; error: string }> {
+export async function previewReset(scope: ResetScope): Promise<{ ok: true; counts: ResetCounts; staying: string[] } | { ok: false; error: string }> {
   const access = await getAdminAccess()
   if (!access || access.role !== 'owner') return { ok: false, error: 'هذا الإجراء للمالك وحده' }
   const schoolId = access.school.id
@@ -121,13 +123,37 @@ export async function previewReset(scope: ResetScope): Promise<{ ok: true; count
     counts.parentAccounts = (await parentUserIds(schoolId)).length
   }
   if (scope.teachers) counts.teachers = await n(teachers, teachers.schoolId)
-  if (scope.staff) counts.staff = await n(schoolStaff, schoolStaff.schoolId)
+  if (scope.staff) {
+    const [r] = await db.select({ c: drizzleCount() }).from(schoolStaff)
+      .where(and(eq(schoolStaff.schoolId, schoolId), ne(schoolStaff.role, 'quality_manager'), ne(schoolStaff.userId, access.userId)))
+    counts.staff = Number(r?.c ?? 0)
+  }
   if (scope.structure) {
+    counts.timetableSlots = await n(timetableSlots, timetableSlots.schoolId)
     counts.subjects = await n(subjects, subjects.schoolId)
     counts.classes = await n(classes, classes.schoolId)
     counts.gradeLevels = await n(gradeLevels, gradeLevels.schoolId)
   }
-  return { ok: true, counts }
+  if (scope.history) {
+    counts.schoolHolidays = await n(schoolHolidays, schoolHolidays.schoolId)
+    counts.schoolYears = await n(schoolYears, schoolYears.schoolId)
+    counts.auditLog = await n(auditLog, auditLog.schoolId)
+  }
+  const strays = await strayAccountIds(scope)
+  if (strays.length) counts.strayAccounts = strays.length
+
+  // Who is left on the administration's side once the staff has gone — named,
+  // so a second quality manager made to try the role is seen before the wipe
+  // and not found afterwards still holding the keys.
+  let staying: string[] = []
+  if (scope.staff) {
+    const kept = await db
+      .select({ fullName: schoolStaff.fullName })
+      .from(schoolStaff)
+      .where(and(eq(schoolStaff.schoolId, schoolId), eq(schoolStaff.role, 'quality_manager'), ne(schoolStaff.userId, access.userId)))
+    staying = [`${access.name} (المالك)`, ...kept.map((k) => `${k.fullName} (مدير الجودة)`)]
+  }
+  return { ok: true, counts, staying }
 }
 
 /**
@@ -148,15 +174,46 @@ async function parentUserIds(schoolId: string): Promise<string[]> {
   return [...new Set([...rows.map((r) => r.id).filter((v): v is string => !!v), ...orphans.map((o) => o.id)])]
 }
 
+/**
+ * Sign-in accounts that belong to nobody: a teacher's login with no teacher
+ * behind it, an administrator's that is neither the owner's nor on the staff.
+ * A trial leaves these — a teacher refused half-way through being added, a
+ * backup restored over newer accounts — and nothing lists them, so a wipe by
+ * teachers' and staff rows alone would leave them signing in, and holding
+ * their mobile numbers against the real people entered afterwards.
+ */
+async function strayAccountIds(scope: Pick<ResetScope, 'teachers' | 'staff'>): Promise<string[]> {
+  const ids: string[] = []
+  if (scope.teachers) {
+    const rows = await db.select({ id: user.id }).from(user)
+      .where(and(eq(user.role, 'teacher'), sql`NOT EXISTS (SELECT 1 FROM ${teachers} WHERE ${teachers.userId} = ${user.id})`))
+    ids.push(...rows.map((r) => r.id))
+  }
+  if (scope.staff) {
+    const rows = await db.select({ id: user.id }).from(user)
+      .where(and(
+        eq(user.role, 'admin'),
+        sql`NOT EXISTS (SELECT 1 FROM ${schools} WHERE ${schools.adminId} = ${user.id})`,
+        sql`NOT EXISTS (SELECT 1 FROM ${schoolStaff} WHERE ${schoolStaff.userId} = ${user.id})`,
+        sql`NOT EXISTS (SELECT 1 FROM ${teachers} WHERE ${teachers.userId} = ${user.id})`,
+      ))
+    ids.push(...rows.map((r) => r.id))
+  }
+  return ids
+}
+
 export async function resetOperationalData(phrase: string, scope?: Partial<ResetScope>): Promise<{ ok: true; removed: ResetCounts } | { ok: false; error: string }> {
   const access = await getAdminAccess()
   if (!access || access.role !== 'owner') return { ok: false, error: 'هذا الإجراء للمالك وحده' }
   if (String(phrase ?? '').trim() !== RESET_PHRASE) return { ok: false, error: `اكتب العبارة كما هي: ${RESET_PHRASE}` }
 
   const schoolId = access.school.id
-  const s: ResetScope = { pupils: !!scope?.pupils, teachers: !!scope?.teachers, staff: !!scope?.staff, structure: !!scope?.structure }
+  const s: ResetScope = { pupils: !!scope?.pupils, teachers: !!scope?.teachers, staff: !!scope?.staff, structure: !!scope?.structure, history: !!scope?.history }
   try {
     const removed: ResetCounts = {}
+    // Read before anything is deleted: an account is only a stray while the
+    // rows that would have claimed it are still there to be looked for.
+    const strays = await strayAccountIds(s)
     // Everything in one transaction: either the school is exactly as chosen
     // afterwards, or exactly as before. Account rows are removed last, after
     // every row that named them is gone.
@@ -174,7 +231,7 @@ export async function resetOperationalData(phrase: string, scope?: Partial<Reset
       await del('attendance', tx.delete(attendance).where(eq(attendance.schoolId, schoolId)))
       await del('absenceExcuses', tx.delete(absenceExcuses).where(eq(absenceExcuses.schoolId, schoolId)))
 
-      const accountsToDrop: string[] = []
+      const accountsToDrop: string[] = [...strays]
       if (s.pupils) {
         accountsToDrop.push(...(await parentUserIds(schoolId)))
         await del('students', tx.delete(students).where(eq(students.schoolId, schoolId)))
@@ -186,9 +243,16 @@ export async function resetOperationalData(phrase: string, scope?: Partial<Reset
         await del('teachers', tx.delete(teachers).where(eq(teachers.schoolId, schoolId)))
       }
       if (s.staff) {
-        const rows = await tx.select({ id: schoolStaff.userId }).from(schoolStaff).where(eq(schoolStaff.schoolId, schoolId))
-        accountsToDrop.push(...rows.map((r) => r.id).filter((id) => id !== access.userId))
-        await del('staff', tx.delete(schoolStaff).where(and(eq(schoolStaff.schoolId, schoolId), ne(schoolStaff.userId, access.userId))))
+        // Everybody but the two accounts a school is rebuilt from: the owner,
+        // and the quality manager who enters the real data beside them.
+        const leaving = and(
+          eq(schoolStaff.schoolId, schoolId),
+          ne(schoolStaff.userId, access.userId),
+          ne(schoolStaff.role, 'quality_manager'),
+        )
+        const rows = await tx.select({ id: schoolStaff.userId }).from(schoolStaff).where(leaving)
+        accountsToDrop.push(...rows.map((r) => r.id))
+        await del('staff', tx.delete(schoolStaff).where(leaving))
       }
       if (s.structure) {
         // The timetable is made of classes and subjects; it goes with them.
@@ -204,8 +268,22 @@ export async function resetOperationalData(phrase: string, scope?: Partial<Reset
         // deleted stages: the list is emptied so the new stages are assigned
         // deliberately, not inherited from ids that no longer exist.
         if (!s.teachers) await tx.update(teachers).set({ gradeLevelIds: '[]' }).where(eq(teachers.schoolId, schoolId))
-        if (!s.staff) await tx.update(schoolStaff).set({ gradeLevelIds: '[]' }).where(eq(schoolStaff.schoolId, schoolId))
+        // Whoever is left on the staff — everybody when the staff is kept, the
+        // quality managers when it is not.
+        await tx.update(schoolStaff).set({ gradeLevelIds: '[]' }).where(eq(schoolStaff.schoolId, schoolId))
       }
+      if (s.history) {
+        // The trial's calendar, its archive and its trail: a school starting
+        // for real begins with none of them. The line recording this very
+        // wipe is written after the transaction, so the trail starts with it.
+        await del('schoolHolidays', tx.delete(schoolHolidays).where(eq(schoolHolidays.schoolId, schoolId)))
+        await del('schoolYears', tx.delete(schoolYears).where(eq(schoolYears.schoolId, schoolId)))
+        await del('auditLog', tx.delete(auditLog).where(eq(auditLog.schoolId, schoolId)))
+        await tx.update(schools).set({ yearStartDate: null }).where(eq(schools.id, schoolId))
+      }
+      // Back to setup, always: what follows a wipe is entering the real data,
+      // and nothing is recorded or counted until «التشغيل» is pressed again.
+      await tx.update(schools).set({ liveSince: null }).where(eq(schools.id, schoolId))
       // The owner's own account is never in this list; everything else that
       // signed in for the trial goes with its sessions.
       const ids = [...new Set(accountsToDrop)].filter((id) => id !== access.userId)

@@ -10,7 +10,7 @@ import { today, isValidDateString, formatDateAr, ATTENDANCE_STATUS } from '@/lib
 import { attendancePointsFor } from '@/lib/points'
 import { notify, notifiedTodayFor } from '@/lib/notifications'
 import { getSchoolDaysConfig } from '@/lib/school-holidays'
-import { nonSchoolDayReason, closedDayPhrase } from '@/lib/school-days'
+import { nonSchoolDayReason, closedDayPhrase, isSetupClosure } from '@/lib/school-days'
 
 export type AttendanceStatus = keyof typeof ATTENDANCE_STATUS
 const STATUSES = Object.keys(ATTENDANCE_STATUS) as AttendanceStatus[]
@@ -79,6 +79,13 @@ export async function correctAttendance(
   // Whether the stage teaches on this day — judged further down, once it is
   // known which of these pupils already have a row for it.
   const off = nonSchoolDayReason(date, await getSchoolDaysConfig(access.school.id, cls.gradeLevelId))
+
+  // Before the school has gone live nothing is recorded and nothing counted —
+  // not even a correction: a row left from a trial is not a register, and
+  // changing it would send a family a notice about a day that never was.
+  if (off && isSetupClosure(off)) {
+    return { ok: false, error: `${off} — لا يُسجَّل حضور ولا يُصحَّح حتى يبدأ التشغيل الفعلي` }
+  }
 
   // Only well-formed entries, one per pupil, and only pupils really in this class.
   const wanted = new Map<string, AttendanceStatus>()

@@ -29,6 +29,7 @@ export type AuditAction =
   | 'calendar.suspend'
   | 'calendar.suspendCancel'
   | 'timetable.save'
+  | 'school.launch'
   | 'backup.export'
   | 'backup.restore'
   | 'data.reset'
@@ -73,6 +74,7 @@ export const AUDIT_LABELS: Record<AuditAction, string> = {
   'calendar.suspend': 'تعليق الدراسة الحضورية (عن بُعد)',
   'calendar.suspendCancel': 'إلغاء تعليق الدراسة الحضورية',
   'timetable.save': 'حفظ الجدول الأسبوعي لفصل',
+  'school.launch': 'بدء التشغيل الفعلي',
   'backup.export': 'تنزيل نسخة احتياطية',
   'backup.restore': 'استعادة نسخة احتياطية',
   'data.reset': 'مسح بيانات التجربة قبل التشغيل',

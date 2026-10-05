@@ -165,6 +165,14 @@ export async function informParent(caseId: string, message: string, counselorNot
   const { access, row } = await requireOwnCase(caseId)
   const text = String(message ?? '').trim()
   if (text.length < 10) return { ok: false, error: 'نص الرسالة قصير جداً' }
+  {
+    // A school still being set up records nothing and tells no family
+    // anything about a pupil (lib/launch.ts).
+    const { notLiveReason } = await import('@/lib/launch')
+    const { today: schoolClock } = await import('@/lib/utils')
+    const closed = await notLiveReason(access.schoolId, schoolClock())
+    if (closed) return { ok: false, error: `${closed} — لا يُبلَّغ أولياء الأمور بحالات` }
+  }
 
   const [target] = await db
     .select({ parentPhone: students.parentPhone })
@@ -427,6 +435,14 @@ export async function raiseCaseByCounselor(input: { studentId: string; note: str
   const access = await requireCounselor()
   const note = String(input.note ?? '').trim().slice(0, MAX_NOTE)
   if (note.length < 5) return { ok: false, error: 'اكتب ما لاحظته — بلا وصف لا تُقرَّر حالة' }
+  {
+    // A school still being set up records nothing and tells no family
+    // anything about a pupil (lib/launch.ts).
+    const { notLiveReason } = await import('@/lib/launch')
+    const { today: schoolClock } = await import('@/lib/utils')
+    const closed = await notLiveReason(access.schoolId, schoolClock())
+    if (closed) return { ok: false, error: `${closed} — لا تُسجَّل حالات` }
+  }
   const student = await requireCounselorForStudent(access, input.studentId)
   if (!student.classId) return { ok: false, error: 'الطالب بلا فصل — أسنده لفصل أولاً من الإدارة' }
   const [created] = await db.insert(behaviorCases).values({

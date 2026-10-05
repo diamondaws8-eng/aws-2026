@@ -139,6 +139,14 @@ export async function adminInformParent(caseId: string, message: string, note: s
   if (text.length < 10) {
     return { ok: false, error: 'نص الرسالة قصير جداً' }
   }
+  {
+    // A school still being set up records nothing and tells no family
+    // anything about a pupil (lib/launch.ts).
+    const { notLiveReason } = await import('@/lib/launch')
+    const { today: schoolClock } = await import('@/lib/utils')
+    const closed = await notLiveReason(access.school.id, schoolClock())
+    if (closed) return { ok: false, error: `${closed} — لا يُبلَّغ أولياء الأمور بحالات` }
+  }
 
   const [target] = await db
     .select({ parentPhone: students.parentPhone })

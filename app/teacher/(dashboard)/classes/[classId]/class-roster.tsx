@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { saveDailyRecords, addManualPoints, saveGrades, logParentWhatsappMessage, raiseBehaviorCase } from '../../actions'
 import type { DailyStudentRecord, AbsenceLock, BlockedAbsence } from '../../actions'
 import { termLabel as termLabelOf } from '@/lib/academic'
-import { nonSchoolDayReason, closedDayPhrase, closedTodayHeading, isWeeklyRest, isRemoteSuspensionName, type SchoolDaysConfig } from '@/lib/school-days'
+import { nonSchoolDayReason, closedDayPhrase, closedTodayHeading, isWeeklyRest, isRemoteSuspensionName, isSetupClosure, type SchoolDaysConfig } from '@/lib/school-days'
 import { genderShort } from '@/lib/gender'
 import { rankWithTies, medalFor } from '@/lib/ranking'
 
@@ -803,6 +803,10 @@ export default function ClassRoster({
                 <p className="text-xs mt-0.5">
                   {isRemoteSuspensionName(dayOff)
                     ? 'الدراسة في هذا اليوم عن بُعد: السجل مغلق ولا يُحفظ فيه حضور ولا غياب ولا تقييم.'
+                    : isSetupClosure(dayOff)
+                    // No day opens yet, so «choose a teaching day» would only
+                    // send the teacher looking for one.
+                    ? 'المدرسة ما زالت تجهّز بياناتها: لا يُسجَّل حضور ولا تقييم حتى تبدأ الإدارة التشغيل الفعلي.'
                     : 'السجل مغلق في هذا اليوم ولا يُحفظ فيه حضور ولا تقييم. اختر يوماً دراسياً من التاريخ أعلاه.'}
                 </p>
               </div>

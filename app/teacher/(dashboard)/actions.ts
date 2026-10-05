@@ -646,6 +646,12 @@ export async function saveGrades(input: {
   const { userId, schoolId } = access
 
   if (!Array.isArray(input.entries) || input.entries.length === 0) return { ok: true }
+  {
+    // A school still being set up records nothing (lib/launch.ts).
+    const { notLiveReason } = await import('@/lib/launch')
+    const closed = await notLiveReason(schoolId, schoolToday())
+    if (closed) return { ok: false, error: `${closed} — لا تُرصد درجات` }
+  }
 
   // A subject id on its own says nothing — it could name another class's
   // subject, or a colleague's subject in this same class.
@@ -777,6 +783,12 @@ export async function logParentWhatsappMessage(input: {
 }) {
   const { userId, schoolId } = await requireTeacherForClass(input.classId)
   if (input.type !== 'positive' && input.type !== 'negative') throw new Error('Invalid type')
+  {
+    // Counted on the administration's dashboard — and nothing is counted
+    // before the school goes live. The message itself is the teacher's own.
+    const { notLiveReason } = await import('@/lib/launch')
+    if (await notLiveReason(schoolId, schoolToday())) return { ok: true }
+  }
 
   // In this class, not merely in this school: the row is counted against the
   // class it names, and raiseBehaviorCase already holds the same line.
@@ -823,6 +835,11 @@ export async function raiseBehaviorCase(input: {
   const note = String(input.note ?? '').trim().slice(0, 2000)
   if (note.length < 5) {
     return { ok: false, error: 'اكتب ما حدث — الموجه لا يستطيع الحكم على حالة بلا وصف' }
+  }
+  {
+    const { notLiveReason } = await import('@/lib/launch')
+    const closed = await notLiveReason(schoolId, schoolToday())
+    if (closed) return { ok: false, error: `${closed} — لا تُرفع حالات` }
   }
 
   const [student] = await db

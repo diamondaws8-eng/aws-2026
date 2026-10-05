@@ -58,6 +58,15 @@ export async function addTeacher(input: {
   const [taken] = await db.select({ id: user.id }).from(user).where(eq(user.email, email)).limit(1)
   if (taken) return { ok: false as const, error: 'رقم الجوال مستخدم بحساب آخر — اختر رقماً غيره' }
 
+  // Decided before the login exists. This check used to come after it: a
+  // teacher added with no stage ticked was refused — and left behind an
+  // account with no teacher, whose mobile number could then never be used.
+  const allGrades = input.allGrades !== false && (input.gradeLevelIds ?? []).length === 0
+  const gradeIds = allGrades ? [] : await verifiedGradeIds(school.id, input.gradeLevelIds ?? [])
+  if (!allGrades && gradeIds.length === 0) {
+    return { ok: false as const, error: 'اختر مرحلة واحدة على الأقل، أو اختر «كل المراحل»' }
+  }
+
   const tempPassword = generateTempPassword()
 
   try {
@@ -80,12 +89,7 @@ export async function addTeacher(input: {
   // The password is returned once for the admin to hand over — never stored in
   // plaintext. If it is lost, use "إعادة تعيين كلمة المرور".
   // Stage ids arrive from the browser, so only ones that belong to this school
-  // are kept — a foreign id would silently widen the ceiling it is meant to set.
-  const allGrades = input.allGrades !== false && (input.gradeLevelIds ?? []).length === 0
-  const gradeIds = allGrades ? [] : await verifiedGradeIds(school.id, input.gradeLevelIds ?? [])
-  if (!allGrades && gradeIds.length === 0) {
-    return { ok: false as const, error: 'اختر مرحلة واحدة على الأقل، أو اختر «كل المراحل»' }
-  }
+  // were kept above — a foreign id would silently widen the ceiling it is meant to set.
 
   await db.insert(teachers).values({
     schoolId: school.id,

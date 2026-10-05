@@ -49,7 +49,9 @@ export const DEFAULT_SCHOOL_DAYS: SchoolDaysConfig = {
  */
 export function holidayOn(date: string, cfg: SchoolDaysConfig): Holiday | null {
   const covering = cfg.holidays.filter((h) => date >= h.startDate && date <= h.endDate)
-  return covering.find((h) => h.kind !== 'remote') ?? covering[0] ?? null
+  // Before the school went live comes before everything: a holiday entered in
+  // advance for those weeks does not make them the school's own days.
+  return covering.find((h) => h.kind === 'setup') ?? covering.find((h) => h.kind !== 'remote') ?? covering[0] ?? null
 }
 
 export function isSchoolDay(date: string, cfg: SchoolDaysConfig): boolean {
@@ -65,6 +67,34 @@ export function nonSchoolDayReason(date: string, cfg: SchoolDaysConfig): string 
   if (day === FRIDAY) return 'الجمعة'
   if (day === SATURDAY && !cfg.saturdayIsSchoolDay) return 'السبت'
   return holidayOn(date, cfg)?.name ?? null
+}
+
+// ── Before the school goes live ──────────────────────────────────────────────
+
+/** Every day, while the school is still being set up. */
+export const NOT_LIVE_LABEL = 'لم يبدأ التشغيل الفعلي للمنصة بعد'
+/** The days before the first real one, once it has been named. */
+export const BEFORE_LIVE_LABEL = 'قبل بداية التشغيل الفعلي'
+
+export const isSetupClosure = (reason: string | null | undefined): boolean =>
+  reason === NOT_LIVE_LABEL || reason === BEFORE_LIVE_LABEL
+
+/**
+ * The closure that keeps every day before the launch from being a teaching
+ * day.
+ *
+ * Laid over the calendar rather than checked screen by screen: the roster,
+ * the office's register, the dashboards, the missed-day reminders and the
+ * family's page all ask the calendar whether a day is taught, so one entry
+ * here closes all of them at once — and none can be forgotten. `liveSince`
+ * null means the school has not been launched: every day is closed.
+ */
+export function launchClosure(liveSince: string | null | undefined): Holiday | null {
+  if (!liveSince) return { name: NOT_LIVE_LABEL, startDate: '0000-01-01', endDate: '9999-12-31', kind: 'setup' }
+  const d = new Date(`${liveSince}T00:00:00Z`)
+  if (Number.isNaN(d.getTime())) return null
+  d.setUTCDate(d.getUTCDate() - 1)
+  return { name: BEFORE_LIVE_LABEL, startDate: '0000-01-01', endDate: d.toISOString().slice(0, 10), kind: 'setup' }
 }
 
 // ── Naming a suspension ──────────────────────────────────────────────────────
@@ -102,7 +132,9 @@ export function isWeeklyRest(reason: string | null | undefined): boolean {
  * often «اجازة» without the hamza, which is the same word.
  */
 export const saysHoliday = (reason: string) => /^\s*[إأا]جاز[ةه]/.test(reason)
-const namesItself = (reason: string) => isRemoteSuspensionName(reason) || saysHoliday(reason)
+// The setup closure is not a holiday either: «يوم إجازة (لم يبدأ التشغيل…)»
+// would tell a teacher the school was on leave.
+const namesItself = (reason: string) => isRemoteSuspensionName(reason) || saysHoliday(reason) || isSetupClosure(reason)
 
 /**
  * A closed day in one phrase, from the reason nonSchoolDayReason gave.

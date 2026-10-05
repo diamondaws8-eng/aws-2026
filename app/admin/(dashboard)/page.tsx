@@ -18,6 +18,8 @@ import { getSchoolSettings } from './settings/actions-settings'
 import { NotificationBell } from '@/components/notification-bell'
 import { getDataHealth } from '@/lib/data-health'
 import { DataHealthCard } from '@/components/data-health-card'
+import { LaunchCard } from '@/components/launch-card'
+import { formatDayGregorianAr } from '@/lib/utils'
 import { Suspense } from 'react'
 import { AbsenceTodayCard, AbsenceTodayCardSkeleton } from '@/components/absence-today-card'
 
@@ -106,7 +108,11 @@ export default async function AdminDashboardPage({
   const stageConfigs = new Map(stageIds.map((gid) => [gid, {
     // Only an explicit answer overrides the school's; null follows it.
     saturdayIsSchoolDay: saturdayOf.get(gid) ?? schoolDaysConfig.saturdayIsSchoolDay,
-    holidays: allHolidays.filter((h) => h.gradeLevelId === null || h.gradeLevelId === gid),
+    holidays: [
+      // The closure over the days before the launch belongs to every stage.
+      ...schoolDaysConfig.holidays.filter((h) => h.kind === 'setup'),
+      ...allHolidays.filter((h) => h.gradeLevelId === null || h.gradeLevelId === gid),
+    ],
   }]))
   const taughtSomewhere = (date: string) =>
     stageConfigs.size === 0
@@ -572,6 +578,17 @@ export default async function AdminDashboardPage({
 
       {/* Only whole-school accounts see the school's own gaps: a deputy cannot
           assign a counsellor or take a backup, so the list would only nag. */}
+      {/* While the school is being set up: what that means, and the one press
+          that ends it. Gone for good once pressed. */}
+      {!school.liveSince && (
+        <LaunchCard canLaunch={access.role === 'owner' || access.role === 'quality_manager'} today={today()} />
+      )}
+      {school.liveSince && school.liveSince > today() && (
+        <p className="rounded-2xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+          يبدأ التشغيل الفعلي يوم {formatDayGregorianAr(school.liveSince, true)} — لا يُسجَّل شيء قبله.
+        </p>
+      )}
+
       {access.viewAllGrades && (
         <Suspense fallback={<div className="skeleton h-16 rounded-2xl" aria-hidden />}>
           <DataHealthSection schoolId={school.id} />

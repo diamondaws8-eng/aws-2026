@@ -19,7 +19,7 @@ import { db } from '@/lib/db'
 import { schools, schoolHolidays, gradeLevels } from '@/lib/db/schema'
 import { eq, and, asc, or, isNull } from 'drizzle-orm'
 import {
-  DEFAULT_SCHOOL_DAYS, nonSchoolDayReason, isRemoteSuspensionName,
+  DEFAULT_SCHOOL_DAYS, nonSchoolDayReason, isRemoteSuspensionName, isWeeklyRest, launchClosure,
   type Holiday, type SchoolDaysConfig,
 } from '@/lib/school-days'
 
@@ -65,7 +65,7 @@ export const getSchoolDaysConfig = cache(async (
   gradeLevelId?: string | null,
 ): Promise<SchoolDaysConfig> => {
   const [[school], holidays] = await Promise.all([
-    db.select({ sat: schools.saturdayIsSchoolDay }).from(schools).where(eq(schools.id, schoolId)).limit(1),
+    db.select({ sat: schools.saturdayIsSchoolDay, liveSince: schools.liveSince }).from(schools).where(eq(schools.id, schoolId)).limit(1),
     // School-wide holidays always apply; a stage adds its own on top.
     db
       .select({
@@ -98,7 +98,10 @@ export const getSchoolDaysConfig = cache(async (
     if (stage && stage.sat !== null) saturdayIsSchoolDay = stage.sat
   }
 
-  return { saturdayIsSchoolDay, holidays }
+  // Every day before the school went live is closed — all of them while it
+  // has not. First in the list, so it is the reason given for those days.
+  const setup = launchClosure(school.liveSince)
+  return { saturdayIsSchoolDay, holidays: setup ? [setup, ...holidays] : holidays }
 })
 
 // ── What a family or a teacher is told about the calendar ────────────────────
@@ -154,9 +157,12 @@ export async function getCalendarNotice(
   // one-day holiday inside a week of remote lessons ends when it ends — given
   // the suspension's last day it would read as a holiday through Thursday,
   // and the child would miss three days of lessons at home.
-  const until = covering
+  const untilRaw = covering
     .filter((h) => (h.kind === 'remote') === (cover?.kind === 'remote'))
     .reduce<string | null>((max, h) => (max && max > h.endDate ? max : h.endDate), null)
+  // A school not yet launched is closed with no end in sight; «حتى» a day in
+  // the year 9999 is not something to print.
+  const until = untilRaw && untilRaw.startsWith('9999') ? null : untilRaw
   const remoteEnd = covering
     .filter((h) => h.kind === 'remote')
     .reduce<string | null>((max, h) => (max && max > h.endDate ? max : h.endDate), null)
@@ -175,6 +181,18 @@ export async function getCalendarNotice(
       endDate: h.endDate,
       remote: h.kind === 'remote' || isRemoteSuspensionName(h.name),
     }))
+
+  // A school still being set up has no calendar to tell a family about: the
+  // days before its launch are not holidays, they are simply not yet the
+  // school's days here. The weekend is still named; nothing else is.
+  if (cover?.kind === 'setup') {
+    return {
+      today: reason && isWeeklyRest(reason)
+        ? { reason, remote: false, until: null, thenRemoteUntil: null, within: null }
+        : null,
+      upcoming,
+    }
+  }
 
   return {
     today: reason

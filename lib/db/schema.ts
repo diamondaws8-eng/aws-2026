@@ -108,6 +108,18 @@ export const schools = pgTable('schools', {
   yearStartDate: text('year_start_date'),
 
   /**
+   * The first real day (YYYY-MM-DD) — or null while the school is still being
+   * set up.
+   *
+   * Stages, classes, teachers, pupils and timetables go in before a school is
+   * run, and nothing that happens meanwhile is its record. Until the owner
+   * presses «التشغيل» this stays null and no day is a teaching day: nothing is
+   * recorded, nothing is counted. From this date on, everything is. Wiping
+   * the trial data puts it back to null. See lib/launch.ts.
+   */
+  liveSince: text('live_since'),
+
+  /**
    * Whether Saturday is taught. Friday never is, so it stays fixed; Saturday
    * varies by school and by season, which is exactly why it is a setting the
    * school's own management flips rather than a constant in the code.

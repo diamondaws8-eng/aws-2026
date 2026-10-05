@@ -45,6 +45,13 @@ export async function decideAbsenceExcuse(
   const access = await getAdminAccess()
   if (!access) return { ok: false, error: 'غير مصرح لك بهذا الإجراء' }
   if (!isUuid(id)) return { ok: false, error: 'العذر غير موجود' }
+  {
+    // Accepting an excuse rewrites the register and writes to the family.
+    const { notLiveReason } = await import('@/lib/launch')
+    const { today: schoolClock } = await import('@/lib/utils')
+    const closed = await notLiveReason(access.school.id, schoolClock())
+    if (closed) return { ok: false, error: `${closed} — لا يُرَدّ على أعذار` }
+  }
   const accepted = accept === true
 
   const [excuse] = await db
