@@ -746,3 +746,37 @@ export const pushSubscriptions = pgTable('push_subscriptions', {
   uniqueIndex('push_subscriptions_endpoint_uq').on(t.endpoint),
   index('push_subscriptions_user_idx').on(t.userId),
 ])
+
+// ─── Weekly timetable (الجدول الأسبوعي) ──────────────────────────────────────
+/**
+ * One lesson in a class's week: this day, this period, this subject.
+ *
+ * Until now the system only knew that a teacher «has» a class — every class
+ * of theirs was offered every day, and a teacher with eight classes was asked
+ * each morning about eight registers when the timetable gave them three. Here
+ * the stage's principal or deputy writes the real week down once, and each day
+ * then shows a teacher the lessons that day actually holds.
+ *
+ * The teacher is not stored. The subject carries its teacher, so handing a
+ * subject to somebody else moves every one of its lessons with it, and the
+ * timetable can never disagree with the assignment.
+ *
+ * One timetable per class, fixed for the term and edited when it changes —
+ * not one per week. A class with no rows here is simply not governed by a
+ * timetable yet, and behaves as it always did.
+ */
+export const timetableSlots = pgTable('timetable_slots', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  schoolId: uuid('school_id').notNull(),
+  classId: uuid('class_id').notNull(),
+  /** 0 = Sunday … 6 = Saturday, as lib/school-days.ts counts them. Never 5. */
+  weekday: integer('weekday').notNull(),
+  /** 1 = the first lesson of the day. */
+  period: integer('period').notNull(),
+  subjectId: uuid('subject_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex('timetable_slots_class_day_period_uq').on(t.classId, t.weekday, t.period),
+  index('timetable_slots_school_idx').on(t.schoolId),
+  index('timetable_slots_subject_idx').on(t.subjectId),
+])

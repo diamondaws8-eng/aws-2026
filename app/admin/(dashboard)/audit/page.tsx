@@ -98,6 +98,8 @@ const DETAIL_LABELS: Record<string, string> = {
   destinations: 'عدد الوجهات',
   academicYear: 'العام الدراسي',
   currentSemester: 'الفصل الدراسي',
+  lessons: 'حصص الأسبوع',
+  clashes: 'معلم في فصلين معاً',
   yearStartDate: 'بداية العام',
   pupil: 'الطالب',
   note: 'الرد',

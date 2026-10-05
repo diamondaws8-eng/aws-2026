@@ -4,7 +4,7 @@ import { db } from '@/lib/db'
 import {
   gradeLevels, classes, subjects, students, teachers, gradeEntries,
   dailyRecords, lessonRecords, behaviorCases, attendance, studentPoints,
-  parentWhatsappMessages, notifications, schoolHolidays,
+  parentWhatsappMessages, notifications, schoolHolidays, timetableSlots,
 } from '@/lib/db/schema'
 import { eq, and, or, ne, inArray, isNotNull, count } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
@@ -209,6 +209,8 @@ export async function deleteClass(id: string) {
   }
 
   await db.transaction(async (tx) => {
+    // Its week goes with it: a lesson in a class that no longer exists.
+    await tx.delete(timetableSlots).where(eq(timetableSlots.classId, id))
     // Subjects belong to the class and are meaningless without it.
     await tx.delete(subjects).where(eq(subjects.classId, id))
     // A notice addressed to this class alone had nobody left to read it.
@@ -318,7 +320,13 @@ export async function deleteSubject(id: string) {
     }
   }
 
-  await db.delete(subjects).where(eq(subjects.id, id))
+  // The subject's lessons leave the timetable with it. Left behind they would
+  // be rows naming nothing — and the class would go on counting as timetabled
+  // on the strength of lessons nobody can see or remove.
+  await db.transaction(async (tx) => {
+    await tx.delete(timetableSlots).where(eq(timetableSlots.subjectId, id))
+    await tx.delete(subjects).where(eq(subjects.id, id))
+  })
   await logAudit(access, 'subject.delete', subject.name)
   revalidatePath('/admin/grade-levels')
   return { ok: true as const }
@@ -347,6 +355,9 @@ export async function assignTeacherToSubject(subjectId: string, teacherUserId: s
 
   await db.update(subjects).set({ teacherUserId }).where(eq(subjects.id, subjectId))
   revalidatePath('/admin/grade-levels')
+  // The timetable names subjects, not teachers: every lesson of this subject
+  // has just changed hands with it.
+  revalidatePath('/admin/timetable')
   return { ok: true as const }
 }
 

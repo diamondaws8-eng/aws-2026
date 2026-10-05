@@ -10,6 +10,7 @@ import { today as schoolToday, isValidDateString, formatDateAr } from '@/lib/uti
 import { attendancePointsFor, lessonPointsFor, getStudentPointsTotal, getClassPointsTotals, getStudentPointsHistory as buildPointsHistory } from '@/lib/points'
 import { requireTeacher, requireTeacherForClass } from '@/lib/teacher-access'
 import { logTeacherAudit } from '@/lib/audit'
+import { getSchoolTimetable, lessonsOn } from '@/lib/timetable'
 
 /** A rejected input comes back as a value: a production build strips the text of a thrown error. */
 export type ActionResult = { ok: true } | { ok: false; error: string }
@@ -232,11 +233,7 @@ export async function saveDailyRecords(
 
   // ── 2. This teacher's own assessment, untouched by anyone else ─────────────
   // Which subject the row belongs to, when the admin has assigned one.
-  const [ownSubject] = await db
-    .select({ id: subjects.id })
-    .from(subjects)
-    .where(and(eq(subjects.classId, classId), eq(subjects.teacherUserId, userId)))
-    .limit(1)
+  const ownSubjectId = await lessonSubjectId(schoolId, classId, userId, date)
 
   // A pupil who was not in school was not in this lesson either. The roster
   // sends its defaults («أنجز», «أحضر», «مشارك») for every row, so without
@@ -258,7 +255,7 @@ export async function saveDailyRecords(
       classId,
       studentId: rec.studentId,
       teacherUserId: userId,
-      subjectId: ownSubject?.id ?? null,
+      subjectId: ownSubjectId,
       date,
       ...marks,
       teacherNote: rec.teacherNote || null,
@@ -398,6 +395,39 @@ export async function saveDailyRecords(
 
   revalidatePath(`/teacher/classes/${classId}`)
   return { ok: true, blocked: await describeAbsences(classId, date, blockedIds) , notified }
+}
+
+/**
+ * The subject a teacher's row for a class and a day is filed under.
+ *
+ * It used to be "the first subject this teacher holds in the class", with no
+ * order — so a teacher of two subjects in one class had every lesson filed
+ * under whichever the database happened to return. The timetable knows which
+ * of them the class actually had that day, so it is asked first; the earliest
+ * period when it holds two, because a teacher's row is one per pupil per day.
+ *
+ * Where the timetable has nothing to say — the class has none yet, the
+ * teacher is covering a colleague, a past day is being completed on a weekday
+ * they do not teach it — the old answer stands. This only labels the row. It
+ * never decides whether the save is allowed.
+ *
+ * Not exported: it trusts its ids, and every export here is an endpoint.
+ */
+async function lessonSubjectId(schoolId: string, classId: string, userId: string, date: string): Promise<string | null> {
+  try {
+    const lesson = lessonsOn(await getSchoolTimetable(schoolId), userId, date).find((l) => l.classId === classId)
+    if (lesson) return lesson.subjectId
+  } catch (err) {
+    // By the time this runs the register is already written. A timetable that
+    // cannot be read must cost the row its label at most, never the lesson.
+    console.error('lessonSubjectId: timetable unavailable, using the assigned subject', err)
+  }
+  const [ownSubject] = await db
+    .select({ id: subjects.id })
+    .from(subjects)
+    .where(and(eq(subjects.classId, classId), eq(subjects.teacherUserId, userId)))
+    .limit(1)
+  return ownSubject?.id ?? null
 }
 
 /** Names for the students whose standing absence overrode what was submitted. */
@@ -802,17 +832,14 @@ export async function raiseBehaviorCase(input: {
     .limit(1)
   if (!student) return { ok: false, error: 'الطالب ليس في هذا الفصل' }
 
-  const [ownSubject] = await db
-    .select({ id: subjects.id })
-    .from(subjects)
-    .where(and(eq(subjects.classId, input.classId), eq(subjects.teacherUserId, userId)))
-    .limit(1)
+  // The lesson the case arose in: today's, by the timetable, when it has one.
+  const ownSubjectId = await lessonSubjectId(schoolId, input.classId, userId, schoolToday())
 
   const [created] = await db.insert(behaviorCases).values({
     schoolId,
     studentId: input.studentId,
     classId: input.classId,
-    subjectId: ownSubject?.id ?? null,
+    subjectId: ownSubjectId,
     raisedByUserId: userId,
     teacherNote: note,
     date: schoolToday(),

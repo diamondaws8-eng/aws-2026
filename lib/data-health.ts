@@ -1,5 +1,5 @@
 import { db } from '@/lib/db'
-import { classes, gradeLevels, students, subjects, schoolStaff, schoolYears, auditLog, teachers } from '@/lib/db/schema'
+import { classes, gradeLevels, students, subjects, schoolStaff, schoolYears, auditLog, teachers, timetableSlots } from '@/lib/db/schema'
 import { and, eq, isNull, sql, desc } from 'drizzle-orm'
 import { parentActivation } from '@/lib/notifications'
 
@@ -22,7 +22,7 @@ const parseIds = (raw: string | null): string[] => {
  * Shown on the dashboard until they are done, with the page that does them.
  */
 export async function getDataHealth(schoolId: string): Promise<HealthItem[]> {
-  const [gradeRows, teacherSeats, assignedTeacherRows, classRows, pupilCounts, unassigned, duplicates, staffRows, openYear, lastBackup, activation, noIdentityRows] = await Promise.all([
+  const [gradeRows, teacherSeats, assignedTeacherRows, classRows, pupilCounts, unassigned, duplicates, staffRows, openYear, lastBackup, activation, noIdentityRows, timetabledRows] = await Promise.all([
     db.select({ id: gradeLevels.id, name: gradeLevels.name }).from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)),
     db.select({ userId: teachers.userId, fullName: teachers.fullName, allGrades: teachers.allGrades, gradeLevelIds: teachers.gradeLevelIds }).from(teachers).where(eq(teachers.schoolId, schoolId)),
     // Teachers who hold at least one subject: the only ones who can open a class.
@@ -64,6 +64,7 @@ export async function getDataHealth(schoolId: string): Promise<HealthItem[]> {
         eq(students.status, 'active'),
         sql`length(regexp_replace(coalesce(${students.nationalId}, ''), '[^0-9]', '', 'g')) < 5`,
       )),
+    db.selectDistinct({ classId: timetableSlots.classId }).from(timetableSlots).where(eq(timetableSlots.schoolId, schoolId)),
   ])
 
   const gradeName = new Map(gradeRows.map((g) => [g.id, g.name]))
@@ -159,6 +160,24 @@ export async function getDataHealth(schoolId: string): Promise<HealthItem[]> {
       detail: 'ولي الأمر يثبت أنه صاحب الحساب برقم هوية ابنه عند أول دخول؛ بلا رقم مسجَّل لا يستطيع تفعيل حسابه.',
       href: '/admin/students',
       action: 'تسجيل أرقام الهوية',
+    })
+  }
+
+  // Only once the school has begun writing timetables: a class without one is
+  // then the odd one out — its teachers are offered it every day while their
+  // other classes follow the week. A school that uses no timetable at all is
+  // told nothing.
+  const timetabled = new Set(timetabledRows.map((r) => r.classId))
+  const untimetabled = timetabled.size
+    ? classRows.filter((c) => !timetabled.has(c.id) && (countOf.get(c.id) ?? 0) > 0 && !unassigned.some((u) => u.id === c.id))
+    : []
+  if (untimetabled.length) {
+    items.push({
+      level: 'info',
+      title: `${untimetabled.length} فصلاً بلا جدول أسبوعي`,
+      detail: untimetabled.slice(0, 6).map(label).join('، ') + (untimetabled.length > 6 ? '…' : '') + ' — تظهر لمعلميها في كل يوم دراسي، بينما بقية الفصول تظهر في أيام حصصها فقط.',
+      href: '/admin/timetable',
+      action: 'كتابة الجداول',
     })
   }
 

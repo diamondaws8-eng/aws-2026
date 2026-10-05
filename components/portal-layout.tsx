@@ -25,7 +25,7 @@ import {
   PanelRightClose,
   ShieldAlert,
   ScrollText,
-  CalendarCheck, CalendarX,
+  CalendarCheck, CalendarX, CalendarDays,
   HeartHandshake,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -92,7 +92,7 @@ type Role = keyof typeof navConfig
 
 const ICON_MAP = {
   LayoutDashboard, Layers, Users, UserCog, Bell, Settings, BookOpen, ClipboardList, CheckSquare, BarChart2,
-  ScrollText, HeartHandshake, ShieldAlert, CalendarCheck, CalendarX,
+  ScrollText, HeartHandshake, ShieldAlert, CalendarCheck, CalendarX, CalendarDays,
 } as const
 
 export type NavIconName = keyof typeof ICON_MAP

@@ -19,7 +19,8 @@ const isOut = (s: string | null | undefined) => s === 'absent' || s === 'excused
 export type Correction = { studentId: string; status: AttendanceStatus }
 
 export type CorrectResult =
-  | { ok: true; changed: number; unchanged: number; notified: number }
+  /** `skipped` = pupils the screen showed as unrecorded whom somebody recorded before this save; left as recorded. */
+  | { ok: true; changed: number; unchanged: number; notified: number; skipped: number }
   | { ok: false; error: string }
 
 /**
@@ -33,12 +34,30 @@ export type CorrectResult =
  * stage, needs a written reason, and leaves a line in the audit log naming
  * every pupil and what changed. An absence set here is owned by the
  * administrator: no teacher can undo it, only record the pupil arriving late.
+ *
+ * It is also how the office takes a register for a teacher who is away: on a
+ * teaching day a pupil nobody recorded is simply given a row. The page offers
+ * that as its own flow (pick the teacher, then one of the day's classes), but
+ * nothing here knows about teachers or timetables — the rules are the ones
+ * above, whoever the register is taken for, and the reason says on whose
+ * behalf.
  */
 export async function correctAttendance(
   classId: string,
   date: string,
   changes: Correction[],
   reason: string,
+  /**
+   * The pupils this screen showed as «غير مسجَّل» when it sent their marks.
+   *
+   * Taking a register for a teacher who is late is exactly the moment that
+   * teacher walks in and takes it himself. A mark for one of these pupils is
+   * the office filling a blank, not overruling anybody — so if the blank has
+   * been filled in the meantime, the teacher's word stands and this one is
+   * dropped. Without it a page ten minutes old would turn three recorded
+   * absences back into «حاضر» and send their families an apology.
+   */
+  unrecordedIds: string[] = [],
 ): Promise<CorrectResult> {
   const access = await getAdminAccess()
   if (!access) return { ok: false, error: 'غير مصرح لك بهذا الإجراء' }
@@ -66,7 +85,10 @@ export async function correctAttendance(
   for (const c of Array.isArray(changes) ? changes : []) {
     if (c && typeof c.studentId === 'string' && STATUSES.includes(c.status)) wanted.set(c.studentId, c.status)
   }
-  if (wanted.size === 0) return { ok: true, changed: 0, unchanged: 0, notified: 0 }
+  if (wanted.size === 0) return { ok: true, changed: 0, unchanged: 0, notified: 0, skipped: 0 }
+  const believedUnrecorded = new Set(
+    (Array.isArray(unrecordedIds) ? unrecordedIds : []).filter((v): v is string => typeof v === 'string'),
+  )
 
   const pupils = await db
     .select({ id: students.id, fullName: students.fullName, parentUserId: students.parentUserId })
@@ -104,42 +126,75 @@ export async function correctAttendance(
   }
 
   const now = new Date()
-  const applied: { id: string; fullName: string; parentUserId: string | null; from: string | null; to: AttendanceStatus }[] = []
+  type Applied = { id: string; fullName: string; parentUserId: string | null; from: string | null; to: AttendanceStatus }
+  let applied: Applied[] = []
   let unchanged = 0
+  let skipped = 0
   for (const p of pupils) {
     const to = wanted.get(p.id)!
     const from = previous.get(p.id) ?? null
+    // Recorded since the screen was loaded: not the office's to fill any more.
+    if (from !== null && believedUnrecorded.has(p.id)) { skipped++; continue }
     if (from === to) { unchanged++; continue }
     applied.push({ id: p.id, fullName: p.fullName, parentUserId: p.parentUserId, from, to })
   }
-  if (applied.length === 0) return { ok: true, changed: 0, unchanged, notified: 0 }
+  if (applied.length === 0) return { ok: true, changed: 0, unchanged, notified: 0, skipped }
 
-  // One statement, no lock condition: the administration overrides the lock,
-  // and takes ownership of any absence it writes.
-  await db
-    .insert(dailyRecords)
-    .values(applied.map((a) => ({
-      schoolId: access.school.id,
-      classId,
-      studentId: a.id,
-      teacherUserId: access.userId,
-      date,
-      attendanceStatus: a.to,
-      pointsEarned: attendancePointsFor({ attendanceStatus: a.to, date }, settings),
-      absenceMarkedBy: isOut(a.to) ? access.userId : null,
-      absenceMarkedAt: isOut(a.to) ? now : null,
-    })))
-    .onConflictDoUpdate({
-      target: [dailyRecords.studentId, dailyRecords.classId, dailyRecords.date],
-      set: {
-        teacherUserId: access.userId,
-        attendanceStatus: sqlExcluded('attendance_status'),
-        pointsEarned: sqlExcluded('points_earned'),
-        absenceMarkedBy: sqlExcluded('absence_marked_by'),
-        absenceMarkedAt: sqlExcluded('absence_marked_at'),
-        updatedAt: now,
-      },
-    })
+  const rowOf = (a: Applied) => ({
+    schoolId: access.school.id,
+    classId,
+    studentId: a.id,
+    teacherUserId: access.userId,
+    date,
+    attendanceStatus: a.to,
+    pointsEarned: attendancePointsFor({ attendanceStatus: a.to, date }, settings),
+    absenceMarkedBy: isOut(a.to) ? access.userId : null,
+    absenceMarkedAt: isOut(a.to) ? now : null,
+  })
+  const onePerDay = [dailyRecords.studentId, dailyRecords.classId, dailyRecords.date]
+
+  // Blanks are filled only while they are still blank. The read above can be
+  // a moment old too, so the database decides: a row that turned up between
+  // that read and this write is left exactly as its teacher wrote it.
+  const blanks = applied.filter((a) => a.from === null && believedUnrecorded.has(a.id))
+  if (blanks.length) {
+    const landed = await db
+      .insert(dailyRecords)
+      .values(blanks.map(rowOf))
+      .onConflictDoNothing({ target: onePerDay })
+      .returning({ studentId: dailyRecords.studentId })
+    const written = new Set(landed.map((r) => r.studentId))
+    const lost = new Set(blanks.filter((a) => !written.has(a.id)).map((a) => a.id))
+    if (lost.size) {
+      skipped += lost.size
+      applied = applied.filter((a) => !lost.has(a.id))
+    }
+  }
+
+  // Everything else is a correction of a mark the screen showed, and those are
+  // the administration's last word: one statement, no lock condition, and
+  // ownership of any absence it writes.
+  const corrections = applied.filter((a) => !(a.from === null && believedUnrecorded.has(a.id)))
+  if (corrections.length) {
+    await db
+      .insert(dailyRecords)
+      .values(corrections.map(rowOf))
+      .onConflictDoUpdate({
+        target: onePerDay,
+        set: {
+          teacherUserId: access.userId,
+          attendanceStatus: sqlExcluded('attendance_status'),
+          pointsEarned: sqlExcluded('points_earned'),
+          absenceMarkedBy: sqlExcluded('absence_marked_by'),
+          absenceMarkedAt: sqlExcluded('absence_marked_at'),
+          updatedAt: now,
+        },
+      })
+  }
+  if (applied.length === 0) {
+    revalidatePath('/admin/attendance')
+    return { ok: true, changed: 0, unchanged, notified: 0, skipped }
+  }
 
   /**
    * The rule the teachers' save keeps — a pupil who was not in school was not
@@ -208,7 +263,7 @@ export async function correctAttendance(
 
   revalidatePath('/admin/attendance')
   revalidatePath('/admin')
-  return { ok: true, changed: applied.length, unchanged, notified }
+  return { ok: true, changed: applied.length, unchanged, notified, skipped }
 }
 
 // Drizzle's `excluded.<column>` reference for an upsert, kept out of the

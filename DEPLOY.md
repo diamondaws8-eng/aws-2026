@@ -52,6 +52,19 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_endpoint_uq ON push_subscriptions (endpoint);
 CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions (user_id);
+
+CREATE TABLE IF NOT EXISTS timetable_slots (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id uuid NOT NULL,
+  class_id uuid NOT NULL,
+  weekday integer NOT NULL,
+  period integer NOT NULL,
+  subject_id uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS timetable_slots_class_day_period_uq ON timetable_slots (class_id, weekday, period);
+CREATE INDEX IF NOT EXISTS timetable_slots_school_idx ON timetable_slots (school_id);
+CREATE INDEX IF NOT EXISTS timetable_slots_subject_idx ON timetable_slots (subject_id);
 ```
 
 مطلوب مرة واحدة ما دامت في القاعدة حسابات أولياء أمور أُنشئت قبل 2026-10-05: اسم الحساب القديم يحمل اسم الطالب كاملاً، ويعود في ردّ تسجيل الدخول لمن يكتب رقم الجوال وكلمة المرور المبدئية. الأمر بيانات بحتة ولا شيء يقرأ الاسم القديم (الحسابات الجديدة تُنشأ باسم محايد؛ ومن صفّر الطلاب والحسابات كلها لا يحتاجه):

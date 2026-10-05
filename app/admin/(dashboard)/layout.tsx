@@ -23,6 +23,7 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
   const links: PortalNavLink[] = [
     { href: '/admin', label: 'الرئيسية', icon: 'LayoutDashboard', exact: true },
     { href: '/admin/grade-levels', label: 'المراحل والفصول', icon: 'Layers' },
+    { href: '/admin/timetable', label: 'الجدول الأسبوعي', icon: 'CalendarDays' },
     { href: '/admin/students', label: 'الطلاب', icon: 'Users' },
     { href: '/admin/attendance', label: 'سجل الحضور', icon: 'CalendarCheck' },
     { href: '/admin/absence', label: 'كشف الغياب اليومي', icon: 'CalendarX' },

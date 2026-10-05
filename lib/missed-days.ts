@@ -4,6 +4,7 @@ import { and, eq, inArray, gte } from 'drizzle-orm'
 import { getSchoolDaysConfig } from '@/lib/school-holidays'
 import { lastSchoolDays } from '@/lib/school-days'
 import { recordingStart } from '@/lib/recording-start'
+import { getSchoolTimetable, teachesOn } from '@/lib/timetable'
 
 /**
  * Days a teacher's class went unrecorded.
@@ -107,7 +108,7 @@ export async function missedDaysForTeacher(
   if (windowDays.length === 0) return []
 
   const classIds = mine.map((c) => c.classId)
-  const [done, registered] = await Promise.all([
+  const [done, registered, slots] = await Promise.all([
     // What this teacher has already assessed — the same measure the dashboard's
     // card for today uses, so "done" means the same thing on both.
     db
@@ -127,6 +128,10 @@ export async function missedDaysForTeacher(
       .selectDistinct({ classId: dailyRecords.classId, date: dailyRecords.date })
       .from(dailyRecords)
       .where(and(inArray(dailyRecords.classId, classIds), inArray(dailyRecords.date, windowDays))),
+    // The school's week as it is written down. One read — shared with the
+    // dashboard that called this, since it is cached for the request — and
+    // every class/day pair below is answered from it without another query.
+    getSchoolTimetable(schoolId),
   ])
   const recorded = new Set(done.map((r) => `${r.classId}|${r.date}`))
   const hasRegister = new Set(registered.map((r) => `${r.classId}|${r.date}`))
@@ -143,6 +148,13 @@ export async function missedDaysForTeacher(
     for (const date of daysByStage.get(c.gradeLevelId) ?? []) {
       const key = `${c.classId}|${date}`
       if (recorded.has(key)) continue
+      // A class whose week is written down is this teacher's only on the days
+      // the timetable gives them a lesson in it. On any other day they had
+      // nothing there to record — neither the register nor an assessment —
+      // and a line asking for it is an alert that is wrong, the kind that
+      // teaches a teacher to stop reading the right ones. A class with no
+      // timetable is still theirs every school day, as before.
+      if (!teachesOn(slots, teacherUserId, c.classId, date)) continue
       const kind: 'register' | 'assessment' = hasRegister.has(key) ? 'assessment' : 'register'
       // An untaken register older than the stage's last school day is not
       // this teacher's to reconstruct.

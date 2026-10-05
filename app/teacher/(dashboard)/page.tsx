@@ -1,24 +1,38 @@
 import { db } from '@/lib/db'
-import { students, classes, gradeLevels, lessonRecords, subjects } from '@/lib/db/schema'
-import { eq, and, count, inArray } from 'drizzle-orm'
-import { CalendarCheck, CircleDashed, History } from 'lucide-react'
+import { classes, gradeLevels, lessonRecords, subjects } from '@/lib/db/schema'
+import { eq, and, inArray } from 'drizzle-orm'
+import { ArrowLeft, CalendarCheck, CalendarDays, CircleDashed, History } from 'lucide-react'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { formatDateAr, today } from '@/lib/utils'
 import { requireTeacher, getTeacherVisibleClassIds } from '@/lib/teacher-access'
 import { getSchoolDaysConfig } from '@/lib/school-holidays'
-import { nonSchoolDayReason, closedDayPhrase, closedTodayHeading, isWeeklyRest } from '@/lib/school-days'
+import { nonSchoolDayReason, closedTodayHeading, isWeeklyRest } from '@/lib/school-days'
 import { missedDaysForTeacher } from '@/lib/missed-days'
-
-import { StatCard } from '@/components/stat-card'
-import { EmptyState } from '@/components/empty-state'
-import { Users, BookOpen, AlertCircle } from 'lucide-react'
-import { NotificationBell } from '@/components/notification-bell'
+import { getSchoolTimetable } from '@/lib/timetable'
 import { getLeaderboard } from '@/lib/points'
 import { LeaderboardClient } from '@/app/admin/(dashboard)/leaderboard-client'
+import { classDays } from './today-lessons'
+import { MyWeek } from './my-week'
+
+import { StatCard } from '@/components/stat-card'
+import { NotificationBell } from '@/components/notification-bell'
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * The teacher's home page: where things stand, at a glance.
+ *
+ * It answers «what is on me?» in numbers — today's classes, how many are
+ * still unrecorded, what was left unfinished — shows the week they belong to,
+ * and points at the classes page. It does not list today's classes a second
+ * time: it used to, each one a link straight into the roster, beside a third
+ * list of the same classes as stage cards, and the classes page listed them
+ * again with their status. Three lists of one set of classes, and only one of
+ * them stopped to warn before a record already sent to families was reopened.
+ * Entering a class is the classes page's job alone now; this page counts, and
+ * sends the teacher there.
+ */
 export default async function TeacherDashboard() {
   let teacher
   try {
@@ -27,85 +41,93 @@ export default async function TeacherDashboard() {
     redirect('/teacher/login')
   }
 
-  // Total students in school
-  const [{ count: totalStudents }] = await db
-    .select({ count: count() })
-    .from(students)
-    .where(and(eq(students.schoolId, teacher.schoolId), eq(students.status, 'active')))
-
-  // Total classes in school
-  const [{ count: totalClasses }] = await db
-    .select({ count: count() })
-    .from(classes)
-    .where(eq(classes.schoolId, teacher.schoolId))
-
-  // Get grade levels and class counts — "available" means available to this
-  // teacher, so it follows the same subject-based visibility as /teacher/classes.
-  const gradesData = await db.select().from(gradeLevels).where(eq(gradeLevels.schoolId, teacher.schoolId)).orderBy(gradeLevels.orderIndex)
-  const classesData = await db.select().from(classes).where(eq(classes.schoolId, teacher.schoolId))
-  const visibleClassIds = await getTeacherVisibleClassIds(teacher.schoolId, teacher.userId)
-  const visibleClasses = classesData.filter(c => visibleClassIds.has(c.id))
-
-  const gradesWithCounts = gradesData
-    .map(g => ({
-      ...g,
-      classCount: visibleClasses.filter(c => c.gradeLevelId === g.id).length
-    }))
-    .filter(g => g.classCount > 0)
-
-  // The honour board for this teacher's own classes — the same figures the
-  // administration sees, cut to the classes this account may open.
-  const gradeNameOf = new Map(gradesData.map((g) => [g.id, g.name]))
-  const boardClasses = visibleClasses
-    .sort((a, b) => (gradeNameOf.get(a.gradeLevelId) ?? '').localeCompare(gradeNameOf.get(b.gradeLevelId) ?? '') || a.name.localeCompare(b.name))
-    .map((c) => ({ id: c.id, name: `${gradeNameOf.get(c.gradeLevelId) ?? ''} — ${c.name}` }))
-  const boardRows = visibleClasses.length
-    ? await getLeaderboard(teacher.schoolId, visibleClasses.map((c) => c.id))
-    : []
-
-  /**
-   * Today, class by class: which of this teacher's classes already have their
-   * record saved and which are still waiting. The classes listed are the ones
-   * with a subject assigned to this teacher — the ones they are expected to
-   * fill — and the count is of pupils in them, not in the whole school.
-   */
   const todayStr = today()
+  const [gradesData, classesData, visibleClassIds, slots] = await Promise.all([
+    db.select({ id: gradeLevels.id, name: gradeLevels.name }).from(gradeLevels).where(eq(gradeLevels.schoolId, teacher.schoolId)).orderBy(gradeLevels.orderIndex),
+    db.select({ id: classes.id, name: classes.name, gradeLevelId: classes.gradeLevelId }).from(classes).where(eq(classes.schoolId, teacher.schoolId)),
+    getTeacherVisibleClassIds(teacher.schoolId, teacher.userId),
+    // The school's week in one read, cached for the request: today's count,
+    // «جدولي الأسبوعي» and lib/missed-days.ts below all ask it their questions.
+    getSchoolTimetable(teacher.schoolId),
+  ])
+  const gradeNameOf = new Map(gradesData.map((g) => [g.id, g.name]))
+  const visibleClasses = classesData
+    .filter((c) => visibleClassIds.has(c.id))
+    .sort((a, b) => (gradeNameOf.get(a.gradeLevelId) ?? '').localeCompare(gradeNameOf.get(b.gradeLevelId) ?? '') || a.name.localeCompare(b.name))
+  const boardClasses = visibleClasses.map((c) => ({ id: c.id, name: `${gradeNameOf.get(c.gradeLevelId) ?? ''} — ${c.name}` }))
+
   const myClassIds = visibleClasses.map((c) => c.id)
-  const [mySubjectRows, recordedRows, [{ count: myPupils }]] = await Promise.all([
+  const [mySubjectRows, recordedRows, boardRows] = await Promise.all([
     myClassIds.length
-      ? db.select({ classId: subjects.classId, name: subjects.name }).from(subjects)
+      ? db.select({ classId: subjects.classId }).from(subjects)
           .where(and(eq(subjects.teacherUserId, teacher.userId), inArray(subjects.classId, myClassIds)))
-      : Promise.resolve([] as { classId: string; name: string }[]),
+      : Promise.resolve([] as { classId: string }[]),
     myClassIds.length
       ? db.selectDistinct({ classId: lessonRecords.classId }).from(lessonRecords)
           .where(and(eq(lessonRecords.teacherUserId, teacher.userId), eq(lessonRecords.date, todayStr), inArray(lessonRecords.classId, myClassIds)))
       : Promise.resolve([] as { classId: string }[]),
-    myClassIds.length
-      ? db.select({ count: count() }).from(students).where(and(inArray(students.classId, myClassIds), eq(students.status, 'active')))
-      : Promise.resolve([{ count: 0 }]),
+    // The honour board for this teacher's own classes — the same figures the
+    // administration sees, cut to the classes this account may open.
+    myClassIds.length ? getLeaderboard(teacher.schoolId, myClassIds) : Promise.resolve([]),
   ])
   const recordedToday = new Set(recordedRows.map((r) => r.classId))
-  const subjectOf = new Map<string, string[]>()
-  for (const s of mySubjectRows) subjectOf.set(s.classId, [...(subjectOf.get(s.classId) ?? []), s.name])
+  const withSubject = new Set(mySubjectRows.map((s) => s.classId))
   // "My classes" are the ones with a subject in this teacher's name. Classes
   // nobody has been assigned to yet are reachable (the rollout fallback) but
-  // are not this teacher's daily duty, so they stay off the list — unless
-  // the teacher has no assignment at all, when the list shows what is open.
-  const mine = boardClasses.filter((c) => subjectOf.has(c.id))
-  const todayBase = mine.length ? mine : boardClasses
+  // are not this teacher's daily duty, so they are not counted — unless the
+  // teacher has no assignment at all, when what is open is what there is.
+  const mine = visibleClasses.filter((c) => withSubject.has(c.id))
+  const myBase = mine.length ? mine : visibleClasses
   // A Friday, a Saturday the stage does not teach on, or a holiday is not a
-  // day with eight classes still waiting — it is a day off, and the card
+  // day with eight classes still waiting — it is a day off, and the page
   // says so instead of pressing the teacher to record it.
-  const gradeOfClass = new Map(visibleClasses.map((c) => [c.id, c.gradeLevelId]))
   const offReason = new Map<string, string | null>()
-  for (const gid of new Set(todayBase.map((c) => gradeOfClass.get(c.id) ?? null))) {
-    offReason.set(gid ?? '', nonSchoolDayReason(todayStr, await getSchoolDaysConfig(teacher.schoolId, gid)))
+  for (const gid of new Set(myBase.map((c) => c.gradeLevelId))) {
+    offReason.set(gid, nonSchoolDayReason(todayStr, await getSchoolDaysConfig(teacher.schoolId, gid)))
   }
-  const todayList = todayBase.map((c) => ({ ...c, subjects: subjectOf.get(c.id) ?? [], done: recordedToday.has(c.id), off: offReason.get(gradeOfClass.get(c.id) ?? '') ?? null }))
-  const pendingCount = todayList.filter((c) => !c.done && !c.off).length
-  const allOff = todayList.length > 0 && todayList.every((c) => c.off)
-  const offToday = allOff ? todayList[0].off : null
+  /**
+   * Which of those classes are today's. Where the timetable governs, a class
+   * counts only when it gives this teacher a lesson in it today; everywhere
+   * else it counts every school day, as it always did. The rule itself is in
+   * ./today-lessons — the classes page lists by it, so the number here and
+   * the cards there are one answer.
+   */
+  const days = classDays({
+    slots,
+    teacherUserId: teacher.userId,
+    classIds: myBase.map((c) => c.id),
+    date: todayStr,
+    recorded: recordedToday,
+    followsTimetable: mine.length > 0,
+  })
+  const todays = myBase
+    .filter((c) => days.get(c.id)?.today)
+    .map((c) => ({ id: c.id, done: recordedToday.has(c.id), off: offReason.get(c.gradeLevelId) ?? null }))
+  const doneCount = todays.filter((c) => c.done).length
+  const pendingCount = todays.filter((c) => !c.done && !c.off).length
+  // The day-off label is read off today's classes. When the timetable leaves
+  // none — a Friday holds no lesson for anybody — it is read off all the
+  // teacher's classes instead, so a day off is still called a day off and not
+  // «لا حصص لك اليوم».
+  const offScope = todays.length ? todays.map((c) => c.off) : myBase.map((c) => offReason.get(c.gradeLevelId) ?? null)
+  const allOff = offScope.length > 0 && offScope.every((reason) => !!reason)
+  const offToday = allOff ? offScope[0] : null
   const offLabel = offToday ? (isWeeklyRest(offToday) ? `${closedTodayHeading(offToday)} — لا تسجيل` : closedTodayHeading(offToday)) : null
+  // A school day on which the timetable gives this teacher no lesson at all.
+  // Said in so many words: «كل فصولك مسجَّلة» would be untrue.
+  const noLessonsToday = myBase.length > 0 && todays.length === 0 && !allOff
+  // Classes of theirs the timetable keeps off today — the page says where
+  // they went, or the first morning with a timetable looks like a loss.
+  const restCount = myBase.length - todays.length
+  // «جدولي الأسبوعي» prints a class in a narrow row, so it goes by its own
+  // name — with its stage in front only where this teacher has two classes of
+  // the same name, which happens across stages («1/2» in each of them).
+  const sameName = new Map<string, number>()
+  for (const c of visibleClasses) sameName.set(c.name, (sameName.get(c.name) ?? 0) + 1)
+  const weekClassNames = new Map(visibleClasses.map((c) => [
+    c.id,
+    (sameName.get(c.name) ?? 0) > 1 ? `${gradeNameOf.get(c.gradeLevelId) ?? ''} — ${c.name}` : c.name,
+  ]))
   // The day that was never opened — see lib/missed-days.ts for why it is only
   // the last school day and not the last week.
   const missed = await missedDaysForTeacher(teacher.schoolId, teacher.userId, todayStr)
@@ -114,36 +136,73 @@ export default async function TeacherDashboard() {
   const missedRegister = missed.filter((m) => m.kind === 'register')
   const missedAssessment = missed.filter((m) => m.kind === 'assessment')
 
-  const myClassCount = todayBase.length
-  const myPupilCount = todayBase.length === visibleClasses.length
-    ? myPupils
-    : (await db.select({ count: count() }).from(students).where(and(inArray(students.classId, todayBase.map((c) => c.id)), eq(students.status, 'active'))))[0].count
+  // Today in one sentence, for the card that sends the teacher to the classes page.
+  const todayLine = offLabel
+    ?? (myBase.length === 0 ? 'لا توجد فصول مسندة إليك بعد — تواصل مع الإدارة'
+    : noLessonsToday ? 'لا حصص لك اليوم حسب الجدول. فصولك كلها في صفحة الفصول إن احتجت إكمال يوم سابق.'
+    : pendingCount === 0 ? `سجّلت فصول اليوم كلها (${todays.length}).`
+    : `سجّلت ${doneCount} من ${todays.length} — بقي ${pendingCount}.`)
 
   return (
     <div className="p-6 space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">أهلاً، {teacher.fullName}</h1>
-          <p className="text-muted-foreground mt-1">{formatDateAr(today())}</p>
+          <p className="text-muted-foreground mt-1">{formatDateAr(todayStr)}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <NotificationBell />
-          <Link href="/teacher/classes" className="bg-primary text-primary-foreground px-4 py-2 rounded-xl font-semibold text-center hover:bg-primary/90 transition-colors">
-            الذهاب للفصول &larr;
-          </Link>
-        </div>
+        <NotificationBell />
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard label="طلاب فصولي" value={myPupilCount} icon={Users} accent="blue" trend={{ value: 0, label: `من ${totalStudents} طالباً في المدرسة` }} />
-        <StatCard label="فصولي" value={myClassCount} icon={BookOpen} accent="emerald" trend={{ value: 0, label: mine.length ? `من ${totalClasses} فصلاً في المدرسة` : 'لم تُسند إليك مادة بعد — تظهر الفصول المفتوحة' }} />
         <StatCard
-          label="فصول لم تُسجَّل اليوم"
+          label="فصول اليوم"
+          value={todays.length}
+          icon={CalendarDays}
+          accent="blue"
+          trend={{
+            value: 0,
+            label: offLabel
+              ?? (noLessonsToday ? 'لا حصص لك اليوم حسب الجدول'
+              : mine.length === 0 && myBase.length > 0 ? 'لم تُسند إليك مادة بعد — تظهر الفصول المفتوحة'
+              : restCount > 0 ? `من ${myBase.length} فصلاً لك — البقية ليست في جدول اليوم`
+              : 'كل فصولك'),
+          }}
+        />
+        <StatCard
+          label="لم تُسجَّل اليوم"
           value={pendingCount}
           icon={pendingCount ? CircleDashed : CalendarCheck}
           accent={pendingCount ? 'amber' : 'emerald'}
-          trend={{ value: 0, label: pendingCount ? 'اضغط الفصل أدناه لتسجيله' : offLabel ?? 'كل فصولك مسجَّلة لهذا اليوم' }}
+          trend={{ value: 0, label: pendingCount ? 'سجّلها من صفحة الفصول' : offLabel ?? (noLessonsToday ? 'لا شيء عليك اليوم' : 'كل فصول اليوم مسجَّلة') }}
         />
+        <StatCard
+          label="أيام لم تكتمل"
+          value={missed.length}
+          icon={History}
+          accent={missed.length ? 'amber' : 'emerald'}
+          trend={{ value: 0, label: missed.length ? 'فصول كانت لك فيها حصة ولم تكتمل' : 'لا شيء متأخر' }}
+        />
+      </div>
+
+      {/* The one way from here into today's work: the classes page, where each
+          class says whether it is recorded and asks before it is reopened. */}
+      <div className="bg-card border border-border rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-lg font-bold">حصص اليوم</h2>
+          <p className="text-sm text-muted-foreground mt-1 leading-7">{todayLine}</p>
+          {!offLabel && todays.length > 0 && restCount > 0 && (
+            <p className="text-xs text-muted-foreground mt-1">بقية فصولك ({restCount}) ليست في جدول اليوم — تجدها مطويّة في صفحة الفصول.</p>
+          )}
+        </div>
+        {myBase.length > 0 && (
+          <Link
+            href="/teacher/classes"
+            className="shrink-0 inline-flex items-center justify-center gap-2 min-h-11 px-5 rounded-xl bg-primary text-primary-foreground font-bold hover:bg-primary/90 transition-colors"
+          >
+            {pendingCount > 0 ? 'تسجيل حصص اليوم' : 'فتح الفصول'}
+            <ArrowLeft className="size-4" />
+          </Link>
+        )}
       </div>
 
       {missed.length > 0 && (
@@ -186,7 +245,7 @@ export default async function TeacherDashboard() {
             <div className="mt-4">
               <p className="text-sm font-bold text-amber-800 dark:text-amber-300">ينقص تقييمك لهذه الحصص</p>
               <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mb-2 leading-6">
-                الحضور مسجَّل من زميل، فلن تحتاج أن تتذكّره — يبقى عليك الواجب والأدوات والمشاركة والسلوك.
+                الحضور مسجَّل من زميل أو من الإدارة، فلن تحتاج أن تتذكّره — يبقى عليك الواجب والأدوات والمشاركة والسلوك.
               </p>
               <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 {missedAssessment.map((m) => (
@@ -213,36 +272,7 @@ export default async function TeacherDashboard() {
         </div>
       )}
 
-      {todayList.length > 0 && (
-        <div className="bg-card border border-border rounded-2xl p-5">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <h2 className="text-lg font-bold">سجل اليوم — {formatDateAr(todayStr)}</h2>
-            <span className="text-xs text-muted-foreground">{offLabel ?? `${todayList.filter((c) => c.done).length} من ${todayList.length} فصل`}</span>
-          </div>
-          <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {todayList.map((c) => (
-              <li key={c.id}>
-                <Link
-                  href={`/teacher/classes/${c.id}`}
-                  className={`flex items-center gap-3 rounded-xl border p-3 transition-colors ${
-                    c.done ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100' : c.off ? 'border-border bg-muted/40 hover:bg-muted' : 'border-amber-200 bg-amber-50 hover:bg-amber-100'
-                  }`}
-                >
-                  <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${c.done ? 'bg-emerald-100 text-emerald-700' : c.off ? 'bg-muted text-muted-foreground' : 'bg-amber-100 text-amber-700'}`}>
-                    {c.done ? <CalendarCheck className="size-4" /> : <CircleDashed className="size-4" />}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-bold truncate">{c.name}</span>
-                    <span className="block text-[11px] text-muted-foreground truncate">
-                      {c.subjects.length ? c.subjects.join('، ') : 'بلا مادة مسندة'} · {c.done ? 'سُجّل اليوم' : c.off ? closedDayPhrase(c.off) : 'لم يُسجَّل بعد'}
-                    </span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <MyWeek slots={slots} teacherUserId={teacher.userId} classNames={weekClassNames} today={todayStr} />
 
       {boardClasses.length > 0 && (
         <LeaderboardClient
@@ -254,28 +284,6 @@ export default async function TeacherDashboard() {
           defaultClassId={boardClasses[0].id}
         />
       )}
-
-      <div>
-        <h2 className="text-xl font-bold text-foreground mb-6">الفصول المتاحة</h2>
-        {gradesWithCounts.length === 0 ? (
-          <EmptyState title="لا توجد فصول" description="لا توجد فصول مسندة إليك بعد — تواصل مع الإدارة" icon={AlertCircle} />
-
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {gradesWithCounts.map((grade) => (
-              <div key={grade.id} className="bg-card border border-border p-6 rounded-2xl flex flex-col">
-                <h3 className="text-lg font-bold text-foreground">{grade.name}</h3>
-                <p className="text-muted-foreground mt-1 mb-6">{grade.classCount} فصول</p>
-                <div className="mt-auto">
-                  <Link href={`/teacher/classes?grade=${grade.id}`} className="block w-full text-center bg-primary/10 text-primary py-2 rounded-xl font-semibold hover:bg-primary/20 transition-colors">
-                    فتح الفصول
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   )
 }

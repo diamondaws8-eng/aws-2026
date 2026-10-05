@@ -6,7 +6,7 @@ import {
   schools, gradeLevels, classes, teachers, students, subjects, attendance,
   gradeEntries, notifications, dailyRecords, lessonRecords, studentPoints, user, schoolStaff, account,
   behaviorCases, schoolHolidays, schoolYears, parentWhatsappMessages, parentActivationLog, auditLog, userNotifications, session,
-  absenceExcuses, pushSubscriptions,
+  absenceExcuses, pushSubscriptions, timetableSlots,
 } from '@/lib/db/schema'
 import { eq, inArray, and, ne, gte, lt, sql, count as drizzleCount } from 'drizzle-orm'
 import { getAdminAccess } from '@/lib/admin-access'
@@ -191,6 +191,8 @@ export async function resetOperationalData(phrase: string, scope?: Partial<Reset
         await del('staff', tx.delete(schoolStaff).where(and(eq(schoolStaff.schoolId, schoolId), ne(schoolStaff.userId, access.userId))))
       }
       if (s.structure) {
+        // The timetable is made of classes and subjects; it goes with them.
+        await tx.delete(timetableSlots).where(eq(timetableSlots.schoolId, schoolId))
         await del('subjects', tx.delete(subjects).where(eq(subjects.schoolId, schoolId)))
         await del('classes', tx.delete(classes).where(eq(classes.schoolId, schoolId)))
         await del('gradeLevels', tx.delete(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)))
@@ -493,7 +495,7 @@ export async function exportFullBackup(schoolId: string) {
         // here for the record; restore rebuilds the academic tables only and
         // the settings screen says so.
         behaviorCaseRows, staffRows, holidayRows, yearRows, parentMessageRows, activationLogRows, auditRows,
-        excuseRows,
+        excuseRows, timetableRows,
       ] = await Promise.all([
         db.select().from(schools).where(eq(schools.id, schoolId)),
         db.select().from(gradeLevels).where(eq(gradeLevels.schoolId, schoolId)),
@@ -515,6 +517,7 @@ export async function exportFullBackup(schoolId: string) {
         db.select().from(parentActivationLog).where(eq(parentActivationLog.schoolId, schoolId)),
         db.select().from(auditLog).where(eq(auditLog.schoolId, schoolId)),
         db.select().from(absenceExcuses).where(eq(absenceExcuses.schoolId, schoolId)),
+        db.select().from(timetableSlots).where(eq(timetableSlots.schoolId, schoolId)),
       ])
 
       await logAudit(access, 'backup.export', access.school.name, { scope: 'full', students: studentRows.length })
@@ -535,6 +538,7 @@ export async function exportFullBackup(schoolId: string) {
             studentPoints: studentPointRows,
             behaviorCases: behaviorCaseRows, schoolStaff: staffRows,
             schoolHolidays: holidayRows, schoolYears: yearRows, absenceExcuses: excuseRows,
+            timetableSlots: timetableRows,
             parentWhatsappMessages: parentMessageRows, parentActivationLog: activationLogRows,
             auditLog: auditRows,
           },
@@ -851,6 +855,31 @@ export async function restoreFullBackup(schoolId: string, backup: any) {
         }
         counts.studentPoints = manualOnly.length
         counts.studentPointsSkipped = d.studentPoints.length - manualOnly.length
+      }
+      // The timetable names classes and subjects by id, and both were just
+      // replaced by the file's. A file that carries a timetable brings its own
+      // back; one taken before timetables existed leaves the live one — less
+      // any lesson whose class or subject the file did not restore.
+      {
+        const fileSubjects = new Set((Array.isArray(d.subjects) ? d.subjects : []).map((r: any) => r.id))
+        const fileClasses = new Set((Array.isArray(d.classes) ? d.classes : []).map((r: any) => r.id))
+        const stands = (r: { classId: string; subjectId: string }) => fileClasses.has(r.classId) && fileSubjects.has(r.subjectId)
+        if (Array.isArray(d.timetableSlots)) {
+          await tx.delete(timetableSlots).where(eq(timetableSlots.schoolId, schoolId))
+          const kept = d.timetableSlots.filter(stands)
+          if (kept.length) {
+            await insertInChunks(tx, timetableSlots, kept.map((r: any) => ({ ...r, schoolId, createdAt: toDate(r.createdAt) })))
+          }
+        } else {
+          const live = await tx
+            .select({ id: timetableSlots.id, classId: timetableSlots.classId, subjectId: timetableSlots.subjectId })
+            .from(timetableSlots)
+            .where(eq(timetableSlots.schoolId, schoolId))
+          const gone = live.filter((r) => !stands(r)).map((r) => r.id)
+          for (let i = 0; i < gone.length; i += 500) {
+            await tx.delete(timetableSlots).where(inArray(timetableSlots.id, gone.slice(i, i + 500)))
+          }
+        }
       }
       // A file from before excuses existed simply has none to bring back.
       if (Array.isArray(d.absenceExcuses) && d.absenceExcuses.length) {
