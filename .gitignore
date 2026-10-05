@@ -26,3 +26,7 @@ cleanup-duplicates.mjs
 verify-login-set.mjs
 verify-login-restore.mjs
 verify-saved-hashes.json
+
+# The package built for cPanel: it carries the secrets, never commit
+dist-cpanel/
+*.zip

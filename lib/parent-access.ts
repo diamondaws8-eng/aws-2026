@@ -150,11 +150,11 @@ const identityTriesKey = (parentUserId: string) => `parent-identity:${parentUser
  * the count (clearIdentityTries). An attempt past a limit is not kept — it
  * was never compared, and keeping it would only lengthen the wait.
  */
-export async function identityTryAllowed(parentUserId: string, source: string): Promise<boolean> {
+export async function identityTryAllowed(parentUserId: string, source: string | null): Promise<boolean> {
   const now = new Date()
   const key = identityTriesKey(parentUserId)
   const id = crypto.randomUUID()
-  const from = (source || 'unknown').slice(0, 64)
+  const from = (source ?? 'unknown').slice(0, 64)
   await db.delete(verification).where(and(eq(verification.identifier, key), lt(verification.expiresAt, now)))
   await db.insert(verification).values({
     id,
@@ -169,7 +169,11 @@ export async function identityTryAllowed(parentUserId: string, source: string): 
     .from(verification)
     .where(and(eq(verification.identifier, key), gt(verification.expiresAt, now)))
   const mine = rows.filter((r) => r.value === from).length
-  const allowed = mine <= IDENTITY_TRIES_PER_SOURCE && rows.length <= IDENTITY_TRIES_PER_ACCOUNT
+  // Where the host cannot vouch for who is asking (source is null), every
+  // attempt would count as one source's — the family's five and a stranger's
+  // alike, which is the lock-out the two limits exist to prevent. There only
+  // the account's own ceiling is kept.
+  const allowed = (source === null || mine <= IDENTITY_TRIES_PER_SOURCE) && rows.length <= IDENTITY_TRIES_PER_ACCOUNT
   if (!allowed) await db.delete(verification).where(eq(verification.id, id))
   return allowed
 }

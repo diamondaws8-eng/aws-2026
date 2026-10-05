@@ -51,7 +51,9 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
-          {process.env.NODE_ENV === 'production' && <Analytics />}
+          {/* Vercel's own visitor counter: it loads a script only Vercel
+              serves, so anywhere else it is a 404 on every page. */}
+          {process.env.VERCEL === '1' && <Analytics />}
         </ThemeProvider>
       </body>
     </html>

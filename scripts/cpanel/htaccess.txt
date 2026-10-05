@@ -1,0 +1,15 @@
+# Nothing in this folder is ever served as a file: it holds the site's secret
+# settings and the server's own code. Visitors reach the site through the
+# Node.js application only. (This file does nothing while the folder is
+# outside public_html, where it belongs; it is here for the day it is not.)
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^ - [F,L]
+</IfModule>
+<IfModule mod_authz_core.c>
+Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+Order allow,deny
+Deny from all
+</IfModule>

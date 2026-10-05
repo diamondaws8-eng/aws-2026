@@ -9,6 +9,7 @@ import {
   identityTryAllowed, clearIdentityTries,
 } from '@/lib/parent-access'
 import { headers } from 'next/headers'
+import { visitorAddress } from '@/lib/visitor-address'
 import { asciiDigits, isUuid } from '@/lib/utils'
 import { after } from 'next/server'
 import { getStudentPointsTotal, getManualPoints, deriveLessonEntries, yearStartForStudent, maxPossiblePoints } from '@/lib/points'
@@ -58,8 +59,7 @@ export async function setOwnParentPassword(newPassword: string, confirmPassword:
     if (!given) return { ok: false as const, error: 'اكتب رقم هوية أحد أبنائك كما هو مسجَّل لدى المدرسة' }
     // Where the request came from, as the host reports it — so a stranger's
     // bad guesses use up his own tries and not the family's.
-    const h = await headers()
-    const source = h.get('x-vercel-forwarded-for') || h.get('x-real-ip') || h.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+    const source = visitorAddress(await headers())
     if (!(await identityTryAllowed(me.id, source))) {
       return { ok: false as const, error: 'محاولات كثيرة برقم هوية غير صحيح — حاول بعد ساعة، أو تواصل مع إدارة المدرسة' }
     }
